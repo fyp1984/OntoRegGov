@@ -1,7 +1,10 @@
-"""WeKnora 向量检索适配器（P0-4）。
+"""WeKnora 知识库适配器（P0-4 向量检索 + v1.16.0 Wiki 页面读取）。
 
 大白话：直接连 WeKnora 的 Postgres，用 pgvector 做余弦相似度检索，
 绕过 WeKnora API 端点不明确的问题。8420 与 WeKnora 已在同一 docker 网络。
+
+v1.16.0 扩展（PRD M1/M6）：新增 Wiki 页面读取（knowledges + chunks）与
+"检查项实时覆盖"查询，供 kb_source 取数适配器作为"实时源"调用。
 """
 from __future__ import annotations
 
@@ -101,18 +104,126 @@ def search(q: str, limit: int = 8) -> list[dict]:
         conn.close()
 
 
-def health() -> dict:
-    """WeKnora 向量检索健康检查。"""
+def _conn():
+    """建立 WeKnora Postgres 只读连接（失败抛给调用方）。"""
+    import psycopg2
+    return psycopg2.connect(
+        host=_WK_PG_HOST, port=_WK_PG_PORT,
+        user=_WK_PG_USER, password=_WK_PG_PASSWORD, dbname=_WK_PG_DB,
+        connect_timeout=3,
+    )
+
+
+def _q(sql: str, args: tuple = ()) -> list[dict]:
+    """只读查询：RealDictCursor → list[dict]。异常向上抛，由调用方降级。"""
+    conn = _conn()
     try:
-        import psycopg2
-        conn = psycopg2.connect(
-            host=_WK_PG_HOST, port=_WK_PG_PORT,
-            user=_WK_PG_USER, password=_WK_PG_PASSWORD, dbname=_WK_PG_DB,
-        )
-        with conn.cursor() as cur:
-            cur.execute("SELECT COUNT(*) FROM embeddings WHERE knowledge_base_id = %s", (_KB_ID,))
-            cnt = cur.fetchone()[0]
+        import psycopg2.extras
+        conn.set_session(readonly=True, autocommit=True)
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(sql, args)
+            return [dict(r) for r in cur.fetchall()]
+    finally:
         conn.close()
-        return {"ok": True, "embedding_count": cnt}
+
+
+def health() -> dict:
+    """WeKnora 向量检索健康检查（含知识条目数）。"""
+    try:
+        conn = _conn()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SELECT COUNT(*) FROM embeddings WHERE knowledge_base_id = %s", (_KB_ID,))
+                emb = cur.fetchone()[0]
+                cur.execute(
+                    "SELECT COUNT(*) FROM knowledges WHERE knowledge_base_id = %s AND deleted_at IS NULL",
+                    (_KB_ID,))
+                pages = cur.fetchone()[0]
+        finally:
+            conn.close()
+        return {"ok": True, "embedding_count": emb, "knowledge_count": pages}
     except Exception as e:
         return {"ok": False, "error": str(e)}
+
+
+# ===========================================================================
+# v1.16.0 Wiki 页面读取（PRD M1.1 / M6）
+# 大白话：知识库平台把每条知识存成"页面"（knowledges），正文切成"段落"（chunks）。
+# 这里按页面 id/标题读回整页正文，并把页面按 [type] 前缀聚成 Wiki 目录树。
+# 全部只读，任何异常返回空，由 kb_source 决定降级。
+# ===========================================================================
+
+_PAGE_COLS = "id::text AS id, title, type, parse_status, enable_status, folder_path, updated_at"
+
+
+def wiki_list(limit: int = 500) -> list[dict]:
+    """列出知识库页面（Wiki 目录）。按标题排序，返回精简页面清单。"""
+    rows = _q(
+        f"""SELECT {_PAGE_COLS} FROM knowledges
+            WHERE knowledge_base_id = %s AND deleted_at IS NULL AND enable_status = 'enabled'
+            ORDER BY title LIMIT %s""",
+        (_KB_ID, int(limit)),
+    )
+    out = []
+    for r in rows:
+        title = r.get("title") or ""
+        # 标题形如 "[law] 互联网信息服务算法推荐管理规定" → 拆出 type 前缀
+        ptype = r.get("type") or ""
+        name = title
+        if title.startswith("[") and "]" in title:
+            head, _, tail = title[1:].partition("]")
+            ptype = ptype or head.strip()
+            name = tail.strip() or title
+        out.append({
+            "pageId": r["id"], "title": title, "name": name, "type": ptype,
+            "folder": r.get("folder_path") or "",
+            "parseStatus": r.get("parse_status") or "",
+            "updatedAt": str(r.get("updated_at") or ""),
+        })
+    return out
+
+
+def wiki_get(page_id: str) -> dict | None:
+    """按页面 id 或精确标题读取整页正文（正文 = 各 chunk 按序拼接）。"""
+    page_id = (page_id or "").strip()
+    if not page_id:
+        return None
+    rows = _q(
+        f"""SELECT {_PAGE_COLS} FROM knowledges
+            WHERE knowledge_base_id = %s AND deleted_at IS NULL
+              AND (id::text = %s OR title = %s)
+            LIMIT 1""",
+        (_KB_ID, page_id, page_id),
+    )
+    if not rows:
+        return None
+    r = rows[0]
+    chunks = _q(
+        """SELECT content FROM chunks
+           WHERE knowledge_id = %s AND is_enabled = true AND deleted_at IS NULL
+           ORDER BY chunk_index""",
+        (r["id"],),
+    )
+    content = "\n\n".join((c.get("content") or "").strip() for c in chunks if c.get("content"))
+    return {
+        "pageId": r["id"], "title": r.get("title") or "",
+        "type": r.get("type") or "", "folder": r.get("folder_path") or "",
+        "content": content, "chunkCount": len(chunks),
+        "updatedAt": str(r.get("updated_at") or ""),
+    }
+
+
+def wiki_find(query: str, limit: int = 5) -> list[dict]:
+    """按标题子串查找页面（用于实时覆盖：给定检查项关键词找对应知识页）。"""
+    q = (query or "").strip()
+    if not q:
+        return []
+    rows = _q(
+        f"""SELECT {_PAGE_COLS} FROM knowledges
+            WHERE knowledge_base_id = %s AND deleted_at IS NULL
+              AND title ILIKE %s
+            ORDER BY title LIMIT %s""",
+        (_KB_ID, f"%{q}%", int(limit)),
+    )
+    return [{"pageId": r["id"], "title": r.get("title") or "",
+             "type": r.get("type") or ""} for r in rows]

@@ -2,7 +2,7 @@
 from __future__ import annotations
 import json, uuid, datetime
 from ..db import db
-from . import review, audit, gate
+from . import review, audit, gate, run_db
 
 
 def create(reason: str, target_kind: str, raised_from: str, payload: dict, actor: str = "system") -> dict:
@@ -13,6 +13,9 @@ def create(reason: str, target_kind: str, raised_from: str, payload: dict, actor
             "INSERT INTO proposals(id,reason,status,targetKind,raisedFrom,payloadJSON,createdAt) VALUES(?,?,?,?,?,?,?)",
             (pid, reason, "open", target_kind, raised_from, json.dumps(payload, ensure_ascii=False), ts))
     audit.log(actor, "proposal.create", pid, {"reason": reason})
+    run_db.mirror_proposal({"proposal_id": pid, "reason": reason, "target_kind": target_kind,
+                            "raised_from": raised_from, "status": "open", "payload": payload,
+                            "reviewer": None, "decided_at": "", "created_at": ts})
     return {"id": pid, "status": "open"}
 
 
@@ -37,9 +40,19 @@ def decide(prop_id: str, actor: str, decision: str, note: str = "") -> dict:
             conn.execute("UPDATE proposals SET status='accepted',reviewer=?,decidedAt=? WHERE id=?",
                          (actor, ts, prop_id))
             payload = json.loads(p["payloadJSON"] or "{}")
+            run_db.mirror_proposal({"proposal_id": prop_id, "reason": p["reason"],
+                                    "target_kind": p["targetKind"], "raised_from": p["raisedFrom"],
+                                    "status": "accepted", "payload": payload,
+                                    "reviewer": actor, "decided_at": ts,
+                                    "created_at": p["createdAt"] or ""})
         else:
             conn.execute("UPDATE proposals SET status=?,reviewer=?,decidedAt=? WHERE id=?",
                          (decision, actor, ts, prop_id))
+            run_db.mirror_proposal({"proposal_id": prop_id, "reason": p["reason"],
+                                    "target_kind": p["targetKind"], "raised_from": p["raisedFrom"],
+                                    "status": decision, "payload": p["payloadJSON"] or "{}",
+                                    "reviewer": actor, "decided_at": ts,
+                                    "created_at": p["createdAt"] or ""})
             audit.log(actor, f"proposal.{decision}", prop_id)
             return {"ok": True, "status": decision}
     # 块外创建实体，避免嵌套写连接

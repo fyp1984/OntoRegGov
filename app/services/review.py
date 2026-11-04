@@ -3,7 +3,7 @@ from __future__ import annotations
 import json, uuid, datetime
 from ..db import db
 from ..ontology import shacl_validator
-from . import gate, versioning, audit, provenance
+from . import gate, versioning, audit, provenance, run_db
 
 
 def create_entity(etype: str, eid: str, data: dict, relations: list,
@@ -23,6 +23,9 @@ def create_entity(etype: str, eid: str, data: dict, relations: list,
             if False else
             (tid, "entity", eid, "pending_review", "", None, actor, ts))
     audit.log(actor, "entity.create_candidate", eid, {"type": etype, "source": source})
+    run_db.mirror_review_task({"task_id": tid, "target_type": "entity", "target_id": eid,
+                               "status": "pending_review", "reviewer": None, "note": "",
+                               "created_by": actor, "created_at": ts, "decided_at": ""})
     return {"id": eid, "status": "candidate", "reviewTaskId": tid}
 
 
@@ -137,6 +140,20 @@ def decide(task_id: str, actor: str, action: str, note: str = "", edits: dict | 
     # audit 在事务块外写，避免嵌套写连接
     if audit_action:
         audit.log(actor, audit_action, target_id, audit_params)
+    # 影子镜像审核任务终态（best-effort，PG 运行库；失败不影响主流程）
+    try:
+        with db() as conn:
+            tr = conn.execute("SELECT * FROM review_tasks WHERE id=?", (task_id,)).fetchone()
+        if tr:
+            td = dict(tr)
+            run_db.mirror_review_task({"task_id": td["id"], "target_type": td.get("targetType"),
+                                       "target_id": td.get("targetId"), "status": td.get("status"),
+                                       "reviewer": td.get("reviewer"), "note": td.get("note"),
+                                       "created_by": td.get("createdBy"),
+                                       "created_at": td.get("createdAt") or "",
+                                       "decided_at": td.get("decidedAt") or ""})
+    except Exception:  # noqa: BLE001
+        pass
     if shacl_block:
         raise gate.GateError("SHACL 校验未通过，拒绝发布", {"messages": shacl_block})
     if action == "rejected":

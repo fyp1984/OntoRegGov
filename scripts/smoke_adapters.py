@@ -4,7 +4,7 @@
     ./.venv/bin/python scripts/smoke_adapters.py
 覆盖：
   1) registry 装配：按 config.ADAPTERS 装配，list 全部适配器 + health 全量报告；
-  2) RetrieverAdapter 切换：memory ↔ oxigraph 同查询结果一致性（Control=91 / InspectionCheck=116）；
+  2) RetrieverAdapter 切换：memory ↔ oxigraph 同查询结果一致性（Control=115 / InspectionCheck=344）；
   3) LLMAdapter：无 key 走 rule 降级(degraded=true)；模拟有 key 时 health/capabilities 翻转；
   4) PolicyAdapter / MaskerAdapter：占位返回符合契约。
 """
@@ -58,9 +58,9 @@ def main():
         }
         print(f"  [{label:9s}] control={rows[label]['control']}  inspectionCheck={rows[label]['inspectionCheck']}")
     assert rows["memory"] == rows["oxigraph"], "memory 与 oxigraph 结果不一致！"
-    assert rows["memory"]["control"] == 91, rows["memory"]
-    assert rows["memory"]["inspectionCheck"] == 116, rows["memory"]
-    print("  ✅ 两后端结果一致（control=91, inspectionCheck=116）")
+    assert rows["memory"]["control"] == 115, rows["memory"]
+    assert rows["memory"]["inspectionCheck"] == 344, rows["memory"]
+    print("  ✅ 两后端结果一致（control=115, inspectionCheck=344）")
 
     # 配置激活的 retriever（默认 memory）
     act = get_retriever()

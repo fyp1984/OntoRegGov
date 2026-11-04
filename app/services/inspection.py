@@ -6,6 +6,7 @@ import json, re, uuid, datetime
 from ..db import db
 from . import proposal as proposal_svc
 from . import audit, versioning
+from . import run_db
 
 
 def _now():
@@ -214,6 +215,10 @@ def create_run(inspected_target: str, inspector: str, actor: str = "reviewer",
         _pub(conn, run_id, "InspectionRun", data)
     audit.log(actor, "inspection.run.create", run_id,
               {"target": inspected_target, "plan": plan_id, "assignees": assignees})
+    run_db.mirror_run({"run_id": run_id, "plan_id": plan_id,
+                       "inspected_target": inspected_target, "inspector": inspector,
+                       "assignees": assignees or [], "ran_at": data.get("ranAt"),
+                       "data": data, "updated_at": data.get("ranAt") or ""})
     return {"runId": run_id, "inspectedTarget": inspected_target, "inspector": inspector,
             "planId": plan_id, "assignees": assignees or []}
 
@@ -313,6 +318,9 @@ def record_result(run_id: str, check_code: str,
                      "need": gap_target_kind}, actor=actor)["id"]
     audit.log(actor, "inspection.result", result_id,
               {"check": check_code, "result": overall, "proposal": proposal_id})
+    run_db.mirror_result({"result_id": result_id, "run_id": run_id, "check_code": check_code,
+                          "elements_json": elem_verdicts, "metrics_json": metric_results,
+                          "result": overall, "why_json": why, "created_at": _now()})
     return {"resultId": result_id, "checkCode": check_code, "result": overall,
             "why": why, "proposalId": proposal_id}
 

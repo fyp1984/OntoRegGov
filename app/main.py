@@ -13,14 +13,14 @@ from .services import (review, proposal, assessment, provenance, audit,
                        inspection, ledger)
 from .models import (EntityCreate, EntityUpdate, ExtractReq, ReviewDecision,
                      AssessmentReq, ProposalCreate, ProposalDecision)
-from .services import canonical_kb  # v1.6.0 接入层：canonical RDF 读源
 from .services import kb_read        # v1.8.0 三态读源路由：db→canonical→SQLite 回落链
+from .services import kb_source      # v1.16.0 取数适配器：实时知识库优先 + 多源降级 + 30s 缓存
+from .services import run_db         # v1.16.0 运行态统一库：影子镜像 + 启动回填
 from .services import ingest_review   # v1.10.0 知识入库候选审核：staging/decisions.json
 from .services import p1_sixdim       # P1 六维审核链路：generate→queue→approve→merge
 from .services import p1_lawqa        # P1 法规原文带引用问答（TEI+pgvector）
 from . import settings_store          # v1.12.0 平台设置（LLM 配置 UI 持久化）
 from .services.extractor_llm import test_connection as settings_test_llm  # noqa: E402
-from .config import KB_READ_FROM
 from . import config as _cfg         # v1.8.0 网关开关 / DB_READ_FROM 调用时读取
 from .scenarios import loader as scenario_loader  # 任务线3：配置驱动可插拔场景组件层
 
@@ -34,6 +34,12 @@ KB_SITE = Path(_os.environ.get("KB10_SITE", "/app/kb_site"))
 @app.on_event("startup")
 def _startup():
     init_db()
+    # v1.16.0 运行态库就绪：幂等建表 + 历史回填（静默 best-effort，绝不阻塞启动）
+    try:
+        if run_db.ensure_schema():
+            run_db.backfill_from_sqlite()
+    except Exception:  # noqa: BLE001
+        pass
     # EKOS 底座连通性自检（启动时静默执行，不阻塞启动；结果可通过 /api/health 查看）
     _ekos_health = {"neo4j": None, "weknora_api": None, "checkedAt": None}
     try:
@@ -103,7 +109,7 @@ async def gateway_guard(request: Request, call_next):
 # ---------------- 基础 ----------------
 @app.get("/api/health")
 def health():
-    h = {"status": "ok", "service": "dsec-mvp", "version": "1.15.2",
+    h = {"status": "ok", "service": "dsec-mvp", "version": "1.16.0",
          "baseSnapshot": graph_store.BASE_SNAPSHOT_TTL.exists()}
     if hasattr(app.state, "ekos_health"):
         h["ekos"] = app.state.ekos_health
@@ -544,62 +550,16 @@ def list_checks(domain: str = "", priority: str = "", chapter: str = "", keyword
 
 @app.get("/api/checks/{check_code}")
 def get_check(check_code: str):
-    # 检查详情六维（elements/methodSteps/metrics/interviews/verdict/findings/related/
-    # suggestedControls）唯一来源=已发布运行台账 SQLite；canonical/db 投影仅含标量字段与
-    # 精简元素（无六维、元素无 code/focusLevels）。故纪律：SQLite 命中即返回完整六维；
-    # 仅当 SQLite 未命中（如 93号文 93-x.y 等仅存本体的检查）才回落图/库轨道兜底。
-    # v1.15.1 修复：此前 db/canonical 先短路返回精简形状，导致检查详情页 undefined/空白。
-    with db() as conn:
-        r = conn.execute("SELECT * FROM entities WHERE type='InspectionCheck' AND status='published' "
-                         "AND dataJSON LIKE ?", (f'%"checkCode": "{check_code}"%',)).fetchone()
-    if not r:
-        ck = None
-        if _cfg.DB_READ_FROM in ("db", "canonical"):
-            ck = kb_read.get_check(check_code)          # db（健康时）→ canonical
-        elif _cfg.DB_READ_FROM == "json" and KB_READ_FROM == "canonical":
-            ck = canonical_kb.get_check(check_code)     # v1.6.0 回退语义原样保留
-        if ck:
-            return ck
-        return _err("not_found", "检查项不存在", 404)
-    with db() as conn:
-        d = json.loads(r["dataJSON"])
-        rels = json.loads(r["relationsJSON"])
-
-        def load_ent(eid):
-            er = conn.execute("SELECT dataJSON,type FROM entities WHERE id=?", (eid,)).fetchone()
-            return json.loads(er["dataJSON"]) if er else None
-
-        # 六维详情
-        elements = [load_ent(o["o"].split(":", 1)[1]) for o in rels if o["p"] == "hasElement"]
-        steps = [load_ent(o["o"].split(":", 1)[1]) for o in rels if o["p"] == "hasMethodStep"]
-        metrics = [load_ent(o["o"].split(":", 1)[1]) for o in rels if o["p"] == "measuredBy"]
-        interviews = [load_ent(o["o"].split(":", 1)[1]) for o in rels if o["p"] == "hasInterview"]
-        findings = [load_ent(o["o"].split(":", 1)[1]) for o in rels if o["p"] == "hasFindingPattern"]
-        vr = [load_ent(o["o"].split(":", 1)[1]) for o in rels if o["p"] == "verdictRule"]
-        related = [{"ref": o["o"], "relType": "edge"} for o in rels if o["p"] == "relatedCheck"]
-        clauses = [o["o"] for o in rels if o["p"] == "citesClause"]
-        # v1.1.2/v1.2.0：建议控制措施（v1.2.0 起 aligned 携带权威 CT 码）
-        sc = []
-        for o in rels:
-            if o["p"] == "suggestsControl":
-                p = load_ent(o["o"].split(":", 1)[1])
-                if p:
-                    sc.append({"hint": p.get("controlCodeHint"), "name": p.get("controlName"),
-                               "layer": p.get("suggestedLayer"), "type": p.get("controlTypeHint"),
-                               "status": p.get("alignmentStatus"),
-                               "ctCode": p.get("ctCode"), "ctLayer": p.get("ctLayer"),
-                               "baseControlTitle": p.get("baseControlTitle")})
-        return {
-            "id": r["id"], "checkCode": d.get("checkCode"), "title": d.get("title"),
-            "domain": d.get("domain"), "priority": d.get("priority"),
-            "regulation": d.get("regulation"), "articleNo": d.get("articleNo"),
-            "articleText": d.get("articleText"), "tip": d.get("tip"),
-            "citesClause": clauses,
-            "elements": elements, "methodSteps": steps, "metrics": metrics,
-            "interviews": interviews, "verdict": vr[0] if vr else {},
-            "findings": findings, "related": related, "relatedRaw": d.get("relatedRaw", ""),
-            "suggestedControls": sc,
-        }
+    # v1.16.0（QA4·P0）：委托统一取数适配器 kb_source.fetch_check —— 内部按
+    # "结构化底座（db 规范化子表 + check_six_dim 兜底）→ 运行台账补齐 → 知识库实时覆盖"
+    # 合并六维，修复 jf8/jg93/pboc3 此前六维 0% 空白（这些文号只落权威表 check_six_dim；
+    # 旧实现仅读运行台账 SQLite，故详情页大面积 undefined/空白）。
+    # 适配器内部任何来源不可达都只降级不抛错，故本端点永不 5xx（QA2）。
+    env = kb_source.fetch_check(check_code)
+    content = (env or {}).get("content")
+    if content:
+        return content
+    return _err("not_found", "检查项不存在", 404)
 
 
 @app.get("/api/controls/gaps")
@@ -806,6 +766,52 @@ def scenario_function(sid: str, fid: str, body: dict = None):
     except scenario_loader.RegistryError as e:
         status = 404 if e.code in ("component_not_found", "function_not_found") else 400
         return _err(e.code, e.message, status, e.details)
+
+
+# ---------------- 统一知识取数接口（v1.16.0：kb_source 适配器，实时知识库优先 + 多源降级）----------------
+# 与 /api/checks 等既有路由并存；本组为"契约化实时接口"，统一返回信封
+# {content, source, fetchedAt, version?}，供前端实时取数与 MCP 工具复用。
+@app.get("/api/kb/sources")
+def kb_sources():
+    """各来源（知识库平台/正本图/结构化投影/运行台账）可达性总览（统一信封）。"""
+    return kb_source.sources_env()
+
+
+@app.get("/api/kb/checks")
+def kb_checks(doc: str = "", domain: str = "", priority: str = "", keyword: str = ""):
+    return kb_source.fetch_checks(doc, domain, priority, keyword)
+
+
+@app.get("/api/kb/checks/{check_code}")
+def kb_check(check_code: str):
+    env = kb_source.fetch_check(check_code)
+    if not env or env.get("content") is None:
+        return _err("not_found", "检查项不存在", 404)
+    return env
+
+
+@app.get("/api/kb/wiki")
+def kb_wiki_index(limit: int = 500):
+    return kb_source.fetch_wiki_index(limit)
+
+
+@app.get("/api/kb/wiki/{page_id}")
+def kb_wiki_page(page_id: str):
+    env = kb_source.fetch_wiki(page_id)
+    if not env or env.get("content") is None:
+        return _err("not_found", "知识页面不存在", 404)
+    return env
+
+
+@app.get("/api/kb/search")
+def kb_search(q: str = "", limit: int = 20):
+    return kb_source.fetch_search(q, limit)
+
+
+@app.post("/api/kb/cache/invalidate")
+def kb_cache_invalidate(prefix: str = ""):
+    """主动失效缓存（知识入库后调用，使前端下一次取数即拿最新）。"""
+    return kb_source.invalidate_env(prefix)
 
 
 # ---------------- P4-4：挂载 8430 知识库静态站到 /kb/ ----------------

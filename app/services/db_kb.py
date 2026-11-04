@@ -245,6 +245,212 @@ def get_check(check_code: str) -> dict | None:
         return None
 
 
+def get_check_full(check_code: str) -> dict | None:
+    """inspection_check JOIN 六维子表，输出与运行台账 /api/checks/{code} 同形的完整六维。
+
+    与 get_check() 的区别：get_check() 只给"列表/摘要级"精简形状（elements 仅 code+text），
+    本函数给"详情级"完整六维（elements 含 criteria/focusLevels；methodSteps/metrics/
+    interviews/verdict/findings/related 齐备），供 kb_source 做结构化底座。
+
+    设计纪律（对齐 kb_source 合并逻辑）：
+      - 任一子表缺失/异常 → 该维给空，不抛错（上层用运行台账补齐）；
+      - verdict 的 pass/partial/fail 在库里是 jsonb 数组，此处 json.dumps 成字符串，
+        与前端 JSON.parse(verdict.verdictXxx) 契约严格一致；
+      - suggestedControls/tip/relatedRaw 本投影未承载 → 留空，由运行台账 merge 补齐。
+    """
+    try:
+        rows = _q("""
+            SELECT c.check_code, c.entity_uri, e.slug,
+                   COALESCE(NULLIF(e.title, ''), NULLIF(c.title, '')) AS title,
+                   c.domain, c.domain_label, c.priority, c.regulation,
+                   c.article_no, c.article_text
+            FROM inspection_check c
+            JOIN kb_entity e ON e.uri = c.entity_uri
+            WHERE c.check_code = %s LIMIT 1
+        """, (check_code,))
+        if not rows:
+            return None
+        r = rows[0]
+        if not (r["title"] or r["article_text"]):
+            return None  # 投影未覆盖该检查 → 回落 canonical
+
+        elements, steps, metrics, interviews, findings = [], [], [], [], []
+        verdict: dict = {}
+        related: list = []
+        clauses: list = []
+
+        try:
+            for e in _q("""SELECT element_code, text, criteria, focus_levels
+                           FROM check_element WHERE check_code = %s ORDER BY element_code""",
+                        (check_code,)):
+                fl = e["focus_levels"]
+                if isinstance(fl, (list, tuple)):
+                    fl = ",".join(sorted(str(x) for x in fl))
+                elements.append({"code": e["element_code"] or "", "text": e["text"] or "",
+                                 "criteria": e["criteria"] or "", "focusLevels": fl or ""})
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            for s in _q("""SELECT step_id, step_kind, seq, step_no, action, focus
+                           FROM check_method_step WHERE check_code = %s ORDER BY seq""",
+                        (check_code,)):
+                steps.append({"code": s["step_id"] or "", "stepKind": s["step_kind"] or "",
+                              "stepNo": s["step_no"] or "", "action": s["action"] or "",
+                              "focus": s["focus"] or ""})
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            for m in _q("""SELECT metric_id, seq, name, data_source, threshold
+                           FROM check_metric WHERE check_code = %s ORDER BY seq""",
+                        (check_code,)):
+                metrics.append({"code": m["metric_id"] or "", "name": m["name"] or "",
+                                "dataSource": m["data_source"] or "",
+                                "threshold": m["threshold"] or ""})
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            for iv in _q("""SELECT interview_id, seq, target, question, cross_check
+                            FROM check_interview WHERE check_code = %s ORDER BY seq""",
+                         (check_code,)):
+                interviews.append({"code": iv["interview_id"] or "", "target": iv["target"] or "",
+                                   "question": iv["question"] or "",
+                                   "crossCheck": iv["cross_check"] or ""})
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            for f in _q("""SELECT finding_id, seq, rank, problem, root_cause, remediation
+                           FROM check_finding_pattern WHERE check_code = %s ORDER BY seq""",
+                        (check_code,)):
+                findings.append({"code": f["finding_id"] or "", "rank": f["rank"] or "",
+                                 "problem": f["problem"] or "",
+                                 "rootCause": f["root_cause"] or "",
+                                 "remediation": f["remediation"] or ""})
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            vr = _q("""SELECT verdict_pass, verdict_partial, verdict_fail
+                       FROM check_verdict_rule WHERE check_code = %s LIMIT 1""", (check_code,))
+            if vr:
+                v = vr[0]
+
+                def _vd(x) -> str:
+                    if x is None:
+                        return "[]"
+                    return x if isinstance(x, str) else _json.dumps(x, ensure_ascii=False)
+
+                verdict = {"code": f"vr-{check_code}", "verdictPass": _vd(v["verdict_pass"]),
+                           "verdictPartial": _vd(v["verdict_partial"]),
+                           "verdictFail": _vd(v["verdict_fail"])}
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            crow = _q("""SELECT e2.slug FROM kb_relation rel
+                         JOIN kb_entity e2 ON e2.uri = rel.object_uri
+                         WHERE rel.predicate = 'citesClause' AND rel.subject_uri = %s""",
+                      (r["entity_uri"],))
+            clauses = [c["slug"] for c in crow]
+        except Exception:  # noqa: BLE001
+            pass
+
+        # ---- check_six_dim 兜底（权威六维表）----------------------------------
+        # jf8/jg93/pboc3 的六维只落在 check_six_dim（规范化子表未承接），缺了这层
+        # 详情页会大面积空白（QA4·P0）。此处仅在对应维为空时按维度补齐，已读出
+        # 的规范化数据（jg24 等）不受影响，形状与运行台账 /api/checks/{code} 严格一致。
+        sixdim: dict[str, list] = {}
+        try:
+            for sd in _q("""SELECT dimension, seq, title, payload FROM check_six_dim
+                            WHERE check_code = %s ORDER BY dimension, seq""", (check_code,)):
+                sixdim.setdefault(sd["dimension"], []).append(sd)
+        except Exception:  # noqa: BLE001
+            pass
+
+        def _pl(row) -> dict:
+            p = row["payload"]
+            if isinstance(p, dict):
+                return p
+            if isinstance(p, str) and p:
+                try:
+                    return _json.loads(p)
+                except Exception:  # noqa: BLE001
+                    return {}
+            return {}
+
+        if not elements:
+            for sd in sixdim.get("checklist", []):
+                p = _pl(sd)
+                elements.append({"code": f"el-{sd['seq']}", "text": p.get("text") or sd["title"] or "",
+                                 "criteria": "", "focusLevels": ""})
+
+        fill_steps, fill_metrics, fill_interviews = not steps, not metrics, not interviews
+        if fill_steps or fill_metrics or fill_interviews:
+            for sd in sixdim.get("method", []):
+                p = _pl(sd)
+                if fill_steps:
+                    for i, ps in enumerate(p.get("policy_steps") or []):
+                        if isinstance(ps, dict):
+                            steps.append({"code": f"ms-{sd['seq']}-{i}", "stepKind": "policy",
+                                          "stepNo": str(ps.get("step", "")), "action": ps.get("action") or "",
+                                          "focus": ps.get("focus") or ""})
+                    for i, es in enumerate(p.get("evidence_steps") or []):
+                        if isinstance(es, dict):
+                            steps.append({"code": f"me-{sd['seq']}-{i}", "stepKind": "evidence",
+                                          "stepNo": str(es.get("step", "")),
+                                          "action": es.get("evidence_required") or "",
+                                          "focus": es.get("criteria") or ""})
+                if fill_metrics:
+                    for i, mt in enumerate(p.get("metrics") or []):
+                        if isinstance(mt, dict):
+                            metrics.append({"code": f"mt-{sd['seq']}-{i}", "name": mt.get("name") or "",
+                                            "dataSource": mt.get("data_source") or "",
+                                            "threshold": mt.get("threshold") or ""})
+                if fill_interviews:
+                    for i, iv in enumerate(p.get("interviews") or []):
+                        if isinstance(iv, dict):
+                            interviews.append({"code": f"iv-{sd['seq']}-{i}", "target": iv.get("target") or "",
+                                               "question": iv.get("question") or "",
+                                               "crossCheck": iv.get("cross_check") or ""})
+
+        if not verdict:
+            for sd in sixdim.get("verdict", []):
+                p = _pl(sd)
+
+                def _jd(x) -> str:
+                    if x is None:
+                        return "[]"
+                    return x if isinstance(x, str) else _json.dumps(x, ensure_ascii=False)
+
+                verdict = {"code": f"vr-{check_code}", "verdictPass": _jd(p.get("pass")),
+                           "verdictPartial": _jd(p.get("partial")), "verdictFail": _jd(p.get("fail"))}
+                break
+
+        if not findings:
+            for sd in sixdim.get("findings", []):
+                p = _pl(sd)
+                findings.append({"code": f"fd-{sd['seq']}", "rank": str(sd["seq"]),
+                                 "problem": p.get("text") or sd["title"] or "",
+                                 "rootCause": "", "remediation": ""})
+
+        if not related:
+            for sd in sixdim.get("related", []):
+                p = _pl(sd)
+                ref = p.get("ref") or p.get("text") or sd["title"] or ""
+                related.append({"ref": ref, "relType": "edge", "relation": p.get("relation") or ref})
+
+        return {
+            "id": r["slug"], "checkCode": r["check_code"], "title": r["title"] or "",
+            "domain": r["domain"] or "", "domainLabel": r["domain_label"] or "",
+            "priority": r["priority"] or "", "regulation": r["regulation"] or "",
+            "articleNo": r["article_no"] or "", "articleText": r["article_text"] or "",
+            "citesClause": clauses,
+            "elements": elements, "methodSteps": steps, "metrics": metrics,
+            "interviews": interviews, "verdict": verdict, "findings": findings,
+            "related": related, "suggestedControls": [],
+            "source": "db",
+        }
+    except Exception:  # noqa: BLE001
+        return None
+
+
 # ===========================================================================
 # P0 三路检索（向量路 / 图谱路 / RAG 路）+ 关键词 ILIKE 路融合
 # ---------------------------------------------------------------------------
