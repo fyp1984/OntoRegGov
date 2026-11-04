@@ -1,0 +1,637 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>本体知识库消费演示 · Ekos Consumer Demo（v1.6.0）</title>
+<style>
+ body{font-family:-apple-system,"PingFang SC",sans-serif;margin:0;background:#f5f6f8;color:#222}
+ header{background:#1f3a5f;color:#fff;padding:16px 24px}
+ header h1{margin:0;font-size:18px}
+ .mode{font-size:12px;opacity:.85;margin-top:4px}
+ main{padding:20px 24px;max-width:960px;margin:auto}
+ .card{background:#fff;border:1px solid #e3e6ea;border-radius:8px;padding:14px 18px;margin:12px 0}
+ .card h2{font-size:15px;margin:0 0 6px;color:#1f3a5f}
+ .tag{display:inline-block;background:#eef3fa;color:#1f3a5f;border-radius:4px;padding:1px 8px;font-size:12px;margin-right:6px}
+ .muted{color:#666;font-size:13px}
+ pre{white-space:pre-wrap;background:#f0f2f5;padding:10px;border-radius:6px;font-size:12px;max-height:220px;overflow:auto}
+ .ok{color:#1a7f37}
+</style>
+</head>
+<body>
+<header>
+  <h1>本体知识库消费演示（前端 ← 后端 canonical 本体库）</h1>
+  <div class="mode">数据来源：<span id="mode">检测中…</span> · 93号文（金办发〔2025〕93号）+ 金规 1.1</div>
+</header>
+<main>
+  <div class="card"><h2>链路状态</h2><div id="status" class="muted">正在加载…</div></div>
+  <div class="card" id="law-card" hidden><h2>法规（law）</h2><div id="law"></div></div>
+  <div class="card" id="topic-card" hidden><h2>专题（topic）</h2><div id="topic"></div></div>
+  <div class="card" id="checks-card" hidden><h2>93号文检查项（InspectionCheck，复用金规形状）</h2><div id="checks"></div></div>
+  <div class="card" id="golden-card" hidden><h2>金规检查 1.1（对照）</h2><div id="golden"></div></div>
+</main>
+<script>
+// 内嵌快照：file:// 直接打开时无 /api 可用，用这份编译导出快照兜底；服务模式下改用实时 /api。
+window.__KB_SNAPSHOT__ = {
+  "law": {
+    "id": "finance-data-security-special-action-2025",
+    "type": "law",
+    "label": "金融机构数据安全管理能力提升专项行动通知",
+    "title": "金融机构数据安全管理能力提升专项行动通知",
+    "summary": "金融监管总局办公厅2025年12月印发的内部专项行动通知，以四阶段与\"四个一批\"机制，推动银行保险及地方金融组织2026年底前数据安全管理能力显著提升。",
+    "level": "L2",
+    "status": "reviewed",
+    "checkCode": "",
+    "domain": "",
+    "ctCode": "",
+    "sourcePath": "content/laws/finance-data-security-special-action-2025.md",
+    "relations": [
+      {
+        "p": "citedBy",
+        "type": "topic",
+        "slug": "topic-finance-data-security-special-action"
+      },
+      {
+        "p": "governs",
+        "type": "scenario",
+        "slug": "scenario-finance"
+      },
+      {
+        "p": "mentions",
+        "type": "law",
+        "slug": "bank-insurance-data-security-measures"
+      },
+      {
+        "p": "mentions",
+        "type": "law",
+        "slug": "csl"
+      },
+      {
+        "p": "mentions",
+        "type": "law",
+        "slug": "dsl"
+      },
+      {
+        "p": "mentions",
+        "type": "law",
+        "slug": "network-data-security-regulation"
+      },
+      {
+        "p": "mentions",
+        "type": "law",
+        "slug": "pipl"
+      },
+      {
+        "p": "mentions",
+        "type": "organization",
+        "slug": "org-nfra"
+      },
+      {
+        "p": "mentions",
+        "type": "standard",
+        "slug": "jrt0197"
+      },
+      {
+        "p": "mentions",
+        "type": "standard",
+        "slug": "jrt0223"
+      },
+      {
+        "p": "mentions",
+        "type": "term",
+        "slug": "commercial-crypto-evaluation"
+      },
+      {
+        "p": "mentions",
+        "type": "term",
+        "slug": "data-classification-grading"
+      },
+      {
+        "p": "mentions",
+        "type": "term",
+        "slug": "data-security-governance"
+      },
+      {
+        "p": "mentions",
+        "type": "term",
+        "slug": "penetration-testing"
+      },
+      {
+        "p": "mentions",
+        "type": "term",
+        "slug": "personal-financial-information"
+      },
+      {
+        "p": "mentions",
+        "type": "term",
+        "slug": "pipia"
+      },
+      {
+        "p": "mentions",
+        "type": "topic",
+        "slug": "topic-finance-data-security-special-action"
+      },
+      {
+        "p": "publishedBy",
+        "type": "organization",
+        "slug": "org-nfra"
+      },
+      {
+        "p": "seeAlso",
+        "type": "law",
+        "slug": "bank-insurance-data-security-measures"
+      }
+    ]
+  },
+  "topic": {
+    "id": "topic-finance-data-security-special-action",
+    "type": "topic",
+    "label": "金融机构数据安全管理能力提升专项行动（金办发〔2025〕93号）",
+    "title": "金融机构数据安全管理能力提升专项行动（金办发〔2025〕93号）",
+    "summary": "聚焦金办发〔2025〕93号专项行动：四阶段时间线、139/140条自查要点到在册控制的映射、报送时限与机构行动清单。",
+    "level": "L2",
+    "status": "reviewed",
+    "checkCode": "",
+    "domain": "",
+    "ctCode": "",
+    "sourcePath": "content/topics/topic-finance-data-security-special-action.md",
+    "relations": [
+      {
+        "p": "citesLaw",
+        "type": "law",
+        "slug": "bank-insurance-data-security-measures"
+      },
+      {
+        "p": "citesLaw",
+        "type": "law",
+        "slug": "csl"
+      },
+      {
+        "p": "citesLaw",
+        "type": "law",
+        "slug": "dsl"
+      },
+      {
+        "p": "citesLaw",
+        "type": "law",
+        "slug": "finance-data-security-special-action-2025"
+      },
+      {
+        "p": "citesLaw",
+        "type": "law",
+        "slug": "network-data-security-regulation"
+      },
+      {
+        "p": "citesLaw",
+        "type": "law",
+        "slug": "pipl"
+      },
+      {
+        "p": "citesStandard",
+        "type": "standard",
+        "slug": "gbt22239"
+      },
+      {
+        "p": "citesStandard",
+        "type": "standard",
+        "slug": "gbt35273"
+      },
+      {
+        "p": "citesStandard",
+        "type": "standard",
+        "slug": "gbt37988"
+      },
+      {
+        "p": "citesStandard",
+        "type": "standard",
+        "slug": "gbt43697"
+      },
+      {
+        "p": "citesStandard",
+        "type": "standard",
+        "slug": "jrt0197"
+      },
+      {
+        "p": "citesStandard",
+        "type": "standard",
+        "slug": "jrt0223"
+      },
+      {
+        "p": "mentions",
+        "type": "control",
+        "slug": "control-accountability-assessment"
+      },
+      {
+        "p": "mentions",
+        "type": "control",
+        "slug": "control-api-security"
+      },
+      {
+        "p": "mentions",
+        "type": "control",
+        "slug": "control-audit-rectification"
+      },
+      {
+        "p": "mentions",
+        "type": "control",
+        "slug": "control-backup-recovery"
+      },
+      {
+        "p": "mentions",
+        "type": "control",
+        "slug": "control-business-continuity"
+      },
+      {
+        "p": "mentions",
+        "type": "control",
+        "slug": "control-classification-grading-system"
+      },
+      {
+        "p": "mentions",
+        "type": "control",
+        "slug": "control-classification-platform"
+      },
+      {
+        "p": "mentions",
+        "type": "control",
+        "slug": "control-cross-border-compliance"
+      },
+      {
+        "p": "mentions",
+        "type": "control",
+        "slug": "control-crypto-evaluation"
+      },
+      {
+        "p": "mentions",
+        "type": "control",
+        "slug": "control-data-asset-media"
+      },
+      {
+        "p": "mentions",
+        "type": "control",
+        "slug": "control-data-destruction"
+      },
+      {
+        "p": "mentions",
+        "type": "control",
+        "slug": "control-data-lifecycle-system"
+      },
+      {
+        "p": "mentions",
+        "type": "control",
+        "slug": "control-data-security-accountability"
+      },
+      {
+        "p": "mentions",
+        "type": "control",
+        "slug": "control-db-audit"
+      },
+      {
+        "p": "mentions",
+        "type": "control",
+        "slug": "control-db-encryption"
+      },
+      {
+        "p": "mentions",
+        "type": "control",
+        "slug": "control-dynamic-masking"
+      },
+      {
+        "p": "mentions",
+        "type": "control",
+        "slug": "control-endpoint-dlp"
+      },
+      {
+        "p": "mentions",
+        "type": "control",
+        "slug": "control-grading-based-protection"
+      },
+      {
+        "p": "mentions",
+        "type": "control",
+        "slug": "control-iam-4a"
+      },
+      {
+        "p": "mentions",
+        "type": "control",
+        "slug": "control-ids-ips"
+      },
+      {
+        "p": "mentions",
+        "type": "control",
+        "slug": "control-incident-reporting"
+      },
+      {
+        "p": "mentions",
+        "type": "control",
+        "slug": "control-incident-response"
+      },
+      {
+        "p": "mentions",
+        "type": "control",
+        "slug": "control-kms-hsm-service"
+      },
+      {
+        "p": "mentions",
+        "type": "control",
+        "slug": "control-mdm-mobile-security"
+      },
+      {
+        "p": "mentions",
+        "type": "control",
+        "slug": "control-mfa"
+      },
+      {
+        "p": "mentions",
+        "type": "control",
+        "slug": "control-mlps-mechanism"
+      },
+      {
+        "p": "mentions",
+        "type": "control",
+        "slug": "control-ndr-traffic-analysis"
+      },
+      {
+        "p": "mentions",
+        "type": "control",
+        "slug": "control-network-segmentation"
+      },
+      {
+        "p": "mentions",
+        "type": "control",
+        "slug": "control-ngfw-access-control"
+      },
+      {
+        "p": "mentions",
+        "type": "control",
+        "slug": "control-outsourcing-security"
+      },
+      {
+        "p": "mentions",
+        "type": "control",
+        "slug": "control-pam"
+      },
+      {
+        "p": "mentions",
+        "type": "control",
+        "slug": "control-personnel-security"
+      },
+      {
+        "p": "mentions",
+        "type": "control",
+        "slug": "control-pi-compliance"
+      },
+      {
+        "p": "mentions",
+        "type": "control",
+        "slug": "control-risk-assessment"
+      },
+      {
+        "p": "mentions",
+        "type": "control",
+        "slug": "control-security-awareness-training"
+      },
+      {
+        "p": "mentions",
+        "type": "control",
+        "slug": "control-siem-log-centralization"
+      },
+      {
+        "p": "mentions",
+        "type": "control",
+        "slug": "control-supply-chain-security"
+      },
+      {
+        "p": "mentions",
+        "type": "control",
+        "slug": "control-transport-encryption"
+      },
+      {
+        "p": "mentions",
+        "type": "control",
+        "slug": "control-watermark-tracing"
+      },
+      {
+        "p": "mentions",
+        "type": "law",
+        "slug": "bank-insurance-data-security-measures"
+      },
+      {
+        "p": "mentions",
+        "type": "law",
+        "slug": "finance-data-security-special-action-2025"
+      },
+      {
+        "p": "mentions",
+        "type": "law",
+        "slug": "pipl"
+      },
+      {
+        "p": "mentions",
+        "type": "organization",
+        "slug": "org-nfra"
+      },
+      {
+        "p": "mentions",
+        "type": "scenario",
+        "slug": "scenario-finance"
+      },
+      {
+        "p": "mentions",
+        "type": "standard",
+        "slug": "gbt35273"
+      },
+      {
+        "p": "mentions",
+        "type": "standard",
+        "slug": "gbt43697"
+      },
+      {
+        "p": "mentions",
+        "type": "standard",
+        "slug": "jrt0197"
+      },
+      {
+        "p": "mentions",
+        "type": "term",
+        "slug": "commercial-crypto-evaluation"
+      },
+      {
+        "p": "mentions",
+        "type": "term",
+        "slug": "data-classification-grading"
+      },
+      {
+        "p": "mentions",
+        "type": "term",
+        "slug": "dpo"
+      },
+      {
+        "p": "mentions",
+        "type": "term",
+        "slug": "penetration-testing"
+      },
+      {
+        "p": "mentions",
+        "type": "term",
+        "slug": "personal-financial-information"
+      },
+      {
+        "p": "mentions",
+        "type": "term",
+        "slug": "pipia"
+      },
+      {
+        "p": "mentions",
+        "type": "term",
+        "slug": "security-audit-logging"
+      },
+      {
+        "p": "mentions",
+        "type": "topic",
+        "slug": "topic-finance-data-security"
+      },
+      {
+        "p": "seeAlso",
+        "type": "organization",
+        "slug": "org-nfra"
+      },
+      {
+        "p": "seeAlso",
+        "type": "topic",
+        "slug": "topic-finance-data-security"
+      }
+    ]
+  },
+  "checks": [
+    {
+      "checkCode": "93-3.1",
+      "id": "ic-93-3-1",
+      "title": "数据安全保护策略",
+      "domain": "数据安全管理",
+      "priority": "P1",
+      "articleNo": "附件1 自查要点",
+      "summary": "是否依据数据安全相关政策法规（即《中华人民共和国数据安全法》《中华人民共和国个人信息保护法》《网络数据安全管理条例》《银行保险机构数据安全管理办法》）要求，结合机构自身战略规划实际情况，制定数据安全保护策略。是否制定数据安全管理办法，明确管理责任分工。是否建立企业级数据架构，统筹开展全域数据资产登记；建立数据处理全生命周期管控机制，并落实相关保护措施；是否对数据的外部引入、合作共享、以及数据出境（若有）等，制定安全管理实施细则。",
+      "citesClause": [
+        "cl-93-att1"
+      ],
+      "elements": [
+        {
+          "elementCode": "93-3.1.1",
+          "text": "是否依据数据安全相关政策法规（即《中华人民共和国数据安全法》《中华人民共和国个人信息保护法》《网络数据安全管理条例》《银行保险机构数据安全管理办法》）要求，结合机构自身战略规划实际情况，制定数据安全保护策略。是否制定数据安全管理办法，明确管理责任分工。是否建立企业级数据架构，统筹开展全域数据资产登记；建立数据处理全生命周期管控机制，并落实相关保护措施；是否对数据的外部引入、合作共享、以及数据出境（若有）等，制定安全管理实施细则。"
+        }
+      ],
+      "source": "canonical"
+    },
+    {
+      "checkCode": "93-4.1",
+      "id": "ic-93-4-1",
+      "title": "数据安全技术保护体系",
+      "domain": "数据安全技术保护",
+      "priority": "P1",
+      "articleNo": "附件1 自查要点",
+      "summary": "是否将数据纳入网络安全等级保护客体范畴；是否建立数据安全技术架构，明确数据保护策略方法以及技术措施，重要网络与信息系统是否定期开展商用密码应用安全性评估；是否建立数据备份体系，制定备份策略；是否将生产数据与备份数据隔离保存，严格备份数据的访问权限；是否将数据安全保护纳入信息系统开发生命周期框架。是否通过集中管理平台或应用程序接口实现机构与外部数据安全交换，满足\"业务必需、最小权限\"原则。",
+      "citesClause": [
+        "cl-93-att1"
+      ],
+      "elements": [
+        {
+          "elementCode": "93-4.1.1",
+          "text": "是否将数据纳入网络安全等级保护客体范畴；是否建立数据安全技术架构，明确数据保护策略方法以及技术措施，重要网络与信息系统是否定期开展商用密码应用安全性评估；是否建立数据备份体系，制定备份策略；是否将生产数据与备份数据隔离保存，严格备份数据的访问权限；是否将数据安全保护纳入信息系统开发生命周期框架。是否通过集中管理平台或应用程序接口实现机构与外部数据安全交换，满足\"业务必需、最小权限\"原则。"
+        }
+      ],
+      "source": "canonical"
+    },
+    {
+      "checkCode": "93-6.1",
+      "id": "ic-93-6-1",
+      "title": "数据安全监测机制",
+      "domain": "数据安全风险监测与处置",
+      "priority": "P1",
+      "articleNo": "附件1 自查要点",
+      "summary": "是否明确数据安全风险监测、风险评估、应急响应及报告，事件处置的组织架构和管理流程；是否开展对数据安全威胁的有效监测，并实施监督检查和主动评估，防止数据篡改、破坏、泄露、非法利用等安全事件。",
+      "citesClause": [
+        "cl-93-att1"
+      ],
+      "elements": [
+        {
+          "elementCode": "93-6.1.1",
+          "text": "是否明确数据安全风险监测、风险评估、应急响应及报告，事件处置的组织架构和管理流程；是否开展对数据安全威胁的有效监测，并实施监督检查和主动评估，防止数据篡改、破坏、泄露、非法利用等安全事件。"
+        }
+      ],
+      "source": "canonical"
+    }
+  ],
+  "golden11": {
+    "checkCode": "1.1",
+    "id": "ic-1-1",
+    "title": "党委（党组）、董（理）事会主体责任",
+    "domain": "gov",
+    "priority": "P0",
+    "articleNo": "第十条",
+    "summary": "",
+    "citesClause": [
+      "cl-10"
+    ],
+    "elements": [
+      {
+        "elementCode": "1.1.1",
+        "text": "制度是否明确党委（党组）对数据安全工作负主体责任"
+      },
+      {
+        "elementCode": "1.1.2",
+        "text": "制度是否明确董（理）事会对数据安全工作负主体责任"
+      },
+      {
+        "elementCode": "1.1.3",
+        "text": "党委（党组）、董（理）事会是否实际审议过数据安全议题"
+      }
+    ],
+    "source": "canonical"
+  },
+  "controls_total": 91
+};
+
+function esc(s){return (s||'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));}
+function render(snap, mode){
+  document.getElementById('mode').textContent = mode;
+  document.getElementById('status').innerHTML =
+    '✅ 已从<span class="ok">'+esc(mode)+'</span>取得本体库数据：法规 1 / 专题 1 / 93号文检查项 13（本页抽样 3）/ 在册控制 '+snap.controls_total+' 条。';
+  const law=snap.law, t=snap.topic;
+  if(law){document.getElementById('law-card').hidden=false;
+    document.getElementById('law').innerHTML='<span class="tag">'+esc(law.type)+'</span><b>'+esc(law.title)+'</b><div class="muted">'+esc(law.summary)+'</div>';}
+  if(t){document.getElementById('topic-card').hidden=false;
+    document.getElementById('topic').innerHTML='<span class="tag">'+esc(t.type)+'</span><b>'+esc(t.title)+'</b><div class="muted">'+esc(t.summary)+'</div>';}
+  if(snap.checks){document.getElementById('checks-card').hidden=false;
+    document.getElementById('checks').innerHTML = snap.checks.map(c=>
+      '<div style="margin:8px 0"><span class="tag">'+esc(c.checkCode)+'</span>'+esc(c.title)+
+      ' <span class="muted">['+esc(c.domain)+' / '+esc(c.priority)+' / '+esc(c.articleNo)+']</span>'+
+      '<pre>'+esc((c.summary||'').slice(0,120))+'…</pre></div>').join('');}
+  if(snap.golden11){document.getElementById('golden-card').hidden=false;
+    document.getElementById('golden').innerHTML='<span class="tag">'+esc(snap.golden11.checkCode)+'</span>'+esc(snap.golden11.title)+
+    ' <span class="muted">['+esc(snap.golden11.domain)+' / '+esc(snap.golden11.priority)+']</span>';}
+}
+
+// 服务模式：尝试实时拉 /api；失败则回退内嵌快照（file://）。
+(async ()=>{
+  try{
+    const r = await fetch('/api/search?q=93号', {cache:'no-store'});
+    if(!r.ok) throw new Error('no api');
+    // 服务模式：拉实时数据组装
+    const [law,topic,c1,c2,c3,g1,ctrl] = await Promise.all([
+      fetch('/api/entity/finance-data-security-special-action-2025').then(x=>x.json()),
+      fetch('/api/entity/topic-finance-data-security-special-action').then(x=>x.json()),
+      fetch('/api/checks/93-3.1').then(x=>x.json()),
+      fetch('/api/checks/93-4.1').then(x=>x.json()),
+      fetch('/api/checks/93-6.1').then(x=>x.json()),
+      fetch('/api/checks/1.1').then(x=>x.json()),
+      fetch('/api/controls').then(x=>x.json()),
+    ]);
+    render({law,topic,checks:[c1,c2,c3],golden11:g1,controls_total:ctrl.total},'实时 /api（服务模式）');
+  }catch(e){
+    render(window.__KB_SNAPSHOT__,'内嵌编译快照（file:// 模式）');
+  }
+})();
+</script>
+</body>
+</html>

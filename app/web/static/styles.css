@@ -1,0 +1,131 @@
+/* ============================================================
+   数据安全工作平台 · 本体驱动数据安全监管与治理合规平台
+   主色 #2055D7 / 深色 #1847C7 / 深蓝标题 #1E3268 / 浅蓝底 #EEF4FF
+   边框 #9AB7FF / 正文 #243447 —— 稳、清晰、企业级、可信赖
+   ============================================================ */
+:root{
+  --brand:#2055D7; --brand-dark:#1847C7; --brand-deep:#1E3268;
+  --brand-bg:#EEF4FF; --brand-border:#9AB7FF; --brand-soft:#F6F9FF;
+  --ok:#1a9e5c; --ok-bg:#E6F7EE; --ok-ink:#137a48;
+  --warn:#b97d10; --warn-bg:#FFF6E3; --warn-ink:#96620c;
+  --bad:#d23b3b;  --bad-bg:#FDECEC;  --bad-ink:#b02e2e;
+  --unk:#8a93a6;  --unk-bg:#EEF1F6;  --unk-ink:#5f6b7f;
+  --bg:#F4F7FD; --card:#fff; --line:#E3EBFA; --line-strong:#C9D8F5;
+  --text:#243447; --muted:#6b7a93;
+  --radius:14px; --shadow:0 1px 2px rgba(32,85,215,.05), 0 4px 16px rgba(32,85,215,.04);
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",system-ui,sans-serif;
+  background:var(--bg);color:var(--text);font-size:14px;line-height:1.65;letter-spacing:.1px}
+
+/* ---------- 页眉 ---------- */
+header{background:var(--card);padding:12px 22px;display:flex;align-items:center;gap:14px;
+  border-bottom:1px solid var(--line);
+  box-shadow:inset 0 3px 0 var(--brand), 0 1px 4px rgba(32,85,215,.06)}
+header h1{margin:0;font-size:17px;font-weight:700;color:var(--brand-deep);letter-spacing:.3px}
+header .sub{font-size:12px;color:var(--muted)}
+header select{margin-left:auto;width:150px!important;flex:none}
+
+/* ---------- 布局 ---------- */
+.wrap{display:flex;min-height:calc(100vh - 64px)}
+nav{width:200px;flex:none;background:var(--card);border-right:1px solid var(--line);padding:14px 10px}
+nav a{display:block;padding:9px 16px;color:var(--text);text-decoration:none;font-size:13px;
+  border-radius:10px;margin-bottom:4px;transition:background .15s,color .15s}
+nav a:hover{background:var(--brand-bg);color:var(--brand-dark)}
+nav a.active{background:var(--brand);color:#fff;font-weight:600;
+  box-shadow:0 2px 8px rgba(32,85,215,.28)}
+main{flex:1;padding:24px 28px;overflow:auto;min-width:0}
+
+/* ---------- 卡片 ---------- */
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
+  padding:18px 20px;margin-bottom:18px;box-shadow:var(--shadow)}
+.card h3{margin:0 0 12px;font-size:15px;color:var(--brand-deep);font-weight:600;
+  display:flex;align-items:center;gap:8px}
+.card h3::before{content:"";display:inline-block;width:4px;height:15px;border-radius:2px;
+  background:linear-gradient(180deg,var(--brand),var(--brand-border))}
+.card h4{margin:12px 0 8px;font-size:14px;color:var(--brand-deep)}
+
+/* ---------- 表格 ---------- */
+table{width:100%;border-collapse:separate;border-spacing:0;font-size:13px}
+th{background:var(--brand-deep);color:#fff;font-weight:500;text-align:left;
+  padding:9px 10px;border:none;white-space:nowrap}
+th:first-child{border-radius:8px 0 0 0}
+th:last-child{border-radius:0 8px 0 0}
+td{border-bottom:1px solid var(--line);padding:8px 10px;vertical-align:top}
+tbody tr:nth-child(even){background:#F8FAFF}
+tbody tr:hover{background:var(--brand-soft)}
+tbody tr:last-child td{border-bottom:none}
+
+/* ---------- 按钮 ---------- */
+button{background:var(--brand);color:#fff;border:0;border-radius:8px;padding:8px 16px;
+  cursor:pointer;font-size:13px;font-weight:500;transition:background .15s,transform .05s}
+button:hover{background:var(--brand-dark)}
+button:active{transform:translateY(1px)}
+button.ghost{background:var(--brand-soft);color:var(--brand-dark);border:1px solid var(--brand-border)}
+button.ghost:hover{background:var(--brand-bg)}
+
+/* ---------- 表单 ---------- */
+input,select,textarea{width:100%;padding:7px 10px;border:1px solid var(--line-strong);
+  border-radius:8px;font-size:13px;color:var(--text);background:#fff;
+  transition:border-color .15s,box-shadow .15s}
+input:focus,select:focus,textarea:focus{outline:none;border-color:var(--brand);
+  box-shadow:0 0 0 3px rgba(32,85,215,.12)}
+label{font-size:12px;color:var(--muted);display:block;margin:10px 0 3px;font-weight:500}
+
+/* ---------- 徽章 / 状态 ---------- */
+.badge{display:inline-block;padding:2px 10px;border-radius:999px;font-size:12px;font-weight:600;white-space:nowrap}
+.b-ok{background:var(--ok-bg);color:var(--ok-ink)}
+.b-warn{background:var(--warn-bg);color:var(--warn-ink)}
+.b-bad{background:var(--bad-bg);color:var(--bad-ink)}
+.b-unk{background:var(--unk-bg);color:var(--unk-ink)}
+.b-p0{background:#fee2e2;color:#991b1b}
+.b-p1{background:#fef3c7;color:#92400e}
+.b-p2{background:#dbeafe;color:#1e40af}
+.pill{display:inline-block;background:var(--brand-bg);color:var(--brand-dark);
+  border-radius:999px;padding:2px 10px;font-size:12px;font-weight:500;white-space:nowrap}
+
+/* ---------- 统计 / 摘要 ---------- */
+.stat{display:inline-block;background:var(--brand-soft);border:1px solid var(--line);
+  border-radius:12px;padding:14px 20px;margin:0 12px 8px 0;min-width:120px}
+.stat b{font-size:24px;color:var(--brand-dark);display:block;font-weight:700}
+.muted{color:var(--muted);font-size:12px}
+.why{background:var(--brand-soft);border-left:3px solid var(--brand);border-radius:8px;
+  padding:9px 12px;font-size:12.5px;margin-top:6px}
+
+/* ---------- 折叠详情 ---------- */
+details{margin:10px 0}
+details summary{cursor:pointer;color:var(--brand-deep);font-weight:600;font-size:13.5px;
+  padding:6px 0}
+details[open] summary{margin-bottom:6px}
+details[open]{border-left:3px solid var(--brand-border);padding-left:12px;border-radius:4px}
+
+/* ---------- 行 / 栅格 ---------- */
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+code{background:var(--brand-soft);border:1px solid var(--line);color:var(--brand-dark);
+  border-radius:6px;padding:1px 6px;font-size:12px}
+.hidden{display:none}
+
+/* ---------- 图谱 ---------- */
+#graph{width:100%;height:540px;background:var(--card);border:1px solid var(--line);
+  border-radius:var(--radius);box-shadow:var(--shadow)}
+
+/* ---------- 滚动条 ---------- */
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-thumb{background:#C9D8F5;border-radius:6px;border:2px solid transparent;background-clip:content-box}
+::-webkit-scrollbar-thumb:hover{background:#9AB7FF;background-clip:content-box;border:2px solid transparent}
+::-webkit-scrollbar-track{background:transparent}
+
+/* ---------- 响应式 ---------- */
+@media (max-width:960px){
+  .grid2{grid-template-columns:1fr}
+  nav{width:164px}
+  main{padding:16px}
+}
+@media (max-width:720px){
+  .wrap{flex-direction:column}
+  nav{width:auto;display:flex;flex-wrap:wrap;gap:4px;border-right:0;border-bottom:1px solid var(--line)}
+  nav a{margin-bottom:0}
+  header{flex-wrap:wrap}
+}

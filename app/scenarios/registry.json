@@ -1,0 +1,63 @@
+{
+  "version": "1.0.0",
+  "updatedAt": "2026-10-12",
+  "comment": "场景组件注册表（配置驱动核心）。新增场景只在此追加 components 条目；步骤 type 必须命中 scenario_runner.html 已注册的渲染器；functions 按 module 惰性 import 并调 run(params)。",
+  "stepTypeVocabulary": [
+    {"type": "check_record", "label": "检查记录", "desc": "选被查对象+选检查项，逐要素录 L1 制度/L4 证据、L5 度量实际值，提交创建 InspectionRun+CheckResult"},
+    {"type": "verdict", "label": "判定结论", "desc": "三色判定（pass/partial/fail）+ 逐条 why 溯源"},
+    {"type": "proposals", "label": "缺口提案", "desc": "知识缺口提案清单（EvidenceRequirement/Control 等待补）"},
+    {"type": "remediate", "label": "整改", "desc": "证据归档上传 + 提案决策（accepted/closed）"},
+    {"type": "recheck", "label": "复检对比", "desc": "整改后复跑，compare 前后两次运行 fail→pass 变化"},
+    {"type": "questionnaire", "label": "93号文问卷", "desc": "按 category/problem_type 分组的 139 自查细项，勾选是否存在问题并统计"},
+    {"type": "checklib", "label": "检查库准备", "desc": "按域/优先级/关键词筛选浏览检查项库"},
+    {"type": "ledger_view", "label": "检查台账", "desc": "运行台账/证据/签署/周期复查一览"},
+    {"type": "report", "label": "报告导出", "desc": "汇总运行/判定/提案/证据/复检，生成 HTML+Markdown 报告"}
+  ],
+  "components": [
+    {
+      "id": "sc01-selfcheck-reception",
+      "name": "金规24号+93号文自查/迎检工具",
+      "kind": "institution",
+      "kindLabel": "被监管方",
+      "priority": "P0",
+      "summary": "面向被监管机构（银行保险机构合规部）：以金规〔2024〕24号 P0 检查项跑自查/迎检闭环，并装载 93号文 139 项自查问卷，产出可迎检报告。",
+      "roles": ["被监管方", "机构合规部"],
+      "permissions": ["inspection:run", "inspection:record", "evidence:upload", "proposal:create", "proposal:decision", "report:export", "questionnaire:fill"],
+      "consumedOntologyTypes": ["InspectionCheck", "CheckElement", "EvidenceRecord", "Control", "Doc93SelfcheckItem", "InspectionRun", "CheckResult", "Proposal"],
+      "workflowSteps": [
+        {"id": "sc01-s1", "title": "检查库与自查装载", "type": "checklib", "desc": "按域/优先级筛选金规24号检查项（默认 P0），选定本次自查范围", "config": {"defaultPriority": "P0"}},
+        {"id": "sc01-s2", "title": "自查运行", "type": "check_record", "desc": "选被查对象、选检查项，逐要素录 L1 制度/L4 证据、L5 度量实际值", "config": {"checkSource": "/api/checks?priority=P0", "actorDefault": "reviewer"}},
+        {"id": "sc01-s3", "title": "判定（三色+why）", "type": "verdict", "desc": "worst-case 聚合出 pass/partial/fail，逐条 why 溯源到要素/阈值"},
+        {"id": "sc01-s4", "title": "缺口提案", "type": "proposals", "desc": "fail/partial 自动沉淀知识缺口提案（EvidenceRequirement/Control）"},
+        {"id": "sc01-s5", "title": "整改", "type": "remediate", "desc": "补齐运行证据（上传归档）+ 对缺口提案做决策（accepted/closed）"},
+        {"id": "sc01-s6", "title": "复检（compare）", "type": "recheck", "desc": "整改后复跑同一检查项，compare 前后两次运行 fail→pass 变化"},
+        {"id": "sc01-s7", "title": "93号文自查问卷", "type": "questionnaire", "desc": "装载 93号文 139 项自查细项（按治理/分类分级/管理/技术/个保/监测6大类分组），逐项勾选是否存在问题", "function": "doc93_questionnaire", "config": {"groupBy": ["category", "problem_type"]}},
+        {"id": "sc01-s8", "title": "报告导出", "type": "report", "desc": "汇总运行概览/逐项判定/缺口提案/证据/复检对比，导出 HTML+Markdown 迎检报告", "function": "report_export", "config": {"reportType": "selfcheck"}}
+      ],
+      "functions": [
+        {"id": "doc93_questionnaire", "name": "93号文自查问卷装载", "module": "app.scenarios.functions.doc93_questionnaire", "params": {}},
+        {"id": "report_export", "name": "自查/迎检报告导出", "module": "app.scenarios.functions.report_export", "params": {"reportType": "selfcheck"}}
+      ]
+    },
+    {
+      "id": "sc02-supervisory-inspection",
+      "name": "监管检查工具·金规24号",
+      "kind": "regulator",
+      "kindLabel": "监管方",
+      "priority": "P0",
+      "summary": "面向监管机构检查人员：按域/优先级准备检查库，现场执行 L1/L4/L5 判定，沉淀检查台账并产出复盘报告。纯配置注册，零新增 Python 文件。",
+      "roles": ["监管方", "检查人员"],
+      "permissions": ["inspection:run", "inspection:record", "ledger:read", "report:export"],
+      "consumedOntologyTypes": ["InspectionCheck", "CheckElement", "EvidenceRecord", "Control", "InspectionRun", "CheckResult"],
+      "workflowSteps": [
+        {"id": "sc02-s1", "title": "检查库准备", "type": "checklib", "desc": "按监管关注域（gov/tech/cross）与优先级筛选检查项，确定本次检查范围", "config": {"defaultDomain": "", "defaultPriority": "P0"}},
+        {"id": "sc02-s2", "title": "执行判定", "type": "check_record", "desc": "对被查机构现场录 L1 制度/L4 证据/L5 度量，符号引擎出三色结论", "config": {"checkSource": "/api/checks", "actorDefault": "inspector"}},
+        {"id": "sc02-s3", "title": "检查台账", "type": "ledger_view", "desc": "查看全部运行台账、证据归档与签署情况"},
+        {"id": "sc02-s4", "title": "复盘报告", "type": "report", "desc": "汇总本次检查运行与判定，导出监管检查复盘报告", "function": "report_export", "config": {"reportType": "supervisory"}}
+      ],
+      "functions": [
+        {"id": "report_export", "name": "监管检查复盘报告导出", "module": "app.scenarios.functions.report_export", "params": {"reportType": "supervisory"}}
+      ]
+    }
+  ]
+}

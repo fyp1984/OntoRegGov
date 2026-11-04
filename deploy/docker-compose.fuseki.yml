@@ -1,0 +1,20 @@
+# v1.4.0 图存储后端 · Fuseki 容器
+# 用法：docker compose -f deploy/docker-compose.fuseki.yml up -d
+# 启动后：平台侧 GRAPH_STORE_BACKEND=fuseki GRAPH_STORE_ENDPOINT=http://127.0.0.1:3030
+# 验证：curl "http://127.0.0.1:3030/$/ping"   （stain 镜像默认数据集为 /ds）
+services:
+  fuseki:
+    image: stain/jena-fuseki:latest
+    container_name: ontoreggov-fuseki
+    ports:
+      - "3030:3030"
+    environment:
+      ADMIN_PASSWORD: admin
+      TDB: "2"
+      FUSEKI_DATASET_DS: ds
+    volumes:
+      - fuseki-data:/fuseki
+    restart: unless-stopped
+
+volumes:
+  fuseki-data:
