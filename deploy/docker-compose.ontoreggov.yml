@@ -11,7 +11,7 @@ services:
     build:
       context: ..
       dockerfile: deploy/Dockerfile
-    image: ontoreggov-app:1.13.1
+    image: ontoreggov-app:1.14.0
     container_name: ontoreggov-app
     ports:
       - "8420:8420"
