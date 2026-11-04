@@ -1,0 +1,157 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""v1.8 工作包 C 冒烟（进程内 TestClient，不起 uvicorn / 不起浏览器）。
+
+覆盖：
+  ① DB_READ_FROM 三态（json/canonical/db）四路由 200 + 结构一致 + controls=104；
+  ② 网关认证：无 token / 坏 token 401，白名单 token 200 且落审计；
+  ③ 限流件单测（RateLimiter）；
+  ④ MCP 工具进程内调用（dsec_check_detail 三态读源）。
+
+运行前置：先跑 scripts/demo_e2e.py 与 scripts/demo_checks.py（SQLite 已种 116 检查）。
+退出码 0=全绿。
+"""
+from __future__ import annotations
+import os, sys
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, ROOT)
+
+from fastapi.testclient import TestClient  # noqa: E402
+
+FAILS = []
+
+
+def check(name, cond, extra=""):
+    mark = "PASS" if cond else "FAIL"
+    print(f"  [{mark}] {name} {extra}")
+    if not cond:
+        FAILS.append(name)
+
+
+def reset_state():
+    """清掉模块级缓存，避免跨用例串味。"""
+    from app.services import canonical_kb, db_kb
+    canonical_kb.reload_cache()
+    db_kb._health_cache = None
+    db_kb._health_ts = 0.0
+
+
+def test_three_states(client):
+    import app.config as cfg
+    for mode in ("json", "canonical", "db"):
+        cfg.DB_READ_FROM = mode
+        reset_state()
+        degraded = "（库不可达→回落 canonical）" if mode == "db" else ""
+        print(f"--- DB_READ_FROM={mode} {degraded} ---")
+        r = client.get("/api/health")
+        check(f"{mode}: /api/health 200", r.status_code == 200)
+        r = client.get("/api/entity/control-abac")
+        check(f"{mode}: /api/entity/control-abac 200", r.status_code == 200,
+              f"(type={r.json().get('type') if r.status_code==200 else r.text[:60]})")
+        if r.status_code == 200:
+            b = r.json()
+            check(f"{mode}: entity 结构字段齐",
+                  all(k in b for k in ("id", "type", "title", "relations")))
+        r = client.get("/api/search?q=%E5%85%9A%E5%A7%94")  # 党委
+        check(f"{mode}: /api/search 200", r.status_code == 200,
+              f"(total={r.json().get('total') if r.status_code==200 else '?'})")
+        r = client.get("/api/controls")
+        check(f"{mode}: /api/controls 200", r.status_code == 200)
+        if r.status_code == 200:
+            check(f"{mode}: controls=104（与 canonical 对账一致）",
+                  r.json().get("total") == 104, f"(total={r.json().get('total')})")
+        r = client.get("/api/checks/1.1")
+        check(f"{mode}: /api/checks/1.1 200", r.status_code == 200,
+              f"(title={str(r.json().get('title'))[:30] if r.status_code==200 else r.text[:60]})")
+        if mode == "db":
+            check(f"db 态：PG 未就绪时自动降级未中断", r.status_code == 200)
+    cfg.DB_READ_FROM = "json"
+    reset_state()
+
+
+def test_gateway(client):
+    import app.config as cfg
+    from app.db import db
+    print("--- 网关认证（GATEWAY_AUTH_ENABLED=on）---")
+    cfg.GATEWAY_AUTH_ENABLED = True
+    try:
+        from app.db import db
+        with db() as conn:
+            n0 = conn.execute("SELECT COUNT(*) c FROM audit_log").fetchone()["c"]
+
+        r = client.get("/api/controls")
+        check("无 token → 401", r.status_code == 401, f"({r.status_code})")
+        r = client.get("/api/controls", headers={"Authorization": "Bearer wrong-key"})
+        check("坏 token → 401", r.status_code == 401, f"({r.status_code})")
+        r = client.get("/api/health")
+        check("/api/health 免鉴权", r.status_code == 200)
+        r = client.get("/api/controls", headers={"Authorization": "Bearer dsec-demo-2026"})
+        check("allowlist 内 token → 200", r.status_code == 200, f"({r.status_code})")
+        with db() as conn:
+            n1 = conn.execute("SELECT COUNT(*) c FROM audit_log").fetchone()["c"]
+            row = conn.execute(
+                "SELECT actor, action, target FROM audit_log ORDER BY id DESC LIMIT 1").fetchone()
+        check("网关请求落审计 audit_log（行数+1）", n1 == n0 + 1, f"({n0}→{n1})")
+        check("审计条目 actor/action/target 正确",
+              row is not None and "演示" in str(row["actor"])
+              and row["action"] == "api.get" and row["target"] == "/api/controls",
+              f"({dict(row) if row else None})")
+    finally:
+        cfg.GATEWAY_AUTH_ENABLED = False
+    r = client.get("/api/controls")
+    check("开关复位 off → /api/controls 裸跑 200", r.status_code == 200)
+
+
+def test_rate_limiter():
+    print("--- 限流件单测（复用 mcp_server.auth.RateLimiter）---")
+    from app.mcp_server.auth import RateLimiter
+    lim = RateLimiter(window_sec=60)
+    check("rpm=2 前两次放行", lim.allow("k-test", 2) and lim.allow("k-test", 2))
+    check("rpm=2 第三次拒绝（429 语义）", not lim.allow("k-test", 2))
+    check("rpm=0 不限流", lim.allow("k-unlimited", 0))
+
+
+def test_mcp_tools():
+    print("--- MCP 工具进程内调用（dsec_check_detail 三态读源）---")
+    from app.mcp_server.server import make_server
+    import app.config as cfg
+    mcp = make_server()
+    fn = mcp._tool_manager._tools["dsec_check_detail"].fn
+    cfg.DB_READ_FROM = "json"
+    reset_state()
+    r = fn("1.1")
+    check("json 态：MCP dsec_check_detail(1.1) 命中 SQLite 六维",
+           r.get("checkCode") == "1.1" and "elements" in r,
+           f"(keys={sorted(r.keys())[:6]})")
+    cfg.DB_READ_FROM = "canonical"
+    reset_state()
+    r = fn("1.1")
+    check("canonical 态：MCP 回落 canonical 图轨道",
+           r.get("checkCode") == "1.1" and r.get("source") in ("canonical",),
+           f"(source={r.get('source')})")
+    cfg.DB_READ_FROM = "db"
+    reset_state()
+    r = fn("1.1")
+    check("db 态：PG 未就绪自动降级回落（仍 200 语义）",
+           r.get("checkCode") == "1.1", f"(source={r.get('source')})")
+    cfg.DB_READ_FROM = "json"
+    reset_state()
+
+
+def main():
+    from app.main import app
+    with TestClient(app) as client:
+        test_three_states(client)
+        test_gateway(client)
+    test_rate_limiter()
+    test_mcp_tools()
+    print("=" * 60)
+    if FAILS:
+        print(f"[smoke_v18_gateway] 失败 {len(FAILS)} 项: {FAILS}")
+        sys.exit(1)
+    print("[smoke_v18_gateway] 全部断言通过 ✅")
+    sys.exit(0)
+
+
+if __name__ == "__main__":
+    main()

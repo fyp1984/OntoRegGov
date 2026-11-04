@@ -1,0 +1,202 @@
+# -*- coding: utf-8 -*-
+"""platform_tools.py — 平台 MCP 工具（与 HTTP API 共用服务层/DB，口径一致）。"""
+from __future__ import annotations
+import json, os, sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent.parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from app.db import db  # noqa: E402
+from app.services import inspection, ledger, kb_read, db_kb, p1_lawqa  # noqa: E402
+from app.ontology import graph_backend  # noqa: E402
+from app.scenarios.functions import doc93_questionnaire  # noqa: E402
+
+
+def register(mcp) -> None:
+    """向 FastMCP 实例注册全部平台工具。"""
+
+    @mcp.tool()
+    def dsec_control_gaps() -> dict:
+        """控制需求缺口浏览：35 条已对齐（CT 码）/ 13 条缺口待底座 v1.6 补建。"""
+        with db() as conn:
+            rows = conn.execute("SELECT dataJSON FROM entities WHERE type='ControlPlaceholder' "
+                                "AND status='published'").fetchall()
+        all_p = []
+        for row in rows:
+            p = json.loads(row["dataJSON"])
+            all_p.append({"hint": p.get("controlCodeHint"), "name": p.get("controlName"),
+                          "layer": p.get("suggestedLayer"), "type": p.get("controlTypeHint"),
+                          "status": p.get("alignmentStatus"),
+                          "ctCode": p.get("ctCode"), "ctLayer": p.get("ctLayer"),
+                          "sourceChecks": (p.get("sourceCheckCodes") or "").split(","),
+                          "rationale": p.get("rationale")})
+        gaps = [x for x in all_p if x["status"] != "aligned"]
+        return {"total": len(all_p),
+                "aligned": sum(1 for x in all_p if x["status"] == "aligned"),
+                "pending": sum(1 for x in gaps if x["status"] == "pending_alignment"),
+                "gaps": gaps}
+
+    @mcp.tool()
+    def dsec_control_alignment() -> dict:
+        """全部 48 条控制需求占位及对齐状态（含 CT 码/缺口反馈），供底座工程消费。"""
+        with db() as conn:
+            rows = conn.execute("SELECT dataJSON FROM entities WHERE type='ControlPlaceholder' "
+                                "AND status='published' ORDER BY id").fetchall()
+        out = []
+        for row in rows:
+            p = json.loads(row["dataJSON"])
+            out.append({"hint": p.get("controlCodeHint"), "name": p.get("controlName"),
+                        "layer": p.get("suggestedLayer"), "type": p.get("controlTypeHint"),
+                        "status": p.get("alignmentStatus"), "ctCode": p.get("ctCode"),
+                        "ctLayer": p.get("ctLayer"),
+                        "baseControlTitle": p.get("baseControlTitle"),
+                        "rationale": p.get("rationale")})
+        return {"count": len(out), "placeholders": out}
+
+    @mcp.tool()
+    def dsec_check_detail(check_code: str) -> dict:
+        """监管检查项六维详情（要素/方法/判定/建议控制等）。
+
+        v1.8.0（docs/09 §4.2）：读源对齐资产层——DB_READ_FROM=db 时先查 PostgreSQL 投影
+        （kb_entity/inspection_check/check_element），未命中/库不可达自动回落 canonical 图，
+        再回落 SQLite 旧链路。写工具不涉及本轨道。
+        """
+        # ① 资产层轨道：db → canonical 图（输出形状与下方 SQLite 分支对齐）
+        kb = kb_read.get_check(check_code)
+        if kb:
+            return {"checkCode": kb.get("checkCode"), "title": kb.get("title"),
+                    "domain": kb.get("domain"), "priority": kb.get("priority"),
+                    "regulation": kb.get("regulation", ""),
+                    "articleNo": kb.get("articleNo", ""),
+                    "citesClause": kb.get("citesClause", []),
+                    "elements": kb.get("elements", []),
+                    "suggestedControls": [],
+                    "source": kb.get("source", "canonical")}
+        # ② SQLite 运行台账旧链路（六维详查，行为与 v1.7 一致）
+        with db() as conn:
+            r = conn.execute("SELECT * FROM entities WHERE type='InspectionCheck' AND status='published' "
+                             "AND dataJSON LIKE ?", (f'%"checkCode": "{check_code}"%',)).fetchone()
+            if not r:
+                return {"error": f"检查项不存在: {check_code}"}
+            d = json.loads(r["dataJSON"])
+            rels = json.loads(r["relationsJSON"])
+
+            def load_ent(eid):
+                er = conn.execute("SELECT dataJSON FROM entities WHERE id=?", (eid,)).fetchone()
+                return json.loads(er["dataJSON"]) if er else None
+
+            sc = []
+            for o in rels:
+                if o["p"] == "suggestsControl":
+                    p = load_ent(o["o"].split(":", 1)[1])
+                    if p:
+                        sc.append({"hint": p.get("controlCodeHint"), "name": p.get("controlName"),
+                                   "layer": p.get("suggestedLayer"), "status": p.get("alignmentStatus"),
+                                   "ctCode": p.get("ctCode"), "ctLayer": p.get("ctLayer")})
+            return {"checkCode": d.get("checkCode"), "title": d.get("title"),
+                    "domain": d.get("domain"), "priority": d.get("priority"),
+                    "regulation": d.get("regulation"), "articleNo": d.get("articleNo"),
+                    "citesClause": [o["o"] for o in rels if o["p"] == "citesClause"],
+                    "elements": [load_ent(o["o"].split(":", 1)[1]) for o in rels if o["p"] == "hasElement"],
+                    "suggestedControls": sc}
+
+    @mcp.tool()
+    def dsec_create_inspection_run(inspected_target: str, inspector: str,
+                                   assignees: str = "") -> dict:
+        """创建检查运行（可挂检查计划 planId、多人分工 assignees 逗号分隔）。"""
+        return inspection.create_run(inspected_target, inspector, "reviewer",
+                                     plan_id="", assignees=[a.strip() for a in assignees.split(",") if a.strip()])
+
+    @mcp.tool()
+    def dsec_record_check_result(run_id: str, check_code: str,
+                                 elements_json: str = "[]", metrics_json: str = "[]") -> dict:
+        """为运行记录某检查项结果（要素 L1/L4 + 度量实际值，阈值由符号引擎判定）。"""
+        try:
+            elements = json.loads(elements_json)
+            metrics = json.loads(metrics_json)
+        except json.JSONDecodeError as e:
+            return {"error": f"JSON 解析失败: {e}"}
+        try:
+            return inspection.record_result(run_id, check_code, elements, metrics, "reviewer")
+        except ValueError as e:
+            return {"error": str(e)}
+
+    @mcp.tool()
+    def dsec_inspection_ledger() -> dict:
+        """机构检查台账：计划 + 全部运行（结果汇总/证据/签署/下次复查）。"""
+        return ledger.get_ledger()
+
+    @mcp.tool()
+    def dsec_list_plans() -> dict:
+        """检查计划列表（周期/范围/负责人/覆盖检查项）。"""
+        return {"plans": ledger.list_plans()}
+
+    @mcp.tool()
+    def dsec_graph_backend() -> dict:
+        """当前图存储后端与三元组统计（memory/oxigraph/fuseki）。"""
+        return {"backend": graph_backend.current_backend(), "stats": graph_backend.stats()}
+
+    @mcp.tool()
+    def dsec_graph_sparql(query: str) -> dict:
+        """对图存储后端执行标准 SPARQL 查询（SELECT/ASK），返回 JSON 行。"""
+        if not query.strip():
+            return {"error": "query 必填"}
+        if query.lstrip().upper().startswith("ASK"):
+            return {"ask": graph_backend.ask(query)}
+        return {"rows": graph_backend.query(query)}
+
+    # ---- P1 新增：三路检索 / 四文号检查项 / 93问卷 / 法规带引用问答 ----
+    @mcp.tool()
+    def dsec_search(query: str, limit: int = 10) -> dict:
+        """平台三路融合检索：关键词 ILIKE + 向量(pgvector/TEI) + 图谱(Fuseki/PG) + RAG。
+        返回每条命中及其路由来源（keyword/vector/graph/rag）。"""
+        if not query.strip():
+            return {"error": "query 必填"}
+        res = db_kb.fused_search(query, limit=limit)
+        return {"query": query, "total": res.get("total"),
+                "results": res.get("results", [])}
+
+    @mcp.tool()
+    def dsec_checks_by_doc(doc_key: str, limit: int = 50) -> dict:
+        """按文号列出检查项：doc_key ∈ jg24/jg93/pboc3/jf8（读 PG inspection_check）。"""
+        if doc_key not in ("jg24", "jg93", "pboc3", "jf8"):
+            return {"error": "doc_key 仅支持 jg24/jg93/pboc3/jf8"}
+        prefix = {"jg93": "93-", "pboc3": "pb3-", "jf8": "jf8-"}.get(doc_key, "")
+        items = []
+        try:
+            import psycopg2
+            from app.config import KB_PG_DSN
+            conn = psycopg2.connect(KB_PG_DSN, connect_timeout=3)
+            cur = conn.cursor()
+            if doc_key == "jg24":
+                cur.execute(
+                    """SELECT check_code,title,domain,priority,article_no FROM inspection_check
+                       WHERE check_code NOT LIKE '93-%' AND check_code NOT LIKE 'pb3-%'
+                             AND check_code NOT LIKE 'jf8-%' ORDER BY check_code LIMIT %s""",
+                    (limit,))
+            else:
+                cur.execute(
+                    """SELECT check_code,title,domain,priority,article_no FROM inspection_check
+                       WHERE check_code LIKE %s ORDER BY check_code LIMIT %s""",
+                    (prefix + "%", limit))
+            for code, title, domain, prio, art in cur.fetchall():
+                items.append({"checkCode": code, "title": title, "domain": domain,
+                              "priority": prio, "articleNo": art})
+            conn.close()
+        except Exception as e:  # noqa: BLE001
+            return {"error": f"PG 不可达: {e}"}
+        return {"docKey": doc_key, "total": len(items), "items": items}
+
+    @mcp.tool()
+    def dsec_doc93_questionnaire(supervision_only: bool = False) -> dict:
+        """93号文合规自查问卷（139 细项，6大类→22小类），只读 PG 投影。"""
+        return doc93_questionnaire.run({"supervisionOnly": supervision_only})
+
+    @mcp.tool()
+    def dsec_law_qa(query: str, limit: int = 5) -> dict:
+        """法规原文带引用问答（TEI+pgvector）：返回 top-N 条款片段与文号/条号引用。"""
+        if not query.strip():
+            return {"error": "query 必填"}
+        return p1_lawqa.search(query, limit=limit)

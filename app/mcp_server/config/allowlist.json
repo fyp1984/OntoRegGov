@@ -1,0 +1,13 @@
+[
+  {
+    "key": "dsec-demo-2026",
+    "name": "平台演示账号",
+    "email": "dsec@example.local",
+    "org": "本体驱动监管治理平台",
+    "enabled": true,
+    "expires_at": "2027-12-31",
+    "rpm": 120,
+    "scope": ["dsec:read", "dsec:inspection:write"],
+    "note": "演示白名单 key；生产环境请更换并纳入密钥管理"
+  }
+]

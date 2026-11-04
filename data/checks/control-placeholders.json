@@ -1,0 +1,1544 @@
+{
+  "generated_at": "2026-10-03T02:08:48+08:00",
+  "convention": {
+    "single_source": "10_知识库工程 v1.5 CT 编码（CT-<层码>-序号，data/control-codes.csv）",
+    "note": "alignment.status=aligned 表示已按 control_name 认领并正式对齐 v1.5 权威控制（ct_code/ct_layer/base_control_id 均来自 control-codes.csv）；status=gap 表示 v1.5 无语义对应，保持需求缺口并附补建反馈。"
+  },
+  "stats": {
+    "controls": 48,
+    "aligned": 48,
+    "gap": 0,
+    "by_layer": {
+      "MGMT": 28,
+      "SVC": 14,
+      "NW": 3,
+      "EP": 2,
+      "PROTO": 1
+    },
+    "checks_covered": 116,
+    "checks_total": 116,
+    "coverage_ratio": 1.0,
+    "uncovered_checks": [],
+    "existing_controls_10proj": [
+      {
+        "id": "control-abac",
+        "title": "基于属性的访问控制（ABAC）"
+      },
+      {
+        "id": "control-access-approval-flow",
+        "title": "账号与权限申请审批流程"
+      },
+      {
+        "id": "control-accountability-assessment",
+        "title": "数据安全考核与问责"
+      },
+      {
+        "id": "control-anti-ddos",
+        "title": "抗 DDoS 与流量清洗"
+      },
+      {
+        "id": "control-api-security",
+        "title": "API 安全与 API 网关"
+      },
+      {
+        "id": "control-application-whitelist",
+        "title": "应用白名单 / 软件管控"
+      },
+      {
+        "id": "control-audit-rectification",
+        "title": "数据安全审计与自查整改"
+      },
+      {
+        "id": "control-backup-recovery",
+        "title": "数据备份与可恢复性"
+      },
+      {
+        "id": "control-browser-email-hardening",
+        "title": "浏览器与邮件客户端安全"
+      },
+      {
+        "id": "control-business-continuity",
+        "title": "业务连续性与容灾管理制度"
+      },
+      {
+        "id": "control-casb-sse",
+        "title": "云访问安全代理（CASB/SSE）"
+      },
+      {
+        "id": "control-cert-lifecycle",
+        "title": "数字证书全生命周期管理"
+      },
+      {
+        "id": "control-classification-grading-system",
+        "title": "数据分类分级管理制度（流程）"
+      },
+      {
+        "id": "control-classification-platform",
+        "title": "数据分类分级技术平台落地"
+      },
+      {
+        "id": "control-container-k8s",
+        "title": "容器镜像与 Kubernetes 安全"
+      },
+      {
+        "id": "control-cross-border-compliance",
+        "title": "数据出境合规管理"
+      },
+      {
+        "id": "control-crypto-evaluation",
+        "title": "商用密码应用安全性评估（密评）工作机制"
+      },
+      {
+        "id": "control-cspm",
+        "title": "云安全配置管理（CSPM）"
+      },
+      {
+        "id": "control-cwpp",
+        "title": "云工作负载保护（CWPP）"
+      },
+      {
+        "id": "control-data-asset-media",
+        "title": "数据资产与介质管理制度"
+      },
+      {
+        "id": "control-data-destruction",
+        "title": "数据销毁与加密粉碎管理制度"
+      },
+      {
+        "id": "control-data-lifecycle-system",
+        "title": "数据全生命周期安全管理制度"
+      },
+      {
+        "id": "control-data-security-accountability",
+        "title": "数据安全责任制与组织（三道防线）"
+      },
+      {
+        "id": "control-db-audit",
+        "title": "数据库审计与访问控制"
+      },
+      {
+        "id": "control-db-encryption",
+        "title": "数据库存储加密（TDE/列加密）"
+      },
+      {
+        "id": "control-db-firewall",
+        "title": "数据库防火墙（实时访问控制）"
+      },
+      {
+        "id": "control-db-hardening",
+        "title": "数据库安全配置基线与账号分离"
+      },
+      {
+        "id": "control-db-mq-encryption",
+        "title": "数据库与消息中间件加密传输"
+      },
+      {
+        "id": "control-disable-cleartext-protocols",
+        "title": "禁用明文与不安全通信协议并下线"
+      },
+      {
+        "id": "control-dmz-edge",
+        "title": "DMZ 与远程接入边界"
+      },
+      {
+        "id": "control-dns-security",
+        "title": "DNS 安全"
+      },
+      {
+        "id": "control-dynamic-masking",
+        "title": "动态脱敏与掩码服务"
+      },
+      {
+        "id": "control-edr-xdr-antivirus",
+        "title": "EDR/XDR 与防病毒"
+      },
+      {
+        "id": "control-email-transport-security",
+        "title": "邮件传输与发件伪造防护"
+      },
+      {
+        "id": "control-endpoint-dlp",
+        "title": "终端 DLP 数据防泄漏"
+      },
+      {
+        "id": "control-endpoint-hardening-baseline",
+        "title": "终端安全基线与加固"
+      },
+      {
+        "id": "control-endpoint-logging-ntp",
+        "title": "终端日志采集与时间同步"
+      },
+      {
+        "id": "control-endpoint-patch-management",
+        "title": "补丁与终端漏洞管理"
+      },
+      {
+        "id": "control-full-disk-encryption",
+        "title": "终端全盘加密（FDE）"
+      },
+      {
+        "id": "control-grading-based-protection",
+        "title": "基于分类分级的差异化管控"
+      },
+      {
+        "id": "control-guomi-comm",
+        "title": "国密通信协议合规（GM/T 0024等）"
+      },
+      {
+        "id": "control-host-firewall",
+        "title": "主机防火墙"
+      },
+      {
+        "id": "control-iam-4a",
+        "title": "统一身份与目录（IAM/4A）"
+      },
+      {
+        "id": "control-ids-ips",
+        "title": "IDS / IPS 入侵检测与防御"
+      },
+      {
+        "id": "control-illegal-egress-tethering",
+        "title": "非法外联与个人热点管控"
+      },
+      {
+        "id": "control-incident-reporting",
+        "title": "数据安全事件报告与通报"
+      },
+      {
+        "id": "control-incident-response",
+        "title": "数据安全应急响应预案与演练"
+      },
+      {
+        "id": "control-ipsec-vpn",
+        "title": "IPsec/VPN安全通信通道配置"
+      },
+      {
+        "id": "control-kms-hsm-service",
+        "title": "密钥管理服务化（KMS/HSM）"
+      },
+      {
+        "id": "control-least-privilege-sod",
+        "title": "最小权限与职责分离（SoD）"
+      },
+      {
+        "id": "control-link-redundancy-ha",
+        "title": "链路冗余与高可用"
+      },
+      {
+        "id": "control-local-auth-session-lock",
+        "title": "本地认证与屏锁/会话超时"
+      },
+      {
+        "id": "control-mdm-mobile-security",
+        "title": "移动设备管理 MDM 与移动安全"
+      },
+      {
+        "id": "control-mfa",
+        "title": "多因素认证（MFA）"
+      },
+      {
+        "id": "control-microsegmentation",
+        "title": "微隔离（东西向）"
+      },
+      {
+        "id": "control-mlps-mechanism",
+        "title": "网络安全等级保护工作机制"
+      },
+      {
+        "id": "control-mtls-authentication",
+        "title": "双向TLS（mTLS）身份认证"
+      },
+      {
+        "id": "control-nac-8021x",
+        "title": "网络准入控制 NAC（802.1X 端侧）"
+      },
+      {
+        "id": "control-ndr-traffic-analysis",
+        "title": "NDR 网络流量监测 / 全流量分析"
+      },
+      {
+        "id": "control-network-dlp",
+        "title": "网络 DLP 流量防泄漏"
+      },
+      {
+        "id": "control-network-segmentation",
+        "title": "网络分区与安全域隔离"
+      },
+      {
+        "id": "control-ngfw-access-control",
+        "title": "防火墙 / NGFW 访问控制"
+      },
+      {
+        "id": "control-oauth-oidc",
+        "title": "OAuth2/OIDC授权与令牌安全"
+      },
+      {
+        "id": "control-outsourcing-security",
+        "title": "外包与第三方服务商数据安全管理"
+      },
+      {
+        "id": "control-pam",
+        "title": "特权访问管理（PAM）"
+      },
+      {
+        "id": "control-personnel-security",
+        "title": "人员安全与保密管理（入转调离）"
+      },
+      {
+        "id": "control-pi-compliance",
+        "title": "个人信息保护合规制度"
+      },
+      {
+        "id": "control-port-service-minimization",
+        "title": "端口与服务最小开放（南北向）"
+      },
+      {
+        "id": "control-port-whitelist",
+        "title": "网络端口与服务最小暴露白名单"
+      },
+      {
+        "id": "control-privacy-computing-flow",
+        "title": "隐私计算/可信数据流通平台"
+      },
+      {
+        "id": "control-privileged-endpoint",
+        "title": "特权操作安全终端（运维终端管控）"
+      },
+      {
+        "id": "control-rbac",
+        "title": "基于角色的访问控制（RBAC）"
+      },
+      {
+        "id": "control-risk-assessment",
+        "title": "数据安全风险评估机制"
+      },
+      {
+        "id": "control-saml-federation",
+        "title": "SAML联邦身份联合登录"
+      },
+      {
+        "id": "control-sast-sca",
+        "title": "源代码安全与成分分析（SAST/SCA）"
+      },
+      {
+        "id": "control-sdl",
+        "title": "安全开发生命周期（SDL）"
+      },
+      {
+        "id": "control-security-awareness-training",
+        "title": "数据安全意识与技能培训"
+      },
+      {
+        "id": "control-siem-log-centralization",
+        "title": "日志集中与安全审计关联（SIEM 平台侧）"
+      },
+      {
+        "id": "control-ssh-hardening",
+        "title": "SSH远程管理安全加固"
+      },
+      {
+        "id": "control-sso",
+        "title": "单点登录（SSO）"
+      },
+      {
+        "id": "control-supply-chain-security",
+        "title": "供应链与采购安全管理"
+      },
+      {
+        "id": "control-tls-baseline",
+        "title": "TLS版本与密码套件安全基线"
+      },
+      {
+        "id": "control-transport-encryption",
+        "title": "传输加密（TLS / IPsec 链路）"
+      },
+      {
+        "id": "control-unified-network-auth",
+        "title": "统一网络身份认证协议（Kerberos/SSO）"
+      },
+      {
+        "id": "control-usb-peripheral-control",
+        "title": "USB 与外设管控"
+      },
+      {
+        "id": "control-vpn-access",
+        "title": "VPN 安全接入（IPSec / SSL）"
+      },
+      {
+        "id": "control-waf",
+        "title": "WAF Web 应用防火墙"
+      },
+      {
+        "id": "control-watermark-tracing",
+        "title": "数据水印与流转追踪"
+      },
+      {
+        "id": "control-wireless-security",
+        "title": "无线网络接入安全"
+      },
+      {
+        "id": "control-workload-identity-secret",
+        "title": "服务账号/机器身份与应用密钥管理"
+      },
+      {
+        "id": "control-ztna-sdp",
+        "title": "零信任 SDP / ZTNA"
+      }
+    ]
+  },
+  "controls": [
+    {
+      "control_name": "数据安全治理组织与责任体系",
+      "control_code_hint": "governance_org_responsibility",
+      "suggested_layer": "MGMT（v1.5 正式对齐）",
+      "control_type_hint": "职责流程",
+      "source_checks": [
+        "1.1",
+        "1.2",
+        "1.3",
+        "1.4",
+        "1.5",
+        "1.6",
+        "1.7",
+        "2.1",
+        "2.2",
+        "2.3",
+        "2.4",
+        "2.5"
+      ],
+      "article_refs": [
+        "§10",
+        "§11",
+        "§12",
+        "§13",
+        "§14",
+        "§9",
+        "§9、§11",
+        "§9、§14"
+      ],
+      "rationale": "由 1.1~2.5 检查党委/董事会主体责任、第一/直接责任人、归口部门七项职责、科技/业务/三道防线职责及实际履职证据推导，需一套贯通四层的责任制度与运作机制。",
+      "alignment": {
+        "status": "aligned",
+        "ct_code": "CT-MGMT-002",
+        "ct_layer": "MGMT",
+        "base_control_id": "control-data-security-accountability",
+        "base_control_title": "数据安全责任制与组织（三道防线）",
+        "note": "与 v1.5 权威控制『数据安全责任制与组织（三道防线）』正式对齐（CT-MGMT-002）"
+      }
+    },
+    {
+      "control_name": "违规问责与绩效考核机制",
+      "control_code_hint": "accountability_disciplinary",
+      "suggested_layer": "MGMT（v1.5 正式对齐）",
+      "control_type_hint": "制度规范",
+      "source_checks": [
+        "1.8",
+        "1.9"
+      ],
+      "article_refs": [
+        "§10"
+      ],
+      "rationale": "由 1.8 违规情形定义、责任追究条款与 1.9 问责流程运行、考核挂钩推导。",
+      "alignment": {
+        "status": "aligned",
+        "ct_code": "CT-MGMT-021",
+        "ct_layer": "MGMT",
+        "base_control_id": "control-accountability-assessment",
+        "base_control_title": "数据安全考核与问责",
+        "note": "与 v1.5 权威控制『数据安全考核与问责』正式对齐（CT-MGMT-021）"
+      }
+    },
+    {
+      "control_name": "数据安全培训与文化建设",
+      "control_code_hint": "security_awareness_training",
+      "suggested_layer": "MGMT（v1.5 正式对齐）",
+      "control_type_hint": "培训",
+      "source_checks": [
+        "3.1",
+        "3.2"
+      ],
+      "article_refs": [
+        "§15"
+      ],
+      "rationale": "由 3.1 年度培训计划、3.2 全员培训覆盖率≥80%、考核与知晓率推导。",
+      "alignment": {
+        "status": "aligned",
+        "ct_code": "CT-MGMT-007",
+        "ct_layer": "MGMT",
+        "base_control_id": "control-security-awareness-training",
+        "base_control_title": "数据安全意识与技能培训",
+        "note": "与 v1.5 权威控制『数据安全意识与技能培训』正式对齐（CT-MGMT-007）"
+      }
+    },
+    {
+      "control_name": "数据安全策略与制度体系",
+      "control_code_hint": "data_security_policy_framework",
+      "suggested_layer": "MGMT（v1.5 正式对齐）",
+      "control_type_hint": "制度规范",
+      "source_checks": [
+        "6.1",
+        "6.2"
+      ],
+      "article_refs": [
+        "§20"
+      ],
+      "rationale": "由 6.1 策略对标金规24号核心条款≥90%、6.2 管理办法覆盖全生命周期与责任分工推导。",
+      "alignment": {
+        "status": "aligned",
+        "ct_code": "CT-MGMT-004",
+        "ct_layer": "MGMT",
+        "base_control_id": "control-data-lifecycle-system",
+        "base_control_title": "数据全生命周期安全管理制度",
+        "note": "与 v1.5 权威控制『数据全生命周期安全管理制度』正式对齐（CT-MGMT-004）"
+      }
+    },
+    {
+      "control_name": "外部引入/合作共享/出境实施细则",
+      "control_code_hint": "cross_business_rules",
+      "suggested_layer": "MGMT（v1.5 正式对齐）",
+      "control_type_hint": "制度规范",
+      "source_checks": [
+        "6.3"
+      ],
+      "article_refs": [
+        "§20"
+      ],
+      "rationale": "由 6.3 三类高敏外部场景（引入/共享/出境）均需可操作细则与合同条款推导。",
+      "alignment": {
+        "status": "aligned",
+        "ct_code": "CT-MGMT-008",
+        "ct_layer": "MGMT",
+        "base_control_id": "control-outsourcing-security",
+        "base_control_title": "外包与第三方服务商数据安全管理",
+        "note": "与 v1.5 权威控制『外包与第三方服务商数据安全管理』正式对齐（CT-MGMT-008）"
+      }
+    },
+    {
+      "control_name": "数据分类分级制度与分级标准",
+      "control_code_hint": "classification_policy",
+      "suggested_layer": "MGMT（v1.5 正式对齐）",
+      "control_type_hint": "制度规范",
+      "source_checks": [
+        "4.1",
+        "4.3",
+        "4.4",
+        "5.3"
+      ],
+      "article_refs": [
+        "§16",
+        "§17",
+        "§18",
+        "§19"
+      ],
+      "rationale": "由 4.1 分类分级制度、4.3 覆盖§17四类数据、4.4 四级标准映射、5.3 动态调整审批推导。",
+      "alignment": {
+        "status": "aligned",
+        "ct_code": "CT-MGMT-003",
+        "ct_layer": "MGMT",
+        "base_control_id": "control-classification-grading-system",
+        "base_control_title": "数据分类分级管理制度（流程）",
+        "note": "与 v1.5 权威控制『数据分类分级管理制度（流程）』正式对齐（CT-MGMT-003）"
+      }
+    },
+    {
+      "control_name": "数据目录与资产登记/资产地图",
+      "control_code_hint": "data_catalog_inventory",
+      "suggested_layer": "MGMT（v1.5 正式对齐）",
+      "control_type_hint": "证据留痕",
+      "source_checks": [
+        "4.2",
+        "5.1",
+        "7.1",
+        "15.1"
+      ],
+      "article_refs": [
+        "§16",
+        "§21",
+        "§41"
+      ],
+      "rationale": "由 4.2 数据目录覆盖率、5.1 目录动态维护、7.1 企业级数据架构/资产地图、15.1 影子数据排查推导。",
+      "alignment": {
+        "status": "aligned",
+        "ct_code": "CT-MGMT-018",
+        "ct_layer": "MGMT",
+        "base_control_id": "control-data-asset-media",
+        "base_control_title": "数据资产与介质管理制度",
+        "note": "与 v1.5 权威控制『数据资产与介质管理制度』正式对齐（CT-MGMT-018）"
+      }
+    },
+    {
+      "control_name": "差异化分级保护策略矩阵",
+      "control_code_hint": "tiered_protection_matrix",
+      "suggested_layer": "MGMT（v1.5 正式对齐）",
+      "control_type_hint": "制度规范",
+      "source_checks": [
+        "5.2",
+        "7.2",
+        "14.1"
+      ],
+      "article_refs": [
+        "§16",
+        "§21",
+        "§39"
+      ],
+      "rationale": "由 5.2 按级别配置加密/脱敏/访问/导出/销毁≥5维矩阵、7.2 保护与分级结果挂钩、14.1 技术保护体系按数据等级覆盖（核心100%/重要≥90%）推导。",
+      "alignment": {
+        "status": "aligned",
+        "ct_code": "CT-MGMT-001",
+        "ct_layer": "MGMT",
+        "base_control_id": "control-grading-based-protection",
+        "base_control_title": "基于分类分级的差异化管控",
+        "note": "与 v1.5 权威控制『基于分类分级的差异化管控』正式对齐（CT-MGMT-001）"
+      }
+    },
+    {
+      "control_name": "数据汇聚后级别重评估",
+      "control_code_hint": "aggregation_reclassification",
+      "suggested_layer": "MGMT（v1.5 正式对齐）",
+      "control_type_hint": "风险评估",
+      "source_checks": [
+        "9.2",
+        "15.3"
+      ],
+      "article_refs": [
+        "§26",
+        "§41"
+      ],
+      "rationale": "由 9.2 汇聚场景级别重评、15.3 多源汇聚加强措施推导。",
+      "alignment": {
+        "status": "aligned",
+        "ct_code": "CT-MGMT-003",
+        "ct_layer": "MGMT",
+        "base_control_id": "control-classification-grading-system",
+        "base_control_title": "数据分类分级管理制度（流程）",
+        "note": "与 v1.5 权威控制『数据分类分级管理制度（流程）』正式对齐（CT-MGMT-003）"
+      }
+    },
+    {
+      "control_name": "数据安全风险评估",
+      "control_code_hint": "data_risk_assessment",
+      "suggested_layer": "MGMT（v1.5 正式对齐）",
+      "control_type_hint": "风险评估",
+      "source_checks": [
+        "7.3",
+        "21.3"
+      ],
+      "article_refs": [
+        "§22",
+        "§65"
+      ],
+      "rationale": "由 7.3 涉敏业务活动评估、21.3 年度风险评估覆盖核心资产推导。",
+      "alignment": {
+        "status": "aligned",
+        "ct_code": "CT-MGMT-020",
+        "ct_layer": "MGMT",
+        "base_control_id": "control-risk-assessment",
+        "base_control_title": "数据安全风险评估机制",
+        "note": "与 v1.5 权威控制『数据安全风险评估机制』正式对齐（CT-MGMT-020）"
+      }
+    },
+    {
+      "control_name": "年度审计与整改闭环",
+      "control_code_hint": "audit_remediation_loop",
+      "suggested_layer": "MGMT（v1.5 正式对齐）",
+      "control_type_hint": "监测审计",
+      "source_checks": [
+        "1.7",
+        "2.4",
+        "21.3",
+        "21.4"
+      ],
+      "article_refs": [
+        "§13",
+        "§65"
+      ],
+      "rationale": "由 1.7/2.4 三道防线审计、21.3 年度+三年周期全面审计、整改闭环率与 21.4 审计独立性推导。",
+      "alignment": {
+        "status": "aligned",
+        "ct_code": "CT-MGMT-015",
+        "ct_layer": "MGMT",
+        "base_control_id": "control-audit-rectification",
+        "base_control_title": "数据安全审计与自查整改",
+        "note": "与 v1.5 权威控制『数据安全审计与自查整改』正式对齐（CT-MGMT-015）"
+      }
+    },
+    {
+      "control_name": "数据安全监测告警运营",
+      "control_code_hint": "security_monitoring_ops",
+      "suggested_layer": "SVC（v1.5 正式对齐）",
+      "control_type_hint": "监测审计",
+      "source_checks": [
+        "21.1",
+        "21.2"
+      ],
+      "article_refs": [
+        "§64"
+      ],
+      "rationale": "由 21.1 7×24监测组织与报告时限、21.2 监测覆盖率与告警闭环（高危≤1h）推导。",
+      "alignment": {
+        "status": "aligned",
+        "ct_code": "CT-SVC-023",
+        "ct_layer": "SVC",
+        "base_control_id": "control-siem-log-centralization",
+        "base_control_title": "日志集中与安全审计关联（SIEM 平台侧）",
+        "note": "与 v1.5 权威控制『日志集中与安全审计关联（SIEM 平台侧）』正式对齐（CT-SVC-023）"
+      }
+    },
+    {
+      "control_name": "应急响应与事件分级演练",
+      "control_code_hint": "incident_response_emergency",
+      "suggested_layer": "MGMT（v1.5 正式对齐）",
+      "control_type_hint": "应急与整改",
+      "source_checks": [
+        "22.1",
+        "22.2",
+        "22.3",
+        "17.8"
+      ],
+      "article_refs": [
+        "§52",
+        "§66",
+        "§66 §68 §69",
+        "§67"
+      ],
+      "rationale": "由 22.1 事件四级分级、22.2 应急体系与8小时上报、22.3 预案演练、17.8 AI威胁应急推导。",
+      "alignment": {
+        "status": "aligned",
+        "ct_code": "CT-MGMT-012",
+        "ct_layer": "MGMT",
+        "base_control_id": "control-incident-response",
+        "base_control_title": "数据安全应急响应预案与演练",
+        "note": "与 v1.5 权威控制『数据安全应急响应预案与演练』正式对齐（CT-MGMT-012）"
+      }
+    },
+    {
+      "control_name": "数据收集最小必要与清单",
+      "control_code_hint": "collection_minimization",
+      "suggested_layer": "MGMT（建议，待 v1.5 补建）",
+      "control_type_hint": "制度规范",
+      "source_checks": [
+        "8.1",
+        "8.2",
+        "19.2"
+      ],
+      "article_refs": [
+        "§23",
+        "§54"
+      ],
+      "rationale": "由 8.1 收集目的方式范围告知、8.2 超范围收集/SDK合规、19.2 个人信息最小字段推导。",
+      "alignment": {
+        "status": "aligned",
+        "ct_code": "CT-MGMT-034",
+        "ct_layer": "MGMT",
+        "base_control_id": "control-data-collection-minimization",
+        "base_control_title": "数据收集最小必要与清单",
+        "note": "由 scripts/align_controls.py 自动对齐（csv 权威登记 + 层/依据/唯一性校验）"
+      }
+    },
+    {
+      "control_name": "行业重要数据识别与收集审批",
+      "control_code_hint": "important_data_collection_approval",
+      "suggested_layer": "MGMT（建议，待 v1.5 补建）",
+      "control_type_hint": "制度规范",
+      "source_checks": [
+        "8.3"
+      ],
+      "article_refs": [
+        "§24"
+      ],
+      "rationale": "由 8.3 行业重要数据识别与总局同意审批推导。",
+      "alignment": {
+        "status": "aligned",
+        "ct_code": "CT-MGMT-029",
+        "ct_layer": "MGMT",
+        "base_control_id": "control-industry-important-data-approval",
+        "base_control_title": "行业重要数据识别与收集审批",
+        "note": "由 scripts/align_controls.py 自动对齐（csv 权威登记 + 层/依据/唯一性校验）"
+      }
+    },
+    {
+      "control_name": "供应商与外包风险管理",
+      "control_code_hint": "vendor_supplier_risk",
+      "suggested_layer": "MGMT（v1.5 正式对齐）",
+      "control_type_hint": "供应商管理",
+      "source_checks": [
+        "8.5",
+        "8.6",
+        "11.5",
+        "11.6"
+      ],
+      "article_refs": [
+        "§25",
+        "§34"
+      ],
+      "rationale": "由 8.5/8.6 外部数据采购集中审批与供应商准入复评、11.5 委托纳入外包与集中度、11.6 供应链敏感数据准入推导。",
+      "alignment": {
+        "status": "aligned",
+        "ct_code": "CT-MGMT-008",
+        "ct_layer": "MGMT",
+        "base_control_id": "control-outsourcing-security",
+        "base_control_title": "外包与第三方服务商数据安全管理",
+        "note": "与 v1.5 权威控制『外包与第三方服务商数据安全管理』正式对齐（CT-MGMT-008）"
+      }
+    },
+    {
+      "control_name": "委托处理合同条款管理",
+      "control_code_hint": "processing_contract_terms",
+      "suggested_layer": "MGMT（v1.5 正式对齐）",
+      "control_type_hint": "合同/法律",
+      "source_checks": [
+        "11.1",
+        "11.2",
+        "11.4",
+        "20.5"
+      ],
+      "article_refs": [
+        "§33",
+        "§58"
+      ],
+      "rationale": "由 11.1/11.2 合同六要素、11.4 受托方三不得、20.5 个保合同六要素推导。",
+      "alignment": {
+        "status": "aligned",
+        "ct_code": "CT-MGMT-008",
+        "ct_layer": "MGMT",
+        "base_control_id": "control-outsourcing-security",
+        "base_control_title": "外包与第三方服务商数据安全管理",
+        "note": "与 v1.5 权威控制『外包与第三方服务商数据安全管理』正式对齐（CT-MGMT-008）"
+      }
+    },
+    {
+      "control_name": "受托方与共同处理监督",
+      "control_code_hint": "processor_oversight_audit",
+      "suggested_layer": "MGMT（v1.5 正式对齐）",
+      "control_type_hint": "供应商管理",
+      "source_checks": [
+        "11.3",
+        "11.7",
+        "20.6"
+      ],
+      "article_refs": [
+        "§33",
+        "§35",
+        "§58"
+      ],
+      "rationale": "由 11.3 委托处理记录与年度审计、11.7 共同处理最小授权、20.6 受托人定期审查推导。",
+      "alignment": {
+        "status": "aligned",
+        "ct_code": "CT-MGMT-008",
+        "ct_layer": "MGMT",
+        "base_control_id": "control-outsourcing-security",
+        "base_control_title": "外包与第三方服务商数据安全管理",
+        "note": "与 v1.5 权威控制『外包与第三方服务商数据安全管理』正式对齐（CT-MGMT-008）"
+      }
+    },
+    {
+      "control_name": "数据共享集中管控",
+      "control_code_hint": "data_sharing_governance",
+      "suggested_layer": "MGMT（建议，待 v1.5 补建）",
+      "control_type_hint": "制度规范",
+      "source_checks": [
+        "10.1",
+        "10.2"
+      ],
+      "article_refs": [
+        "§29",
+        "§30"
+      ],
+      "rationale": "由 10.1 共享台账与审批/加密/脱敏、10.2 共享必要性合规安全伦理四维评估推导。",
+      "alignment": {
+        "status": "aligned",
+        "ct_code": "CT-MGMT-035",
+        "ct_layer": "MGMT",
+        "base_control_id": "control-data-sharing-centralized",
+        "base_control_title": "数据共享集中管控",
+        "note": "由 scripts/align_controls.py 自动对齐（csv 权威登记 + 层/依据/唯一性校验）"
+      }
+    },
+    {
+      "control_name": "母子公司与跨主体流动管控",
+      "control_code_hint": "affiliate_data_firewall",
+      "suggested_layer": "MGMT（建议，待 v1.5 补建）",
+      "control_type_hint": "制度规范",
+      "source_checks": [
+        "10.3",
+        "12.4",
+        "20.3"
+      ],
+      "article_refs": [
+        "§31",
+        "§36",
+        "§55, §58"
+      ],
+      "rationale": "由 10.3 母子公司数据隔离审批、12.4 核心数据跨主体评估审查、20.3 共享第三方名单告知推导。",
+      "alignment": {
+        "status": "aligned",
+        "ct_code": "CT-MGMT-030",
+        "ct_layer": "MGMT",
+        "base_control_id": "control-cross-entity-data-flow",
+        "base_control_title": "母子公司与跨主体流动管控",
+        "note": "由 scripts/align_controls.py 自动对齐（csv 权威登记 + 层/依据/唯一性校验）"
+      }
+    },
+    {
+      "control_name": "个人信息告知同意与PIA合规",
+      "control_code_hint": "privacy_notice_consent_pia",
+      "suggested_layer": "MGMT（v1.5 正式对齐）",
+      "control_type_hint": "制度规范",
+      "source_checks": [
+        "19.3",
+        "19.4",
+        "20.1",
+        "20.2",
+        "10.4"
+      ],
+      "article_refs": [
+        "§32",
+        "§55",
+        "§56",
+        "§57",
+        "§60"
+      ],
+      "rationale": "由 19.3 完整告知、19.4 处理规则公开、20.1 撤回同意即停处理、20.2 PIA、10.4 拒绝同意不拒服务推导。",
+      "alignment": {
+        "status": "aligned",
+        "ct_code": "CT-MGMT-011",
+        "ct_layer": "MGMT",
+        "base_control_id": "control-pi-compliance",
+        "base_control_title": "个人信息保护合规制度",
+        "note": "与 v1.5 权威控制『个人信息保护合规制度』正式对齐（CT-MGMT-011）"
+      }
+    },
+    {
+      "control_name": "对外公开披露审批",
+      "control_code_hint": "public_disclosure_approval",
+      "suggested_layer": "MGMT（建议，待 v1.5 补建）",
+      "control_type_hint": "制度规范",
+      "source_checks": [
+        "12.5"
+      ],
+      "article_refs": [
+        "§37"
+      ],
+      "rationale": "由 12.5 公开披露审批、安全评估与台账推导。",
+      "alignment": {
+        "status": "aligned",
+        "ct_code": "CT-MGMT-031",
+        "ct_layer": "MGMT",
+        "base_control_id": "control-public-disclosure-approval",
+        "base_control_title": "对外公开披露审批",
+        "note": "由 scripts/align_controls.py 自动对齐（csv 权威登记 + 层/依据/唯一性校验）"
+      }
+    },
+    {
+      "control_name": "数据出境安全评估",
+      "control_code_hint": "cross_border_transfer_assessment",
+      "suggested_layer": "MGMT（v1.5 正式对齐）",
+      "control_type_hint": "风险评估",
+      "source_checks": [
+        "12.6",
+        "20.4"
+      ],
+      "article_refs": [
+        "§37",
+        "§59"
+      ],
+      "rationale": "由 12.6 跨境安全评估与持续监控、20.4 跨境告知与行权方式推导。",
+      "alignment": {
+        "status": "aligned",
+        "ct_code": "CT-MGMT-010",
+        "ct_layer": "MGMT",
+        "base_control_id": "control-cross-border-compliance",
+        "base_control_title": "数据出境合规管理",
+        "note": "与 v1.5 权威控制『数据出境合规管理』正式对齐（CT-MGMT-010）"
+      }
+    },
+    {
+      "control_name": "数据转移与终止删除",
+      "control_code_hint": "data_transfer_deletion",
+      "suggested_layer": "MGMT（v1.5 正式对齐）",
+      "control_type_hint": "证据留痕",
+      "source_checks": [
+        "12.1",
+        "13.4"
+      ],
+      "article_refs": [
+        "§36",
+        "§38"
+      ],
+      "rationale": "由 12.1 合并分立解散转移协议与验证、13.4 委托终止删除与现场核查推导。",
+      "alignment": {
+        "status": "aligned",
+        "ct_code": "CT-MGMT-019",
+        "ct_layer": "MGMT",
+        "base_control_id": "control-data-destruction",
+        "base_control_title": "数据销毁与加密粉碎管理制度",
+        "note": "与 v1.5 权威控制『数据销毁与加密粉碎管理制度』正式对齐（CT-MGMT-019）"
+      }
+    },
+    {
+      "control_name": "数据保留期限与销毁制度",
+      "control_code_hint": "retention_destruction_policy",
+      "suggested_layer": "MGMT（v1.5 正式对齐）",
+      "control_type_hint": "制度规范",
+      "source_checks": [
+        "13.3",
+        "15.10"
+      ],
+      "article_refs": [
+        "§38",
+        "§45"
+      ],
+      "rationale": "由 13.3 销毁条件/流程/方法/记录、15.10 到期数据删除超期占比0%推导。",
+      "alignment": {
+        "status": "aligned",
+        "ct_code": "CT-MGMT-019",
+        "ct_layer": "MGMT",
+        "base_control_id": "control-data-destruction",
+        "base_control_title": "数据销毁与加密粉碎管理制度",
+        "note": "与 v1.5 权威控制『数据销毁与加密粉碎管理制度』正式对齐（CT-MGMT-019）"
+      }
+    },
+    {
+      "control_name": "企业级数据服务管理",
+      "control_code_hint": "data_service_management",
+      "suggested_layer": "MGMT（建议，待 v1.5 补建）",
+      "control_type_hint": "职责流程",
+      "source_checks": [
+        "7.4"
+      ],
+      "article_refs": [
+        "§22"
+      ],
+      "rationale": "由 7.4 数据服务集中率≥70%、专职团队与响应时效推导。",
+      "alignment": {
+        "status": "aligned",
+        "ct_code": "CT-MGMT-036",
+        "ct_layer": "MGMT",
+        "base_control_id": "control-enterprise-data-service-mgmt",
+        "base_control_title": "企业级数据服务管理",
+        "note": "由 scripts/align_controls.py 自动对齐（csv 权威登记 + 层/依据/唯一性校验）"
+      }
+    },
+    {
+      "control_name": "AI/模型全生命周期治理",
+      "control_code_hint": "ai_model_governance",
+      "suggested_layer": "MGMT（建议，待 v1.5 补建）",
+      "control_type_hint": "制度规范",
+      "source_checks": [
+        "17.1",
+        "17.2",
+        "17.3",
+        "17.4",
+        "17.5",
+        "17.6",
+        "17.7",
+        "20.8",
+        "20.9"
+      ],
+      "article_refs": [
+        "§50",
+        "§51",
+        "§52",
+        "§57"
+      ],
+      "rationale": "由 17.1/17.5/20.9 算法公平可解释与申诉、17.2 模型准入、17.3 版本可追溯、17.6 模型监测、17.7 退出缓释、20.8 训练数据脱敏、17.4 投用前审查推导。",
+      "alignment": {
+        "status": "aligned",
+        "ct_code": "CT-MGMT-032",
+        "ct_layer": "MGMT",
+        "base_control_id": "control-ai-model-lifecycle-governance",
+        "base_control_title": "AI/模型全生命周期治理",
+        "note": "由 scripts/align_controls.py 自动对齐（csv 权威登记 + 层/依据/唯一性校验）"
+      }
+    },
+    {
+      "control_name": "SDLC数据安全左移",
+      "control_code_hint": "sdlc_data_security",
+      "suggested_layer": "SVC（v1.5 正式对齐）",
+      "control_type_hint": "职责流程",
+      "source_checks": [
+        "1.5",
+        "14.2",
+        "16.2",
+        "16.3"
+      ],
+      "article_refs": [
+        "§14",
+        "§39",
+        "§48"
+      ],
+      "rationale": "由 1.5 技术全生命周期职责、14.2 SDLC数据安全章节、16.2 需求安全章节、16.3 投产前安全测试推导。",
+      "alignment": {
+        "status": "aligned",
+        "ct_code": "CT-SVC-010",
+        "ct_layer": "SVC",
+        "base_control_id": "control-sdl",
+        "base_control_title": "安全开发生命周期（SDL）",
+        "note": "与 v1.5 权威控制『安全开发生命周期（SDL）』正式对齐（CT-SVC-010）"
+      }
+    },
+    {
+      "control_name": "等保关基密评合规",
+      "control_code_hint": "mlps_critical_system_compliance",
+      "suggested_layer": "MGMT（v1.5 正式对齐）",
+      "control_type_hint": "合规",
+      "source_checks": [
+        "9.5",
+        "14.3"
+      ],
+      "article_refs": [
+        "§28",
+        "§39"
+      ],
+      "rationale": "由 9.5 互联网系统等保/关基/密评、14.3 等保纳入数据安全控制项推导。",
+      "alignment": {
+        "status": "aligned",
+        "ct_code": "CT-MGMT-016",
+        "ct_layer": "MGMT",
+        "base_control_id": "control-mlps-mechanism",
+        "base_control_title": "网络安全等级保护工作机制",
+        "note": "与 v1.5 权威控制『网络安全等级保护工作机制』正式对齐（CT-MGMT-016）"
+      }
+    },
+    {
+      "control_name": "数据访问权限生命周期管理",
+      "control_code_hint": "access_rights_lifecycle",
+      "suggested_layer": "MGMT（v1.5 正式对齐）",
+      "control_type_hint": "访问控制",
+      "source_checks": [
+        "9.3",
+        "15.4"
+      ],
+      "article_refs": [
+        "§27",
+        "§42"
+      ],
+      "rationale": "由 9.3 权限申请-审批-回收闭环与年度复核、15.4 RBAC/ABAC最小权限与离职回收≤1工作日推导。",
+      "alignment": {
+        "status": "aligned",
+        "ct_code": "CT-MGMT-005",
+        "ct_layer": "MGMT",
+        "base_control_id": "control-access-approval-flow",
+        "base_control_title": "账号与权限申请审批流程",
+        "note": "与 v1.5 权威控制『账号与权限申请审批流程』正式对齐（CT-MGMT-005）"
+      }
+    },
+    {
+      "control_name": "特权账号高权访问管控(PAM)",
+      "control_code_hint": "privileged_access_management",
+      "suggested_layer": "SVC（v1.5 正式对齐）",
+      "control_type_hint": "访问控制",
+      "source_checks": [
+        "15.4"
+      ],
+      "article_refs": [
+        "§42"
+      ],
+      "rationale": "由 15.4 特权账号额外管控、高权账号≤必要最小推导。",
+      "alignment": {
+        "status": "aligned",
+        "ct_code": "CT-SVC-001",
+        "ct_layer": "SVC",
+        "base_control_id": "control-pam",
+        "base_control_title": "特权访问管理（PAM）",
+        "note": "与 v1.5 权威控制『特权访问管理（PAM）』正式对齐（CT-SVC-001）"
+      }
+    },
+    {
+      "control_name": "敏感数据操作审计日志留存",
+      "control_code_hint": "data_access_audit_logging",
+      "suggested_layer": "SVC（v1.5 正式对齐）",
+      "control_type_hint": "监测审计",
+      "source_checks": [
+        "9.3",
+        "15.5",
+        "11.3"
+      ],
+      "article_refs": [
+        "§27",
+        "§33",
+        "§43"
+      ],
+      "rationale": "由 9.3 访问审计、15.5 日志四要素/核心数据留存≥3年/防篡改/半年审计、11.3 委托行为审计推导。",
+      "alignment": {
+        "status": "aligned",
+        "ct_code": "CT-SVC-002",
+        "ct_layer": "SVC",
+        "base_control_id": "control-db-audit",
+        "base_control_title": "数据库审计与访问控制",
+        "note": "与 v1.5 权威控制『数据库审计与访问控制』正式对齐（CT-SVC-002）"
+      }
+    },
+    {
+      "control_name": "敏感数据加密存储与密钥管理",
+      "control_code_hint": "encryption_at_rest_key_mgmt",
+      "suggested_layer": "SVC（v1.5 正式对齐）",
+      "control_type_hint": "加密与脱敏",
+      "source_checks": [
+        "15.7",
+        "15.8",
+        "13.1"
+      ],
+      "article_refs": [
+        "§38",
+        "§45"
+      ],
+      "rationale": "由 15.7 敏感字段加密存储/密钥管理、15.8 密码哈希加盐与敏感字段加密、13.1 备份加密推导。",
+      "alignment": {
+        "status": "aligned",
+        "ct_code": "CT-SVC-016",
+        "ct_layer": "SVC",
+        "base_control_id": "control-db-encryption",
+        "base_control_title": "数据库存储加密（TDE/列加密）",
+        "note": "与 v1.5 权威控制『数据库存储加密（TDE/列加密）』正式对齐（CT-SVC-016）"
+      }
+    },
+    {
+      "control_name": "数据脱敏与匿名化",
+      "control_code_hint": "masking_anonymization",
+      "suggested_layer": "SVC（v1.5 正式对齐）",
+      "control_type_hint": "加密与脱敏",
+      "source_checks": [
+        "9.1",
+        "15.8",
+        "16.4",
+        "20.8"
+      ],
+      "article_refs": [
+        "§26",
+        "§45",
+        "§49",
+        "§57"
+      ],
+      "rationale": "由 9.1 加工脱敏规则覆盖与效果验证、15.8 页面/API/日志脱敏、16.4 测试数据脱敏、20.8 训练数据脱敏推导。",
+      "alignment": {
+        "status": "aligned",
+        "ct_code": "CT-SVC-017",
+        "ct_layer": "SVC",
+        "base_control_id": "control-dynamic-masking",
+        "base_control_title": "动态脱敏与掩码服务",
+        "note": "与 v1.5 权威控制『动态脱敏与掩码服务』正式对齐（CT-SVC-017）"
+      }
+    },
+    {
+      "control_name": "备份容灾与恢复演练",
+      "control_code_hint": "backup_recovery_dr",
+      "suggested_layer": "SVC（v1.5 正式对齐）",
+      "control_type_hint": "应急与整改",
+      "source_checks": [
+        "13.1",
+        "13.2",
+        "15.9"
+      ],
+      "article_refs": [
+        "§38",
+        "§45"
+      ],
+      "rationale": "由 13.1 备份隔离加密、13.2 备份验证、15.9 容灾RPO/RTO与年度恢复演练推导。",
+      "alignment": {
+        "status": "aligned",
+        "ct_code": "CT-SVC-024",
+        "ct_layer": "SVC",
+        "base_control_id": "control-backup-recovery",
+        "base_control_title": "数据备份与可恢复性",
+        "note": "与 v1.5 权威控制『数据备份与可恢复性』正式对齐（CT-SVC-024）"
+      }
+    },
+    {
+      "control_name": "生产数据提取审批管控",
+      "control_code_hint": "production_data_extraction",
+      "suggested_layer": "SVC（建议，待 v1.5 补建）",
+      "control_type_hint": "访问控制",
+      "source_checks": [
+        "9.4"
+      ],
+      "article_refs": [
+        "§28"
+      ],
+      "rationale": "由 9.4 生产数据提取审批、用途期限、到期7天内清理推导。",
+      "alignment": {
+        "status": "aligned",
+        "ct_code": "CT-SVC-037",
+        "ct_layer": "SVC",
+        "base_control_id": "control-prod-data-extraction-approval",
+        "base_control_title": "生产数据提取审批管控",
+        "note": "由 scripts/align_controls.py 自动对齐（csv 权威登记 + 层/依据/唯一性校验）"
+      }
+    },
+    {
+      "control_name": "测试与生产环境隔离",
+      "control_code_hint": "test_prod_isolation",
+      "suggested_layer": "SVC（建议，待 v1.5 补建）",
+      "control_type_hint": "技术配置",
+      "source_checks": [
+        "16.4"
+      ],
+      "article_refs": [
+        "§49"
+      ],
+      "rationale": "由 16.4 测试环境网络隔离、开发不可访问生产、测试数据脱敏推导。",
+      "alignment": {
+        "status": "aligned",
+        "ct_code": "CT-SVC-034",
+        "ct_layer": "SVC",
+        "base_control_id": "control-test-prod-env-isolation",
+        "base_control_title": "测试与生产环境隔离",
+        "note": "由 scripts/align_controls.py 自动对齐（csv 权威登记 + 层/依据/唯一性校验）"
+      }
+    },
+    {
+      "control_name": "统一安全组件服务平台",
+      "control_code_hint": "shared_security_components_platform",
+      "suggested_layer": "SVC（建议，待 v1.5 补建）",
+      "control_type_hint": "技术配置",
+      "source_checks": [
+        "16.1"
+      ],
+      "article_refs": [
+        "§47"
+      ],
+      "rationale": "由 16.1 统一IAM/脱敏组件/行为监测/集中日志审计可被业务调用推导。",
+      "alignment": {
+        "status": "aligned",
+        "ct_code": "CT-SVC-035",
+        "ct_layer": "SVC",
+        "base_control_id": "control-unified-security-component-platform",
+        "base_control_title": "统一安全组件服务平台",
+        "note": "由 scripts/align_controls.py 自动对齐（csv 权威登记 + 层/依据/唯一性校验）"
+      }
+    },
+    {
+      "control_name": "大数据平台加固与细粒度授权",
+      "control_code_hint": "bigdata_platform_hardening",
+      "suggested_layer": "SVC（v1.5 正式对齐）",
+      "control_type_hint": "技术配置",
+      "source_checks": [
+        "16.5",
+        "15.3"
+      ],
+      "article_refs": [
+        "§41",
+        "§49"
+      ],
+      "rationale": "由 16.5 大数据平台高可用/加固/备份、15.3 汇聚平台行列级权限与最小全量访问人数推导。",
+      "alignment": {
+        "status": "aligned",
+        "ct_code": "CT-SVC-014",
+        "ct_layer": "SVC",
+        "base_control_id": "control-db-hardening",
+        "base_control_title": "数据库安全配置基线与账号分离",
+        "note": "与 v1.5 权威控制『数据库安全配置基线与账号分离』正式对齐（CT-SVC-014）"
+      }
+    },
+    {
+      "control_name": "数据收集系统安全防护",
+      "control_code_hint": "collection_system_protection",
+      "suggested_layer": "SVC（建议，待 v1.5 补建）",
+      "control_type_hint": "技术配置",
+      "source_checks": [
+        "8.4"
+      ],
+      "article_refs": [
+        "§25"
+      ],
+      "rationale": "由 8.4 收集接口HTTPS、收集操作审计日志、可用性≥99.9%推导。",
+      "alignment": {
+        "status": "aligned",
+        "ct_code": "CT-SVC-036",
+        "ct_layer": "SVC",
+        "base_control_id": "control-collection-system-protection",
+        "base_control_title": "数据收集系统安全防护",
+        "note": "由 scripts/align_controls.py 自动对齐（csv 权威登记 + 层/依据/唯一性校验）"
+      }
+    },
+    {
+      "control_name": "敏感数据传输加密与完整性",
+      "control_code_hint": "secure_data_transmission",
+      "suggested_layer": "NW（v1.5 正式对齐）",
+      "control_type_hint": "加密与脱敏",
+      "source_checks": [
+        "8.4",
+        "9.5",
+        "12.2",
+        "14.5",
+        "15.6",
+        "20.7",
+        "10.1",
+        "15.2"
+      ],
+      "article_refs": [
+        "§25",
+        "§28",
+        "§29",
+        "§36",
+        "§40",
+        "§41",
+        "§44",
+        "§58"
+      ],
+      "rationale": "由 8.4/9.5/15.6 TLS1.2+、12.2 转移加密校验、14.5 敏感传输加密、20.7 第三方传输专线/VPN、10.1 外部共享加密、15.2 跨域流转保护一致推导。",
+      "alignment": {
+        "status": "aligned",
+        "ct_code": "CT-NW-012",
+        "ct_layer": "NW",
+        "base_control_id": "control-transport-encryption",
+        "base_control_title": "传输加密（TLS / IPsec 链路）",
+        "note": "与 v1.5 权威控制『传输加密（TLS / IPsec 链路）』正式对齐（CT-NW-012）"
+      }
+    },
+    {
+      "control_name": "网络安全域与边界防护",
+      "control_code_hint": "network_zone_boundary_protection",
+      "suggested_layer": "NW（v1.5 正式对齐）",
+      "control_type_hint": "技术配置",
+      "source_checks": [
+        "14.4",
+        "14.6"
+      ],
+      "article_refs": [
+        "§40"
+      ],
+      "rationale": "由 14.4 安全域划分与域间访问策略、14.6 边界FW/IDS/IPS与日志集中推导。",
+      "alignment": {
+        "status": "aligned",
+        "ct_code": "CT-NW-001",
+        "ct_layer": "NW",
+        "base_control_id": "control-network-segmentation",
+        "base_control_title": "网络分区与安全域隔离",
+        "note": "与 v1.5 权威控制『网络分区与安全域隔离』正式对齐（CT-NW-001）"
+      }
+    },
+    {
+      "control_name": "机房物理安全与环境控制",
+      "control_code_hint": "physical_datacenter_security",
+      "suggested_layer": "NW（建议，待 v1.5 补建）",
+      "control_type_hint": "技术配置",
+      "source_checks": [
+        "14.5"
+      ],
+      "article_refs": [
+        "§40"
+      ],
+      "rationale": "由 14.5 核心机房独立物理区域、门禁审批、重点防护推导（物理边界，暂归NW，最终以v1.5为准）。",
+      "alignment": {
+        "status": "aligned",
+        "ct_code": "CT-NW-017",
+        "ct_layer": "NW",
+        "base_control_id": "control-physical-security-machine-room",
+        "base_control_title": "机房物理安全与环境控制",
+        "note": "由 scripts/align_controls.py 自动对齐（csv 权威登记 + 层/依据/唯一性校验）"
+      },
+      "align_note": "2026-10-12 对齐既有权威控制 CT-NW-017（知识库已建，标题逐字统一）"
+    },
+    {
+      "control_name": "外联统一交互平台与API网关",
+      "control_code_hint": "external_interaction_api_gateway",
+      "suggested_layer": "SVC（v1.5 正式对齐）",
+      "control_type_hint": "访问控制",
+      "source_checks": [
+        "18.1",
+        "18.2"
+      ],
+      "article_refs": [
+        "§53"
+      ],
+      "rationale": "由 18.1 开放银行API网关/沙箱/限流、18.2 统一外联平台消除私接通道推导。",
+      "alignment": {
+        "status": "aligned",
+        "ct_code": "CT-SVC-011",
+        "ct_layer": "SVC",
+        "base_control_id": "control-api-security",
+        "base_control_title": "API 安全与 API 网关",
+        "note": "与 v1.5 权威控制『API 安全与 API 网关』正式对齐（CT-SVC-011）"
+      }
+    },
+    {
+      "control_name": "终端DLP与移动介质管控",
+      "control_code_hint": "endpoint_dlp_media_control",
+      "suggested_layer": "EP（v1.5 正式对齐）",
+      "control_type_hint": "访问控制",
+      "source_checks": [
+        "15.11",
+        "15.12"
+      ],
+      "article_refs": [
+        "§46"
+      ],
+      "rationale": "由 15.11 涉敏终端DLP≥90%/USB管控/介质加密、15.12 报废介质擦除与销毁证书推导。",
+      "alignment": {
+        "status": "aligned",
+        "ct_code": "CT-EP-005",
+        "ct_layer": "EP",
+        "base_control_id": "control-endpoint-dlp",
+        "base_control_title": "终端 DLP 数据防泄漏",
+        "note": "与 v1.5 权威控制『终端 DLP 数据防泄漏』正式对齐（CT-EP-005）"
+      }
+    },
+    {
+      "control_name": "端点EDR与防勒索",
+      "control_code_hint": "endpoint_edr_ransomware",
+      "suggested_layer": "EP（v1.5 正式对齐）",
+      "control_type_hint": "技术配置",
+      "source_checks": [
+        "15.7"
+      ],
+      "article_refs": [
+        "§45"
+      ],
+      "rationale": "由 15.7 终端EDR覆盖率≥95%、离线备份/不可变存储防勒索、高危漏洞修复推导。",
+      "alignment": {
+        "status": "aligned",
+        "ct_code": "CT-EP-003",
+        "ct_layer": "EP",
+        "base_control_id": "control-edr-xdr-antivirus",
+        "base_control_title": "EDR/XDR 与防病毒",
+        "note": "与 v1.5 权威控制『EDR/XDR 与防病毒』正式对齐（CT-EP-003）"
+      }
+    },
+    {
+      "control_name": "API全生命周期安全管理",
+      "control_code_hint": "api_lifecycle_security",
+      "suggested_layer": "SVC（v1.5 正式对齐）",
+      "control_type_hint": "访问控制",
+      "source_checks": [
+        "18.3"
+      ],
+      "article_refs": [
+        "§53"
+      ],
+      "rationale": "由 18.3 API设计安全评审、认证鉴权、流量异常监控、僵尸API下线推导。",
+      "alignment": {
+        "status": "aligned",
+        "ct_code": "CT-SVC-011",
+        "ct_layer": "SVC",
+        "base_control_id": "control-api-security",
+        "base_control_title": "API 安全与 API 网关",
+        "note": "与 v1.5 权威控制『API 安全与 API 网关』正式对齐（CT-SVC-011）"
+      }
+    },
+    {
+      "control_name": "个人信息授权同意管理系统",
+      "control_code_hint": "consent_management_system",
+      "suggested_layer": "PROTO（建议，待 v1.5 补建）",
+      "control_type_hint": "技术配置",
+      "source_checks": [
+        "19.1",
+        "12.3"
+      ],
+      "article_refs": [
+        "§36",
+        "§55, §56"
+      ],
+      "rationale": "由 19.1 同意模块/告知/撤回/记录留痕、12.3 对外提供同意记录存档推导（系统功能侧，治理侧见隐私合规控制）。",
+      "alignment": {
+        "status": "aligned",
+        "ct_code": "CT-PROTO-014",
+        "ct_layer": "PROTO",
+        "base_control_id": "control-consent-management-system",
+        "base_control_title": "个人信息授权同意管理系统",
+        "note": "由 scripts/align_controls.py 自动对齐（csv 权威登记 + 层/依据/唯一性校验）"
+      },
+      "align_note": "2026-10-12 对齐既有权威控制 CT-PROTO-014（知识库已建，标题逐字统一）"
+    }
+  ]
+}

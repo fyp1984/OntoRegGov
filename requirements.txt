@@ -1,0 +1,26 @@
+# 本体驱动数据安全监管与治理合规平台 MVP — 依赖清单
+# 全部版本已在本机 Python 3.14.7 全新 venv 真实 pip 安装并导入冒烟通过
+# （见 design/00_技术探针实测纪要.md）。建议 Python >= 3.11，3.14 已实测。
+fastapi==0.142.2
+uvicorn[standard]==0.54.0
+pydantic==2.13.5
+python-multipart==0.0.32
+rdflib==7.6.0
+pyshacl==0.40.1
+pypdf==6.19.0
+# 仅供 ingest/parse_jg24_checks.py 复跑 ETL 使用；运行时导入器 checks_import 仅用标准库
+beautifulsoup4==4.13.4
+
+# ---- 以下为路线图可选项，不进硬依赖，MVP 不安装 ----
+# pyoxigraph==0.5.11   # 图存储后端 oxigraph（已实测，见 scripts/smoke_graphstore.py）
+# owlready2            # 未来 OWL 推理/本体编辑评估
+
+# ---- 远程 MCP 服务（app/mcp_server，v1.4.0，可选）----
+# mcp>=1.0,<2          # FastMCP 1.x；stdio / streamable-http（uvicorn/starlette 随依赖自动装）
+
+# ---- P0 三路检索 / 93问卷 PG 投影依赖（运行时缺失会自动降级关键词，不崩；
+#      但要让向量路 pgvector 余弦、PG 图谱兜底、doc93 问卷在线，必须安装）----
+psycopg2-binary==2.9.13  # 向量路 pgvector + PG 图谱兜底 + doc93_selfcheck_item 只读投影
+# 环境变量（均有内置默认，可覆盖）：TEI_EMBED_URL / RAGFLOW_BASE /
+#   RAGFLOW_API_TOKEN / RAGFLOW_DATASET_ID
+neo4j==5.27.0            # Neo4j 属性图后端（WeKnora EKOS 底座直连，P1 方案B）

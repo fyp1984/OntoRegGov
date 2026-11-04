@@ -1,0 +1,107 @@
+# 本体对齐映射表（WeKnora EKOS 底座 ↔ 8420 监管治理平台）
+#
+# 用途：
+#   1. Neo4j sync 时，8420 RDF 类型 → Neo4j 标签的命名映射
+#   2. 未来 WeKnora 底座导入外部知识时，通用实体类型 → 8420 类型的双向映射
+#   3. 启动自检时，按映射表验证两边类型覆盖率
+#
+# 原则：不破坏 WeKnora 既有 schema，只做"读侧映射"，写侧仍走 8420 自己的命名。
+
+# ---- 8420 实体类型 → Neo4j 标签（当前已生效）----
+# 写入 Neo4j 时统一用 :Entity 标签 + n.type 属性区分，下表是 n.type 的取值规范
+entity_types:
+  InspectionCheck:        # 检查项（金规/93号/人行令/金发）
+    neo4j_label: Entity
+    neo4j_type: InspectionCheck
+    description: 监管检查项，对应法条条款
+  CheckElement:           # 检查要素
+    neo4j_label: Entity
+    neo4j_type: CheckElement
+  InspectionMethodStep:  # 检查方法步骤
+    neo4j_label: Entity
+    neo4j_type: InspectionMethodStep
+  Metric:                 # 度量指标
+    neo4j_label: Entity
+    neo4j_type: Metric
+  FindingPattern:         # 常见问题/判定模式
+    neo4j_label: Entity
+    neo4j_type: FindingPattern
+  InterviewQuestion:     # 访谈问题
+    neo4j_label: Entity
+    neo4j_type: InterviewQuestion
+  VerdictRule:           # 三档判定规则
+    neo4j_label: Entity
+    neo4j_type: VerdictRule
+  Clause:                # 法条/条款
+    neo4j_label: Entity
+    neo4j_type: Clause
+  ControlPlaceholder:   # 控制措施占位（待对齐）
+    neo4j_label: Entity
+    neo4j_type: ControlPlaceholder
+  Control:                # 控制措施（已对齐）
+    neo4j_label: Entity
+    neo4j_type: Control
+  EvidenceRecord:        # 证据记录
+    neo4j_label: Entity
+    neo4j_type: EvidenceRecord
+  Obligation:            # 义务
+    neo4j_label: Entity
+    neo4j_type: Obligation
+  Law:                   # 法规
+    neo4j_label: Entity
+    neo4j_type: Law
+  term:                  # 术语
+    neo4j_label: Entity
+    neo4j_type: term
+  DataAsset:             # 数据资产
+    neo4j_label: Entity
+    neo4j_type: DataAsset
+
+# ---- 关系映射（8420 RDF 谓词 → Neo4j 关系类型）----
+# 当前统一用 :REL + r.pred 属性，下表是常用谓词的白名单
+relation_map:
+  hasMethodStep:      { direction: out,  target: InspectionMethodStep }
+  hasElement:         { direction: out,  target: CheckElement }
+  elementFocus:       { direction: out,  target: InspectionCheck }
+  measuredBy:         { direction: out,  target: Metric }
+  hasFindingPattern:  { direction: out,  target: FindingPattern }
+  hasInterview:       { direction: out,  target: InterviewQuestion }
+  suggestsControl:    { direction: out,  target: ControlPlaceholder }
+  citesClause:       { direction: out,  target: Clause }
+  relatedCheck:       { direction: both, target: InspectionCheck }
+  range:              { direction: out,  target: Class }
+  domain:             { direction: out,  target: Class }
+
+# ---- WeKnora 通用实体类型 → 8420 映射（未来 WeKnora 导入知识时使用）----
+# WeKnora 当前空库，以下是预期映射，待 WeKnora 有数据后启用
+weknora_to_dsec:
+  # WeKnora 知识库对象
+  KnowledgeBase:
+    dsec_type: null          # 知识库本身不作为 8420 实体
+    note: "WeKnora 知识库容器，仅作为数据源上下文"
+  Knowledge:                 # WeKnora 知识条目
+    dsec_type: term          # 通用知识条目 → 术语
+    confidence: 0.6          # 低置信度，需人工审核后提升
+  Chunk:                     # WeKnora 文档分片
+    dsec_type: null
+    note: "分片是检索单元，不作为独立实体"
+  DataSource:                # WeKnora 数据源
+    dsec_type: Law          # 法规类文档 → 法规实体
+    confidence: 0.7
+  # 未来 WeKnora 导入的法规/标准
+  Regulation:
+    dsec_type: Law
+    confidence: 0.9
+  ControlMeasure:
+    dsec_type: Control
+    confidence: 0.85
+
+# ---- 覆盖率自检阈值 ----
+self_check:
+  min_entity_types: 15       # 至少应覆盖的实体类型数
+  min_relations: 10          # 至少应覆盖的关系数
+  warn_if_missing:           # 这些类型如果缺失则告警
+    - InspectionCheck
+    - CheckElement
+    - Clause
+    - ControlPlaceholder

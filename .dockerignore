@@ -1,0 +1,15 @@
+# 构建上下文排除（减小镜像；运行态数据走卷挂载）
+.venv/
+__pycache__/
+*.pyc
+.git/
+.DS_Store
+.kb-publish/
+backups/
+reports/
+research/
+samples/
+deploy/
+evidence/
+app/data/*
+!app/data/.gitkeep

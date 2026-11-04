@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#2055D7">
+<title>场景运行器 · OntoRegGov</title>
+<link rel="icon" href="/favicon.png">
+<link rel="stylesheet" href="/styles.css?v=20261003">
+<style>
+/* 场景壳专属：步骤导航（复用品牌色与 card） */
+.stepnav{display:flex;gap:8px;flex-wrap:wrap;margin:14px 0 18px}
+.stepnav button{background:var(--brand-soft);color:var(--brand-dark);border:1px solid var(--brand-border)}
+.stepnav button.active{background:var(--brand);color:#fff;box-shadow:0 2px 8px rgba(32,85,215,.28)}
+.stepnav button.done{background:var(--ok-bg);color:var(--ok-ink);border-color:#9fd8bc}
+.sr-toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:14px 0}
+.qgroup{margin:10px 0}
+.qitem{display:flex;gap:8px;align-items:flex-start;padding:7px 10px;border-bottom:1px solid var(--line)}
+.qitem input{width:auto;margin-top:4px;flex:none}
+.statrow{display:flex;gap:10px;flex-wrap:wrap;margin:8px 0}
+iframe.reportframe{width:100%;height:60vh;border:1px solid var(--line);border-radius:10px;background:#fff}
+@media (max-width:720px){ main{padding:12px} .stepnav button{flex:1 1 40%} iframe.reportframe{height:50vh} }
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1 id="sc-title">场景运行器</h1>
+    <span class="sub" id="sc-summary">配置驱动 · 可插拔</span>
+  </div>
+  <span class="sub" style="margin-left:auto">演示身份：
+    <select id="actor" style="width:120px"><option value="reviewer">reviewer</option>
+    <option value="inspector">inspector</option><option value="admin">admin</option></select></span>
+</header>
+<div class="wrap">
+<main style="flex:1;max-width:1200px">
+  <div class="card">
+    <div class="row"><b id="sc-name">加载中…</b><span class="pill" id="sc-kind"></span></div>
+    <div class="muted" id="sc-roles"></div>
+    <div class="stepnav" id="stepnav"></div>
+  </div>
+  <div id="step-body"></div>
+  <div class="sr-toolbar">
+    <button class="ghost" id="btn-prev">← 上一步</button>
+    <button id="btn-next">下一步 →</button>
+    <span class="muted" id="state-line"></span>
+  </div>
+</main>
+</div>
+<script>
+const $ = s => document.querySelector(s);
+const api = async (p, opt) => { const r = await fetch(p, opt); return r.json(); };
+const QS = new URLSearchParams(location.search);
+const SID = QS.get('sid') || 'sc01-selfcheck-reception';
+
+// ---------- 运行时状态（跨步骤携带） ----------
+const S = {
+  comp: null, stepIdx: 0,
+  runIds: [],          // 已创建的运行（runIds[0]=整改前, [1]=整改后）
+  lastResult: null,    // 最近一次 record_result
+  checkCode: '1.1',    // 当前工作检查项
+  checkDetail: null,   // 当前检查项六维
+  proposals: [],
+};
+const lvColor = {L1:'#1B4FE4',L2:'#3a6bf0',L3:'#6d90f5',L4:'#e08a00',L5:'#2a9d5c'};
+const badge = r => `<span class="badge b-${r==='pass'?'ok':r==='partial'?'warn':r==='fail'?'bad':'unk'}">${r==='pass'?'符合':r==='partial'?'部分':r==='fail'?'不符合':r||'—'}</span>`;
+const actor = () => $('#actor').value;
+
+// ================= 启动 =================
+async function boot(){
+  const comp = await api('/api/scenarios/' + SID);
+  if (comp.error) { $('#step-body').innerHTML = `<div class="card">加载失败：${JSON.stringify(comp.error)}</div>`; return; }
+  S.comp = comp;
+  document.getElementById('sc-title').textContent = comp.name;
+  document.getElementById('sc-name').textContent = comp.name;
+  document.getElementById('sc-summary').textContent = comp.summary;
+  $('#sc-kind').textContent = comp.kindLabel || comp.kind;
+  $('#sc-roles').textContent = '角色：' + (comp.roles||[]).join(' / ') + '；消费本体类型：' + (comp.consumedOntologyTypes||[]).join(', ');
+  renderNav(); gotoStep(0);
+}
+function renderNav(){
+  $('#stepnav').innerHTML = S.comp.workflowSteps.map((s,i)=>
+    `<button data-i="${i}" class="${i===S.stepIdx?'active':''}">${i+1}. ${s.title}</button>`).join('');
+  document.querySelectorAll('#stepnav button').forEach(b=> b.onclick=()=>gotoStep(+b.dataset.i));
+}
+function gotoStep(i){
+  S.stepIdx = Math.max(0, Math.min(i, S.comp.workflowSteps.length-1));
+  renderNav();
+  const st = S.comp.workflowSteps[S.stepIdx];
+  const renderer = RENDERERS[st.type];
+  $('#state-line').textContent = `runIds=${S.runIds.join(', ')||'（无）'}｜当前检查项=${S.checkCode}`;
+  if (!renderer) { $('#step-body').innerHTML = `<div class="card">未知步骤类型：${st.type}</div>`; return; }
+  renderer(st);
+  $('#btn-prev').disabled = S.stepIdx===0;
+  $('#btn-next').disabled = S.stepIdx===S.comp.workflowSteps.length-1;
+}
+$('#btn-prev').onclick = ()=>gotoStep(S.stepIdx-1);
+$('#btn-next').onclick = ()=>gotoStep(S.stepIdx+1);
+
+// ================= 步骤渲染器（一次性基础设施；sc01/sc02 只引用，不新增） =================
+const RENDERERS = {
+
+  // —— 检查库准备：按域/优先级筛选浏览 ——
+  checklib(st){
+    const cfg = st.config||{};
+    $('#step-body').innerHTML = `
+      <div class="card"><h3>${st.title}</h3><p class="muted">${st.desc}</p>
+        <div class="row">
+          <select id="cl_domain"><option value="">全部域</option><option value="gov">治理域</option><option value="tech">科技域</option><option value="cross">跨域</option></select>
+          <select id="cl_pri"><option value="">全部优先级</option><option value="P0" ${cfg.defaultPriority==='P0'?'selected':''}>P0</option><option value="P1">P1</option><option value="P2">P2</option></select>
+          <input id="cl_kw" placeholder="关键词" style="width:160px">
+          <button onclick="clLoad()">筛选</button>
+        </div>
+        <div id="cl_meta" class="muted" style="margin:8px 0"></div>
+        <div id="cl_list" style="max-height:50vh;overflow:auto"></div>
+      </div>`;
+    clLoad();
+  },
+
+  // —— 检查记录：选目标+选检查项+录 L1/L4/L5 ——
+  check_record(st){
+    const cfg = st.config||{};
+    $('#step-body').innerHTML = `
+      <div class="card"><h3>${st.title}</h3><p class="muted">${st.desc}</p>
+        <div class="row">
+          被查对象：<input id="cr_target" value="演示银行（总行本级）" style="width:200px">
+          检查项：<select id="cr_check" style="width:320px"></select>
+          <button onclick="crLoad()">载入检查要素</button>
+        </div>
+        <div id="cr_form"></div>
+        <p><button onclick="crSubmit()">提交判定（创建运行+结果）</button></p>
+      </div>
+      <div class="card"><h3>判定结果（三色+why）</h3><div id="cr_result">提交后展示。</div></div>`;
+    // 装载检查项下拉（P0 默认）
+    const src = cfg.checkSource || '/api/checks?priority=P0';
+    api(src).then(d=>{
+      $('#cr_check').innerHTML = (d.checks||[]).map(c=>`<option value="${c.checkCode}" ${c.checkCode===S.checkCode?'selected':''}>${c.checkCode} ${c.title}</option>`).join('');
+      crLoad();
+    });
+  },
+
+  // —— 判定结论 ——
+  verdict(st){
+    $('#step-body').innerHTML = `<div class="card"><h3>${st.title}</h3><p class="muted">${st.desc}</p><div id="vd_body">${S.runIds.length? '点击下方载入最近运行。':'尚未运行，请到「检查记录」步先跑一次。'}</div>
+      <button onclick="vdLoad()">载入最近运行</button></div>`;
+  },
+
+  // —— 缺口提案 ——
+  proposals(st){
+    $('#step-body').innerHTML = `<div class="card"><h3>${st.title}</h3><p class="muted">${st.desc}</p><div id="pp_body">载入中…</div></div>`;
+    api('/api/proposals').then(d=>{
+      S.proposals = d.proposals||[];
+      if(!S.proposals.length){ $('#pp_body').innerHTML='<span class="muted">暂无提案。</span>'; return; }
+      $('#pp_body').innerHTML = `<table><tr><th>提案ID</th><th>状态</th><th>目标</th><th>事由</th><th>处理人</th></tr>`+
+        S.proposals.map(p=>`<tr><td>${p.id}</td><td>${p.status}</td><td>${p.targetKind}</td><td>${p.reason}</td><td>${p.reviewer||''}</td></tr>`).join('')+`</table>`;
+    });
+  },
+
+  // —— 整改：证据上传 + 提案决策 ——
+  remediate(st){
+    $('#step-body').innerHTML = `
+      <div class="card"><h3>${st.title}</h3><p class="muted">${st.desc}</p>
+        <h4>① 证据归档上传</h4>
+        <div class="row">运行ID：<input id="rm_run" style="width:150px" value="${S.runIds[0]||''}">
+          检查项：<input id="rm_ck" style="width:90px" value="${S.checkCode}">
+          文件：<input type="file" id="rm_file">
+          <button onclick="rmUpload()">上传证据</button></div>
+        <div id="rm_evout" class="muted"></div>
+        <h4>② 缺口提案决策</h4>
+        <div class="row">提案ID：<input id="rm_pid" style="width:150px" value="${S.lastProposalId||''}">
+          决策：<select id="rm_dec"><option value="accepted">accepted（接受补全）</option><option value="closed">closed（关闭）</option><option value="rejected">rejected</option></select>
+          <button onclick="rmDecide()">提交决策</button></div>
+        <div id="rm_decout" class="muted"></div>
+      </div>`;
+  },
+
+  // —— 复检：复跑 + compare ——
+  recheck(st){
+    $('#step-body').innerHTML = `
+      <div class="card"><h3>${st.title}</h3><p class="muted">${st.desc}</p>
+        <p class="muted">整改后对同一被查对象+同一检查项复跑。请在下方把 L4 证据改为"已提供"、L5 实际值补到达标。</p>
+        <div id="rc_form"></div>
+        <p><button onclick="rcRun()">复跑并对比</button></p>
+        <div id="rc_out"></div>
+      </div>`;
+    rcLoadForm();
+  },
+
+  // —— 93号文问卷 ——
+  questionnaire(st){
+    $('#step-body').innerHTML = `<div class="card"><h3>${st.title}</h3><p class="muted">${st.desc}</p><div id="qz_body">装载中…</div></div>`;
+    api(`/api/scenarios/${SID}/functions/doc93_questionnaire`, {method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})
+      .then(d=>{
+        if(!d.ok){ $('#qz_body').innerHTML=`<span class="badge b-bad">${d.error.message}</span>`; return; }
+        window._qz = d;
+        let html = `<div class="statrow">
+          <span class="stat"><b>${d.total}</b>自查细项</span>
+          <span class="stat"><b>${d.categoryCount}</b>大类</span>
+          <span class="stat"><b>${d.problemTypeCount}</b>小类</span>
+          <span class="stat"><b id="qz-bad">0</b>勾选存在问题</span></div>`;
+        d.groups.forEach((g,gi)=>{
+          html += `<details class="qgroup" ${gi===0?'open':''}><summary>${g.category}（${g.count}项）</summary>`;
+          Object.values(g.problemTypes).forEach(pt=>{
+            html += `<div style="margin:6px 0 6px 14px"><b style="color:var(--brand-deep)">${pt.problemType}</b>（${pt.items.length}）</div>`;
+            html += pt.items.map(it=>`<div class="qitem"><input type="checkbox" class="qz-ck" data-cat="${gi}" onchange="qzStat()">
+              <span>${it.itemSeq} ${it.problemText}${it.isSupervisionVersion?' <span class="pill">监管版</span>':''}</span></div>`).join('');
+          });
+          html += `</details>`;
+        });
+        $('#qz_body').innerHTML = html;
+      });
+  },
+
+  // —— 检查台账 ——
+  ledger_view(st){
+    $('#step-body').innerHTML = `<div class="card"><h3>${st.title}</h3><div id="lg_body">载入中…</div></div>`;
+    api('/api/inspection/ledger').then(d=>{
+      const ents = d.entries||[];
+      $('#lg_body').innerHTML = `<table><tr><th>运行</th><th>对象</th><th>检查人</th><th>结果汇总</th><th>证据</th><th>签署</th></tr>`+
+        ents.map(e=>`<tr><td>${e.runId}</td><td>${e.inspectedTarget}</td><td>${e.inspector}</td>
+          <td>符合${e.results?.pass||0}/部分${e.results?.partial||0}/不符合${e.results?.fail||0}</td>
+          <td>${e.evidenceCount}</td><td>${e.signoff?e.signoff.decision:'—'}</td></tr>`).join('')+`</table>`;
+    });
+  },
+
+  // —— 报告导出 ——
+  report(st){
+    $('#step-body').innerHTML = `
+      <div class="card"><h3>${st.title}</h3><p class="muted">${st.desc}</p>
+        <div class="row">报告标题：<input id="rp_title" value="${S.comp.name}" style="width:260px">
+          运行ID（逗号分隔，2个=含复检对比）：<input id="rp_runs" style="width:280px" value="${S.runIds.join(',')}">
+          <button onclick="rpGen()">生成报告</button></div>
+        <div id="rp_meta" class="muted"></div>
+      </div>
+      <div class="card hidden" id="rp_card"><h3>报告预览与导出</h3>
+        <div class="row" id="rp_dl"></div>
+        <iframe class="reportframe" id="rp_frame"></iframe>
+      </div>`;
+  },
+};
+
+// ================= 各步骤动作 =================
+async function clLoad(){
+  const dom=$('#cl_domain').value, pri=$('#cl_pri').value, kw=$('#cl_kw').value;
+  const d = await api(`/api/checks?domain=${dom}&priority=${pri}&keyword=${encodeURIComponent(kw)}`);
+  $('#cl_meta').textContent = `共 ${d.total} 项，筛选出 ${d.filtered}；域分布 ${JSON.stringify(d.byDomain)}`;
+  $('#cl_list').innerHTML = `<table><tr><th>编号</th><th>标题</th><th>域</th><th>优先级</th></tr>`+
+    (d.checks||[]).map(c=>`<tr style="cursor:pointer" onclick="clPick('${c.checkCode}')"><td>${c.checkCode}</td><td>${c.title}</td><td>${c.domain}</td><td>${c.priority}</td></tr>`).join('')+`</table>`;
+}
+function clPick(code){ S.checkCode=code; alert('已选检查项 '+code+'，请到「检查记录」步执行'); }
+
+async function crLoad(){
+  S.checkCode = $('#cr_check').value;
+  S.checkDetail = await api('/api/checks/'+encodeURIComponent(S.checkCode));
+  const els = (S.checkDetail.elements||[]).map((e,i)=>{
+    const code = e.code||e.elementCode;
+    const lvs = (e.focusLevels||'').split(',').filter(Boolean);
+    return `<tr><td>${code}</td><td>${e.text||e.criteria||''}</td>
+      <td>${lvs.map(l=>`<span style="color:${lvColor[l]}" class="pill">${l}</span>`).join(' ')}</td>
+      <td><label><input type="checkbox" id="cr_l1_${i}" checked> 制度具备</label>
+        <select id="cr_l4_${i}"><option value="provided">证据已提供</option><option value="missing">证据缺失</option></select></td></tr>`;
+  }).join('');
+  const mts = (S.checkDetail.metrics||[]).map((m,i)=>
+    `<tr><td>${m.name}</td><td>${m.threshold}</td><td><input id="cr_mt_${i}" style="width:90px"></td></tr>`).join('');
+  $('#cr_form').innerHTML = `
+    <h4>${S.checkDetail.checkCode} ${S.checkDetail.title} <span class="pill">${S.checkDetail.priority}</span></h4>
+    <details open><summary>逐要素（L1制度 / L4证据）</summary><table><tr><th>要素</th><th>内容</th><th>层级</th><th>录入</th></tr>${els||'<tr><td colspan=4>—</td></tr>'}</table></details>
+    <details><summary>L5 度量实际值（后端阈值判定）</summary><table><tr><th>度量</th><th>阈值</th><th>实际</th></tr>${mts||'<tr><td colspan=3>无度量</td></tr>'}</table></details>`;
+}
+async function crSubmit(){
+  const els = (S.checkDetail.elements||[]).map((e,i)=>({
+    code: e.code||e.elementCode, l1_ok: $(`#cr_l1_${i}`).checked,
+    l4_evidence: $(`#cr_l4_${i}`).value, note: e.text||'' }));
+  const mts = (S.checkDetail.metrics||[]).map((m,i)=>({
+    metricId: m.name, threshold: m.threshold, actual: $(`#cr_mt_${i}`).value.trim() }));
+  const run = await api('/api/inspection/runs',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({inspectedTarget:$('#cr_target').value, inspector:actor(), actor:actor()})});
+  const res = await api(`/api/inspection/runs/${run.runId}/results`,{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({checkCode:S.checkCode, elements:els, metrics:mts, actor:actor()})});
+  S.runIds.push(run.runId); S.lastResult=res; S.lastProposalId=res.proposalId;
+  renderVerdict('#cr_result', res, run.runId);
+}
+function renderVerdict(sel, res, runId){
+  const w = res.why||{};
+  const elRows = (w.elements||[]).map(e=>`<tr><td>${e.code}</td><td>${badge(e.result)}</td><td>${e.why}</td></tr>`).join('');
+  const mtRows = (w.metrics||[]).map(m=>`<tr><td>${m.metricId||m.threshold}</td><td>${m.threshold}</td><td>${m.actual??'—'}</td><td>${badge(m.status==='pass'?'pass':m.status==='fail'?'fail':m.status)}</td></tr>`).join('');
+  $(sel).innerHTML = `<p>结论：${badge(res.result)}　runId=${runId}　提案=${res.proposalId||'（无）'}</p>
+    <table><tr><th>要素</th><th>判定</th><th>why</th></tr>${elRows||'<tr><td colspan=3>—</td></tr>'}</table>
+    <details open><summary>L5 度量判定</summary><table><tr><th>度量</th><th>阈值</th><th>实际</th><th>判定</th></tr>${mtRows||'<tr><td colspan=4>—</td></tr>'}</table></details>`;
+}
+async function vdLoad(){
+  const rid = S.runIds[S.runIds.length-1];
+  if(!rid){ $('#vd_body').textContent='尚无运行'; return; }
+  const run = await api('/api/inspection/runs/'+rid);
+  $('#vd_body').innerHTML = `<p>运行 ${rid}：${run.inspectedTarget} / ${run.inspector} / ${run.ranAt}</p>`+
+    run.results.map(r=>`<p>${badge(r.result)} <b>${r.checkCode}</b> ${r.why?.checkTitle||''}</p>`).join('');
+}
+async function rmUpload(){
+  const fd = new FormData();
+  fd.append('file', $('#rm_file').files[0]);
+  fd.append('checkCode', $('#rm_ck').value); fd.append('actor', actor()); fd.append('note','整改补证');
+  const r = await fetch(`/api/inspection/runs/${$('#rm_run').value}/evidence`,{method:'POST',body:fd});
+  const j = await r.json();
+  $('#rm_evout').textContent = '证据已归档：' + (j.fileName||JSON.stringify(j));
+}
+async function rmDecide(){
+  const r = await api(`/api/proposals/${$('#rm_pid').value}/decision`,{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({actor:'admin', decision:$('#rm_dec').value, note:'整改后专家复核'})});
+  $('#rm_decout').textContent = '决策结果：' + JSON.stringify(r);
+}
+function rcLoadForm(){
+  // 复跑默认：证据已提供 + 实际值补到达标（让用户直观看到 fail→pass）
+  const els = (S.checkDetail?.elements||[]).map((e,i)=>{
+    const code = e.code||e.elementCode;
+    return `<tr><td>${code}</td><td>${e.text||''}</td>
+      <td><label><input type="checkbox" id="rc_l1_${i}" checked>制度具备</label>
+      <select id="rc_l4_${i}"><option value="provided">证据已提供</option><option value="missing">证据缺失</option></select></td></tr>`;
+  }).join('');
+  const mts = (S.checkDetail?.metrics||[]).map((m,i)=>
+    `<tr><td>${m.name}</td><td>${m.threshold}</td><td><input id="rc_mt_${i}" value="2"></td></tr>`).join('');
+  $('#rc_form').innerHTML = `<table><tr><th>要素</th><th>内容</th><th>整改后录入</th></tr>${els||'<tr><td colspan=3>先到检查记录步载入检查项</td></tr>'}</table>
+    <details open><summary>L5 实际值（已预填达标示例）</summary><table><tr><th>度量</th><th>阈值</th><th>实际</th></tr>${mts||''}</table></details>`;
+}
+async function rcRun(){
+  if(!S.checkDetail){ alert('先到「检查记录」步载入检查项'); return; }
+  const els = (S.checkDetail.elements||[]).map((e,i)=>({
+    code:e.code||e.elementCode, l1_ok:$(`#rc_l1_${i}`).checked, l4_evidence:$(`#rc_l4_${i}`).value, note:'整改后复跑'}));
+  const mts = (S.checkDetail.metrics||[]).map((m,i)=>({metricId:m.name, threshold:m.threshold, actual:$(`#rc_mt_${i}`).value.trim()}));
+  const run = await api('/api/inspection/runs',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({inspectedTarget:'演示银行（总行本级）', inspector:actor(), actor:actor()})});
+  const res = await api(`/api/inspection/runs/${run.runId}/results`,{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({checkCode:S.checkCode, elements:els, metrics:mts, actor:actor()})});
+  S.runIds.push(run.runId);
+  let cmpHtml = '';
+  if(S.runIds.length>=2){
+    const cmp = await api(`/api/inspection/runs/${S.runIds[0]}/compare/${run.runId}`);
+    cmpHtml = `<h4>复检对比：${cmp.overallBefore} → ${cmp.overallAfter}</h4>
+      <table><tr><th>检查项</th><th>整改前</th><th>整改后</th></tr>`+
+      cmp.changes.map(c=>`<tr><td>${c.checkCode}</td><td>${badge(c.before)}</td><td>${badge(c.after)}</td></tr>`).join('')+`</table>`;
+  }
+  $('#rc_out').innerHTML = `<p>复跑结论：${badge(res.result)} runId=${run.runId}</p>${cmpHtml}`;
+}
+function qzStat(){
+  document.getElementById('qz-bad').textContent = document.querySelectorAll('.qz-ck:checked').length;
+}
+async function rpGen(){
+  const runs = $('#rp_runs').value.split(',').map(s=>s.trim()).filter(Boolean);
+  const body = {runIds:runs, reportType:(S.comp.functions.find(f=>f.id==='report_export')?.params||{}).reportType||'selfcheck', title:$('#rp_title').value, actor:actor()};
+  const r = await api(`/api/scenarios/${SID}/functions/report_export`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  if(!r.ok){ $('#rp_meta').innerHTML=`<span class="badge b-bad">${r.error.message}</span>`; return; }
+  $('#rp_meta').innerHTML = `统计：判定 ${r.stats.itemJudged} 项（符合${r.stats.pass}/部分${r.stats.partial}/不符合${r.stats.fail}），提案 ${r.stats.proposals}，证据 ${r.stats.evidence}，复检对比=${r.stats.hasCompare}`;
+  $('#rp_card').classList.remove('hidden');
+  $('#rp_frame').srcdoc = r.html;
+  const htmlBlob = new Blob([r.html],{type:'text/html'});
+  const mdBlob = new Blob([r.markdown],{type:'text/markdown'});
+  $('#rp_dl').innerHTML =
+    `<a href="${URL.createObjectURL(htmlBlob)}" download="${r.fileNameBase}.html"><button>下载 HTML</button></a>
+     <a href="${URL.createObjectURL(mdBlob)}" download="${r.fileNameBase}.md"><button class="ghost">下载 Markdown</button></a>`;
+}
+boot();
+</script>
+</body>
+</html>

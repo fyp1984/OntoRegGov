@@ -1,0 +1,46 @@
+# 本体驱动数据安全监管与治理合规平台 — OrbStack 容器编排
+# 原则：复用本机 OrbStack 既有服务，不新造中间件。
+#   - 图存储：ontoreggov-fuseki（端口 3030，数据集 ds）
+#   - EKOS 底座：WeKnora（Neo4j bolt://ekos-weknora-neo4j:7687，API http://ekos-weknora:8080）
+#   - 通过接入 compose_weknora-net 实现容器名直连，无需 host.docker.internal 迂回。
+# 用法（在 deploy/ 目录）：
+#   docker compose -f docker-compose.ontoreggov.yml up -d --build
+#   docker compose -f docker-compose.ontoreggov.yml logs -f
+services:
+  ontoreggov-app:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    image: ontoreggov-app:1.13.0
+    container_name: ontoreggov-app
+    ports:
+      - "8420:8420"
+    volumes:
+      # 代码热挂载（替代 docker cp 注入）
+      - ../app:/app/app
+      - ../app/data:/app/app/data
+      # 知识库静态站（8430 site/ 目录，挂载到 /kb/）
+      - ../../@西北人的成长/20-Areas/信息安全/数据安全/10_知识库工程/site:/app/kb_site:ro
+    environment:
+      - DB_READ_FROM=json
+      - KB_READ_FROM=json
+      - GRAPH_STORE_BACKEND=memory
+      # EKOS / WeKnora 底座对接（P0 网络打通后启用）
+      - WEKNORA_API_BASE=http://ekos-weknora:8080
+      - WEKNORA_API_TOKEN=${WEKNORA_API_TOKEN:-}
+      - WEKNORA_NEO4J_URI=bolt://ekos-weknora-neo4j:7687
+      - WEKNORA_NEO4J_USER=neo4j
+      - WEKNORA_NEO4J_PASSWORD=weknora_p2_dev_only_change_me
+      - SKIP_SEED=1
+      - PORT=8420
+      - KB10_SITE=/app/kb_site
+    networks:
+      - default
+      - weknora-net
+    restart: unless-stopped
+
+networks:
+  # 复用 WeKnora compose project 创建的隔离网络（外部网络，不在本 compose 内创建）
+  weknora-net:
+    external: true
+    name: compose_weknora-net

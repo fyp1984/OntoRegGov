@@ -1,0 +1,814 @@
+"""FastAPI 入口：挂静态页与 /api。合规结论只来自 services/assessment。"""
+from __future__ import annotations
+import json, hashlib, datetime
+from pathlib import Path
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Query
+from fastapi.responses import HTMLResponse, PlainTextResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
+from .db import db, init_db
+from .config import APP_DATA
+from .ontology import ns, graph_store, graph_backend, shacl_validator, base_import
+from .services import (review, proposal, assessment, provenance, audit,
+                       extractor_rule, extractor_llm, confidence, gate, versioning,
+                       inspection, ledger)
+from .models import (EntityCreate, EntityUpdate, ExtractReq, ReviewDecision,
+                     AssessmentReq, ProposalCreate, ProposalDecision)
+from .services import canonical_kb  # v1.6.0 接入层：canonical RDF 读源
+from .services import kb_read        # v1.8.0 三态读源路由：db→canonical→SQLite 回落链
+from .services import ingest_review   # v1.10.0 知识入库候选审核：staging/decisions.json
+from .services import p1_sixdim       # P1 六维审核链路：generate→queue→approve→merge
+from .services import p1_lawqa        # P1 法规原文带引用问答（TEI+pgvector）
+from . import settings_store          # v1.12.0 平台设置（LLM 配置 UI 持久化）
+from .services.extractor_llm import test_connection as settings_test_llm  # noqa: E402
+from .config import KB_READ_FROM
+from . import config as _cfg         # v1.8.0 网关开关 / DB_READ_FROM 调用时读取
+from .scenarios import loader as scenario_loader  # 任务线3：配置驱动可插拔场景组件层
+
+app = FastAPI(title="数据安全工作平台")
+STATIC = Path(__file__).parent / "web" / "static"
+# P4-4：知识库静态站（8430 site/）挂载到 /kb/，由环境变量 KB10_SITE 指定宿主机路径
+import os as _os
+KB_SITE = Path(_os.environ.get("KB10_SITE", "/app/kb_site"))
+
+
+@app.on_event("startup")
+def _startup():
+    init_db()
+    # EKOS 底座连通性自检（启动时静默执行，不阻塞启动；结果可通过 /api/health 查看）
+    _ekos_health = {"neo4j": None, "weknora_api": None, "checkedAt": None}
+    try:
+        from .ontology import neo4j_backend as nb
+        _ekos_health["neo4j"] = nb.health()
+    except Exception as e:
+        _ekos_health["neo4j"] = {"ok": False, "error": str(e)[:200]}
+    try:
+        import os, urllib.request, json as _json
+        token = os.environ.get("WEKNORA_API_TOKEN", "")
+        base = os.environ.get("WEKNORA_API_BASE", "http://ekos-weknora:8080")
+        if token:
+            req = urllib.request.Request(f"{base}/api/v1/knowledge-bases",
+                                         headers={"Authorization": f"Bearer {token}"})
+            with urllib.request.urlopen(req, timeout=3) as r:
+                _ekos_health["weknora_api"] = {"ok": True, "status": r.status}
+        else:
+            _ekos_health["weknora_api"] = {"ok": False, "note": "WEKNORA_API_TOKEN 未配置"}
+    except Exception as e:
+        _ekos_health["weknora_api"] = {"ok": False, "error": str(e)[:200]}
+    import datetime
+    _ekos_health["checkedAt"] = datetime.datetime.now().isoformat(timespec="seconds")
+    # 存到 app.state 供 /api/health 读取
+    app.state.ekos_health = _ekos_health
+
+
+def _err(code, message, status=400, details=None):
+    return JSONResponse(status_code=status,
+                        content={"error": {"code": code, "message": message, "details": details or {}}})
+
+
+# ---------------- v1.8.0 产品化网关（docs/09 §4.1：认证/限流/审计复用 MCP 同一把 allowlist） ----------------
+# 大白话：MCP:8422 门口已有的"钥匙板 + 每分钟次数限制 + 监控录像"，给 REST:8420 同一套用——
+# 不新造认证体系。GATEWAY_AUTH_ENABLED=off（默认）时 /api/* 裸跑兼容单机演示；
+# 开关一开：/api/* 强制 Bearer（config/allowlist.json，与 MCP 共用）+ rpm 限流 + 审计落 audit_log。
+from fastapi import Request  # noqa: E402
+from .mcp_server.auth import (Allowlist, RateLimiter, Unauthorized, RateLimited,  # noqa: E402
+                               validate_key, _extract_bearer)
+
+_gw_allowlist = Allowlist()
+_gw_limiter = RateLimiter()
+
+
+@app.middleware("http")
+async def gateway_guard(request: Request, call_next):
+    path = request.url.path
+    if not path.startswith("/api/") or path == "/api/health":
+        return await call_next(request)
+    if not _cfg.GATEWAY_AUTH_ENABLED:
+        return await call_next(request)
+    try:
+        entry = validate_key(_gw_allowlist, _gw_limiter, _extract_bearer(request))
+    except Unauthorized:
+        return JSONResponse(
+            {"error": "unauthorized", "message": "missing or invalid API key"},
+            status_code=401, headers={"WWW-Authenticate": "Bearer"})
+    except RateLimited:
+        return JSONResponse(
+            {"error": "rate_limited", "message": "too many requests, slow down"},
+            status_code=429)
+    audit.log(entry.get("name") or entry.get("key", "?"),
+              f"api.{request.method.lower()}", path,
+              {"query": dict(request.query_params)})
+    return await call_next(request)
+
+
+# ---------------- 基础 ----------------
+@app.get("/api/health")
+def health():
+    h = {"status": "ok", "service": "dsec-mvp", "version": "1.13.0",
+         "baseSnapshot": graph_store.BASE_SNAPSHOT_TTL.exists()}
+    if hasattr(app.state, "ekos_health"):
+        h["ekos"] = app.state.ekos_health
+    return h
+
+
+# ---------------- LLM 配置（v1.12.0：前端可配置，UI 优先、env 兜底，免重启生效） ----------------
+@app.get("/api/settings/llm")
+def get_llm_settings():
+    cfg = settings_store.get_runtime_llm()
+    return {"base_url": cfg["base_url"], "model": cfg["model"],
+            "api_key_set": cfg["api_key_set"], "api_key_masked": cfg["api_key_masked"],
+            "source": cfg["source"], "ui_configured": cfg["ui_configured"]}
+
+
+@app.put("/api/settings/llm")
+def put_llm_settings(payload: dict):
+    """保存 LLM 配置。base_url/model 可更新或清空；api_key 非空才更新（不回显明文）。"""
+    cfg = settings_store.save_llm(payload)
+    return {"ok": True, "base_url": cfg["base_url"], "model": cfg["model"],
+            "api_key_set": cfg["api_key_set"], "api_key_masked": cfg["api_key_masked"],
+            "source": cfg["source"], "ui_configured": cfg["ui_configured"]}
+
+
+@app.post("/api/settings/llm/test")
+def test_llm_settings(payload: dict):
+    """连通性测试：用（可覆盖的）当前配置打一次最小请求，不落库。"""
+    result = settings_test_llm(payload)
+    return {"ok": result.get("ok"), "detail": result.get("detail")}
+
+
+@app.get("/api/ontology/classes")
+def classes():
+    tree = []
+    tree.append({"name": "Law", "label": ns.CLASS_LABELS["Law"], "group": "新增"})
+    for c in ns.NEW_CLASSES:
+        tree.append({"name": c, "label": ns.CLASS_LABELS.get(c, c), "group": "新增"})
+    for c in ns.BASE_PROJECTED_CLASSES:
+        tree.append({"name": c, "label": ns.CLASS_LABELS.get(c, c), "group": "底座投影"})
+    return {"classes": tree}
+
+
+@app.get("/api/vocab")
+def vocab(scheme: str = ""):
+    out = {"dataClassification": [{"slug": s, "label": l, "broader": p}
+                                   for s, l, p in ns.DATA_CLASSIFICATION],
+           "force": ns.FORCE, "controlKind": ns.CONTROL_KIND, "priority": ns.PRIORITY,
+           "evidenceKind": ns.EVIDENCE_KIND, "recordStatus": ns.RECORD_STATUS}
+    # 自动补全：底座术语/法规/控制
+    with db() as conn:
+        laws = [dict(r) for r in conn.execute(
+            "SELECT id,dataJSON FROM entities WHERE type='Law' AND status='published'")]
+        obs = [dict(r) for r in conn.execute(
+            "SELECT id,dataJSON FROM entities WHERE type='Obligation' AND status='published'")]
+        ctrls = [dict(r) for r in conn.execute(
+            "SELECT id,dataJSON FROM entities WHERE type='Control' AND status='published'")]
+    out["laws"] = [{"id": r["id"], "label": json.loads(r["dataJSON"]).get("title")} for r in laws]
+    out["obligations"] = [{"id": r["id"], "label": json.loads(r["dataJSON"]).get("code")} for r in obs]
+    out["controls"] = [{"id": r["id"], "label": json.loads(r["dataJSON"]).get("title")} for r in ctrls]
+    return out
+
+
+# ---------------- 实体 ----------------
+@app.get("/api/entities")
+def list_entities(type: str = "", q: str = "", status: str = "published"):
+    sql = "SELECT id,type,status,dataJSON,currentVersion,updatedAt,updatedBy FROM entities WHERE status LIKE ?"
+    args = [f"%{status}%"]
+    if type:
+        sql += " AND type=?"; args.append(type)
+    with db() as conn:
+        rows = conn.execute(sql + " ORDER BY type,id", args).fetchall()
+    out = []
+    for r in rows:
+        d = json.loads(r["dataJSON"])
+        if q and q not in json.dumps(d, ensure_ascii=False):
+            continue
+        out.append({"id": r["id"], "type": r["type"], "status": r["status"],
+                    "version": r["currentVersion"],
+                    "label": d.get("title") or d.get("name") or d.get("code") or r["id"],
+                    "updatedAt": r["updatedAt"], "updatedBy": r["updatedBy"]})
+    return {"entities": out}
+
+
+@app.post("/api/entities", status_code=201)
+def create_entity(body: EntityCreate):
+    try:
+        res = review.create_entity(body.type, body.id, body.data, body.relations,
+                                   body.actor, source="manual-form")
+        return res
+    except gate.GateError as e:
+        return _err(e.code, e.message, 400, e.details)
+
+
+@app.get("/api/entities/{eid}")
+def get_entity(eid: str):
+    with db() as conn:
+        r = conn.execute("SELECT * FROM entities WHERE id=?", (eid,)).fetchone()
+    if not r:
+        return _err("not_found", "实体不存在", 404)
+    d = dict(r); d["data"] = json.loads(d["dataJSON"]); d["relations"] = json.loads(d["relationsJSON"])
+    del d["dataJSON"]; del d["relationsJSON"]
+    return d
+
+
+@app.put("/api/entities/{eid}")
+def update_entity(eid: str, body: EntityUpdate):
+    with db() as conn:
+        r = conn.execute("SELECT * FROM entities WHERE id=?", (eid,)).fetchone()
+        if not r:
+            return _err("not_found", "实体不存在", 404)
+        data = json.loads(r["dataJSON"])
+        if body.data:
+            data.update(body.data)
+        relations = json.loads(r["relationsJSON"])
+        if body.relations is not None:
+            relations = body.relations
+        # SHACL 闸门（对已发布实体编辑后重新校验）
+        vt = shacl_validator.validate_entity(r["type"], eid, data, relations)
+        if not vt["conforms"]:
+            return _err("shacl_rejected", "编辑后未通过 SHACL", 400, {"messages": vt["messages"]})
+        conn.execute("UPDATE entities SET dataJSON=?,relationsJSON=?,updatedBy=? WHERE id=?",
+                     (json.dumps(data, ensure_ascii=False), json.dumps(relations, ensure_ascii=False),
+                      body.actor, eid))
+    ver = versioning.snapshot(eid, body.actor, body.changeNote or "编辑更新", source="manual")
+    audit.log(body.actor, "entity.update", eid, {"version": ver})
+    return {"id": eid, "version": ver}
+
+
+@app.get("/api/entities/{eid}/versions")
+def entity_versions(eid: str):
+    return {"versions": versioning.versions_of(eid)}
+
+
+@app.get("/api/entities/{eid}/versions/{v1}/diff/{v2}")
+def entity_version_diff(eid: str, v1: int, v2: int):
+    return versioning.diff(eid, v1, v2)
+
+
+# ---------------- 文档上传 + 抽取 ----------------
+@app.post("/api/documents/upload")
+async def upload_document(file: UploadFile = File(...), sourceGrade: str = "B"):
+    raw = await file.read()
+    name = file.filename
+    text = ""
+    if name.lower().endswith(".pdf"):
+        try:
+            from pypdf import PdfReader
+            import io
+            reader = PdfReader(io.BytesIO(raw))
+            text = "\n".join((pg.extract_text() or "") for pg in reader.pages)
+        except Exception as e:
+            return _err("pdf_parse", "PDF 解析失败", 400, {"err": str(e)})
+    else:
+        text = raw.decode("utf-8", errors="replace")
+    doc_id = "doc-" + hashlib.sha256(raw).hexdigest()[:10]
+    ts = datetime.datetime.now().isoformat(timespec="seconds")
+    with db() as conn:
+        conn.execute("INSERT OR REPLACE INTO documents(id,sha256,name,sourceGrade,text,uploadedAt) VALUES(?,?,?,?,?,?)",
+                     (doc_id, hashlib.sha256(raw).hexdigest(), name, sourceGrade, text, ts))
+    audit.log("editor", "document.upload", doc_id, {"name": name})
+    return {"documentId": doc_id, "name": name, "chars": len(text)}
+
+
+@app.post("/api/extract")
+def extract(body: ExtractReq):
+    with db() as conn:
+        r = conn.execute("SELECT text,id FROM documents WHERE id=?", (body.documentId,)).fetchone()
+    if not r:
+        return _err("not_found", "文档不存在", 404)
+    if body.mode == "llm":
+        result = extractor_llm.extract(r["text"], r["id"])
+    else:
+        result = {"candidates": extractor_rule.extract(r["text"], r["id"]), "degraded": False}
+    # 落库候选 + 自动补 review_task（人在回路）
+    ts = datetime.datetime.now().isoformat(timespec="seconds")
+    out_cands = []
+    with db() as conn:
+        for c in result["candidates"]:
+            conn.execute(
+                "INSERT OR REPLACE INTO candidates(id,documentId,kind,label,mappedClass,confidence,provenance,span,payloadJSON,status,createdBy,createdAt) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+                (c["id"], r["id"], c["kind"], c["label"], c["mappedClass"], c["confidence"],
+                 c["provenance"], c["span"], json.dumps(c.get("payload", {}), ensure_ascii=False),
+                 "new", "editor", ts))
+            # 自动候选进入待审核队列（targetType=candidate），专家可在队列批准/修改/拒绝/合并
+            conn.execute(
+                "INSERT OR IGNORE INTO review_tasks(id,targetType,targetId,status,note,reviewer,createdBy,createdAt) VALUES(?,?,?,?,?,?,?,?)",
+                (f"rt-{c['id']}", "candidate", c["id"], "pending_review",
+                 "", None, "editor", ts))
+            out_cands.append({**c, "badge": confidence.badge(c["confidence"])})
+    audit.log("editor", "extract.run", r["id"], {"mode": body.mode, "n": len(out_cands)})
+    return {"documentId": r["id"], "degraded": result.get("degraded", False),
+            "reason": result.get("reason"), "candidates": out_cands}
+
+
+# ---------------- 审核 ----------------
+@app.get("/api/review/queue")
+def review_queue():
+    return {"queue": review.queue()}
+
+
+@app.post("/api/review/{task_id}/decision")
+def review_decision(task_id: str, body: ReviewDecision):
+    try:
+        return review.decide(task_id, body.actor, body.action, body.note, body.edits)
+    except gate.GateError as e:
+        return _err(e.code, e.message, 403, e.details)
+    except ValueError as e:
+        return _err("bad_request", str(e), 400)
+
+
+# ---------------- 知识入库审核（v1.10.0：ingest 候选，复用平台审核范式）----------------
+# 与平台"待审核队列"同范式：候选来自 10 工程 ingest/staging（manifest+草稿），
+# 批准/拒绝写 decisions.json（与 CLI approve/reject 同文件），merge --apply 才入库。
+@app.get("/api/ingest/review/batches")
+def ingest_review_batches():
+    return {"batches": ingest_review.batches()}
+
+
+@app.get("/api/ingest/review")
+def ingest_review_queue(batch: str = ""):
+    return ingest_review.queue(batch or None)
+
+
+@app.post("/api/ingest/review/{eid}/decision")
+def ingest_review_decision(eid: str, batch: str = "", body: dict = None):
+    body = body or {}
+    try:
+        return ingest_review.decide(batch or None, eid, body.get("action", ""))
+    except ValueError as e:
+        return _err("bad_request", str(e), 400)
+
+
+# ---------------- P1 六维审核链路（generate→queue→approve→merge，仅 approved 落库）----------------
+@app.post("/api/p1/sixdim/generate")
+def p1_sixdim_generate(doc_key: str = Query(...), reviewer: str = "p1-bot"):
+    if doc_key not in ("jg93", "pboc3", "jf8"):
+        return _err("bad_request", "doc_key 仅支持 jg93/pboc3/jf8", 400)
+    try:
+        return p1_sixdim.generate_drafts(doc_key, reviewer)
+    except Exception as e:  # noqa: BLE001
+        return _err("p1_generate_failed", str(e), 500)
+
+
+@app.get("/api/p1/sixdim/queue")
+def p1_sixdim_queue(doc_key: str = "", status: str = ""):
+    return p1_sixdim.queue(doc_key or None, status or None)
+
+
+@app.post("/api/p1/sixdim/approve/{draft_id}")
+def p1_sixdim_approve(draft_id: str, body: dict = None):
+    body = body or {}
+    return p1_sixdim.approve(draft_id, body.get("reviewer", "admin"), body.get("note", ""))
+
+
+@app.post("/api/p1/sixdim/approve_all")
+def p1_sixdim_approve_all(doc_key: str = "", reviewer: str = "admin"):
+    return p1_sixdim.approve_all(doc_key or None, reviewer)
+
+
+@app.post("/api/p1/sixdim/merge")
+def p1_sixdim_merge():
+    try:
+        return p1_sixdim.merge_approved()
+    except Exception as e:  # noqa: BLE001
+        return _err("p1_merge_failed", str(e), 500)
+
+
+@app.get("/api/p1/sixdim/stats")
+def p1_sixdim_stats():
+    return p1_sixdim.stats()
+
+
+@app.get("/api/p1/sixdim/{check_code}")
+def p1_sixdim_detail(check_code: str):
+    return p1_sixdim.get_check_sixdim(check_code)
+
+
+# ---------------- P1 法规原文带引用问答（TEI+pgvector，新表 law_chunk）----------------
+@app.post("/api/p1/law/index")
+def p1_law_index():
+    try:
+        return p1_lawqa.index()
+    except Exception as e:  # noqa: BLE001
+        return _err("law_index_failed", str(e), 500)
+
+
+@app.get("/api/p1/law/qa")
+def p1_law_qa(q: str = "", limit: int = 5):
+    if not q.strip():
+        return _err("bad_request", "q 必填", 400)
+    try:
+        return p1_lawqa.search(q, limit=limit)
+    except Exception as e:  # noqa: BLE001
+        return _err("law_qa_failed", str(e), 500)
+
+
+@app.get("/api/p1/law/stats")
+def p1_law_stats():
+    return p1_lawqa.stats()
+
+
+# ---------------- 图谱 ----------------
+@app.get("/api/graph")
+def graph(root: str = "", depth: int = 2):
+    g = graph_store.materialize()
+    nodes, edges = set(), []
+    start = root or "law-jg24"
+    seen = set()
+
+    def _is_resource(uri):
+        return str(uri).startswith(str(ns.DSECR))
+
+    def walk(uri, d):
+        # 双向 BFS：关系按反向边存（clause clauseOf Law），需沿 s→o 与 o→s 同时展开，
+        # 才能从 Law 出发走通 Law→Clause→Obligation→Control 主链；边保留原方向。
+        if d > depth or uri in seen:
+            return
+        seen.add(uri)
+        nodes.add(str(uri))
+        # 正向出边 s→o
+        for _, _, o in g.triples((uri, None, None)):
+            if _is_resource(o):
+                edges.append({"source": str(uri), "target": str(o)})
+                nodes.add(str(o))
+                walk(o, d + 1)
+        # 反向入边 o→s（主语在另一端）
+        for s, _, _ in g.triples((None, None, uri)):
+            if _is_resource(s):
+                edges.append({"source": str(s), "target": str(uri)})
+                nodes.add(str(s))
+                walk(s, d + 1)
+
+    start_uri = None
+    for cand in [ns.DSECR[f"law/{start}"], ns.DSECR[f"dataasset/{start}"],
+                 ns.DSECR[f"inspectioncheck/{start}"]]:
+        if (cand, None, None) in g:
+            start_uri = cand; break
+    if start_uri:
+        walk(start_uri, 0)
+    else:
+        for s, p, o in g:
+            if _is_resource(s) and _is_resource(o):
+                edges.append({"source": str(s), "target": str(o)})
+                nodes.add(str(s)); nodes.add(str(o))
+    return {"nodes": [{"id": n} for n in nodes], "edges": edges}
+
+
+# ---------------- 评估 ----------------
+@app.post("/api/assessments")
+def create_assessment(body: AssessmentReq):
+    try:
+        return assessment.run_assessment(body.assetId, body.actor)
+    except ValueError as e:
+        return _err("bad_request", str(e), 400)
+
+
+@app.get("/api/assessments/{run_id}")
+def get_assessment(run_id: str):
+    a = assessment.get_assessment(run_id)
+    if not a:
+        return _err("not_found", "评估不存在", 404)
+    return a
+
+
+@app.get("/api/assessments/{run_id}/compare/{other}")
+def compare_assessments(run_id: str, other: str):
+    c = assessment.compare(run_id, other)
+    if not c:
+        return _err("not_found", "评估不存在", 404)
+    return c
+
+
+@app.get("/api/check-items/{cid}/why")
+def check_why(cid: str):
+    return provenance.why(cid)
+
+
+# ---------------- 提案 ----------------
+@app.post("/api/proposals")
+def create_proposal(body: ProposalCreate):
+    p = proposal.create(body.reason, body.targetKind, body.raisedFrom, body.payload, body.actor)
+    return p
+
+
+@app.get("/api/proposals")
+def list_proposals():
+    return {"proposals": proposal.list_proposals()}
+
+
+@app.post("/api/proposals/{pid}/decision")
+def proposal_decision(pid: str, body: ProposalDecision):
+    try:
+        return proposal.decide(pid, body.actor, body.decision, body.note)
+    except gate.GateError as e:
+        return _err(e.code, e.message, 403, e.details)
+
+
+# ---------------- 监管检查知识库（v1.1.0）----------------
+@app.get("/api/checks")
+def list_checks(domain: str = "", priority: str = "", chapter: str = "", keyword: str = "", doc: str = ""):
+    sql = "SELECT id,dataJSON FROM entities WHERE type='InspectionCheck' AND status='published'"
+    args = []
+    with db() as conn:
+        rows = conn.execute(sql + " ORDER BY id", args).fetchall()
+    out = []
+    for r in rows:
+        d = json.loads(r["dataJSON"])
+        if domain and d.get("domain") != domain:
+            continue
+        if priority and d.get("priority") != priority:
+            continue
+        if chapter and d.get("chapter") != chapter:
+            continue
+        if doc and doc not in (d.get("docKey") or "") and doc not in (d.get("docNo") or ""):
+            continue
+        if keyword and keyword not in json.dumps(d, ensure_ascii=False):
+            continue
+        out.append({"id": r["id"], "checkCode": d.get("checkCode"), "title": d.get("title"),
+                    "domain": d.get("domain"), "domainLabel": d.get("domainLabel"),
+                    "priority": d.get("priority"), "regulation": d.get("regulation"),
+                    "articleNo": d.get("articleNo"), "chapter": d.get("chapter"),
+                    "docKey": d.get("docKey"), "docNo": d.get("docNo"), "docTitle": d.get("docTitle")})
+    # 计数
+    total_all = len(rows)
+    by_domain = {}
+    by_priority = {}
+    by_doc = {}
+    for r in rows:
+        d = json.loads(r["dataJSON"])
+        by_domain[d.get("domain")] = by_domain.get(d.get("domain"), 0) + 1
+        by_priority[d.get("priority")] = by_priority.get(d.get("priority"), 0) + 1
+        dk = d.get("docKey") or "jg24"
+        by_doc[dk] = by_doc.get(dk, 0) + 1
+    return {"total": total_all, "filtered": len(out),
+            "byDomain": by_domain, "byPriority": by_priority, "byDoc": by_doc,
+            "checks": out}
+
+
+@app.get("/api/checks/{check_code}")
+def get_check(check_code: str):
+    # v1.8.0 三态回落（docs/09 §4.3）：DB_READ_FROM=db/canonical 时先问图/库轨道
+    # （kb_read 内部 db→canonical），命中即返；未命中再落 SQLite 旧链路。
+    # DB_READ_FROM=json：与 v1.7 完全一致（SQLite 优先；仅 KB_READ_FROM=canonical 时回图）。
+    if _cfg.DB_READ_FROM in ("db", "canonical"):
+        ck = kb_read.get_check(check_code)
+        if ck:
+            return ck
+    with db() as conn:
+        r = conn.execute("SELECT * FROM entities WHERE type='InspectionCheck' AND status='published' "
+                         "AND dataJSON LIKE ?", (f'%"checkCode": "{check_code}"%',)).fetchone()
+    # v1.6.0 回退语义：KB_READ_FROM=canonical 且 SQLite 未命中 → 回落本体库（93号文 93-x.y 等）
+    if not r and _cfg.DB_READ_FROM == "json" and KB_READ_FROM == "canonical":
+        ck = canonical_kb.get_check(check_code)
+        if ck:
+            return ck
+    if not r:
+        return _err("not_found", "检查项不存在", 404)
+    with db() as conn:
+        d = json.loads(r["dataJSON"])
+        rels = json.loads(r["relationsJSON"])
+
+        def load_ent(eid):
+            er = conn.execute("SELECT dataJSON,type FROM entities WHERE id=?", (eid,)).fetchone()
+            return json.loads(er["dataJSON"]) if er else None
+
+        # 六维详情
+        elements = [load_ent(o["o"].split(":", 1)[1]) for o in rels if o["p"] == "hasElement"]
+        steps = [load_ent(o["o"].split(":", 1)[1]) for o in rels if o["p"] == "hasMethodStep"]
+        metrics = [load_ent(o["o"].split(":", 1)[1]) for o in rels if o["p"] == "measuredBy"]
+        interviews = [load_ent(o["o"].split(":", 1)[1]) for o in rels if o["p"] == "hasInterview"]
+        findings = [load_ent(o["o"].split(":", 1)[1]) for o in rels if o["p"] == "hasFindingPattern"]
+        vr = [load_ent(o["o"].split(":", 1)[1]) for o in rels if o["p"] == "verdictRule"]
+        related = [{"ref": o["o"], "relType": "edge"} for o in rels if o["p"] == "relatedCheck"]
+        clauses = [o["o"] for o in rels if o["p"] == "citesClause"]
+        # v1.1.2/v1.2.0：建议控制措施（v1.2.0 起 aligned 携带权威 CT 码）
+        sc = []
+        for o in rels:
+            if o["p"] == "suggestsControl":
+                p = load_ent(o["o"].split(":", 1)[1])
+                if p:
+                    sc.append({"hint": p.get("controlCodeHint"), "name": p.get("controlName"),
+                               "layer": p.get("suggestedLayer"), "type": p.get("controlTypeHint"),
+                               "status": p.get("alignmentStatus"),
+                               "ctCode": p.get("ctCode"), "ctLayer": p.get("ctLayer"),
+                               "baseControlTitle": p.get("baseControlTitle")})
+        return {
+            "id": r["id"], "checkCode": d.get("checkCode"), "title": d.get("title"),
+            "domain": d.get("domain"), "priority": d.get("priority"),
+            "regulation": d.get("regulation"), "articleNo": d.get("articleNo"),
+            "articleText": d.get("articleText"), "tip": d.get("tip"),
+            "citesClause": clauses,
+            "elements": elements, "methodSteps": steps, "metrics": metrics,
+            "interviews": interviews, "verdict": vr[0] if vr else {},
+            "findings": findings, "related": related, "relatedRaw": d.get("relatedRaw", ""),
+            "suggestedControls": sc,
+        }
+
+
+@app.get("/api/controls/gaps")
+def control_gaps():
+    """控制需求缺口浏览：返回 status!=aligned 的 ControlPlaceholder（待 10 工程 v1.6 补建反馈）。"""
+    with db() as conn:
+        rows = conn.execute("SELECT dataJSON FROM entities WHERE type='ControlPlaceholder' "
+                            "AND status='published'").fetchall()
+        all_p = []
+        for row in rows:
+            p = json.loads(row["dataJSON"])
+            all_p.append({"hint": p.get("controlCodeHint"), "name": p.get("controlName"),
+                          "layer": p.get("suggestedLayer"), "type": p.get("controlTypeHint"),
+                          "status": p.get("alignmentStatus"),
+                          "ctCode": p.get("ctCode"), "ctLayer": p.get("ctLayer"),
+                          "sourceChecks": (p.get("sourceCheckCodes") or "").split(","),
+                          "articleRefs": (p.get("articleRefs") or "").split(","),
+                          "rationale": p.get("rationale"),
+                          "baseControlTitle": p.get("baseControlTitle")})
+        gaps = [x for x in all_p if x["status"] != "aligned"]
+        return {"total": len(all_p),
+                "aligned": sum(1 for x in all_p if x["status"] == "aligned"),
+                "pending": sum(1 for x in gaps if x["status"] == "pending_alignment"),
+                "provisional": sum(1 for x in gaps if x["status"] == "provisional"),
+                "gaps": gaps}
+
+
+# ---------------- 监管检查运行（纵切）----------------
+@app.post("/api/inspection/runs")
+def inspection_run(body: dict):
+    return inspection.create_run(body.get("inspectedTarget", "某银行"),
+                                 body.get("inspector", "合规部"), body.get("actor", "reviewer"),
+                                 body.get("planId"), body.get("assignees"))
+
+
+@app.post("/api/inspection/runs/{run_id}/results")
+def inspection_result(run_id: str, body: dict):
+    try:
+        return inspection.record_result(run_id, body["checkCode"],
+                                        body.get("elements", []), body.get("metrics", []),
+                                        body.get("actor", "reviewer"))
+    except ValueError as e:
+        return _err("bad_request", str(e), 400)
+
+
+@app.get("/api/inspection/runs/{run_id}")
+def inspection_run_get(run_id: str):
+    r = inspection.get_run(run_id)
+    if not r:
+        return _err("not_found", "运行不存在", 404)
+    return r
+
+
+@app.get("/api/inspection/runs/{run_id}/compare/{other}")
+def inspection_compare(run_id: str, other: str):
+    c = inspection.compare(run_id, other)
+    if not c:
+        return _err("not_found", "运行不存在", 404)
+    return c
+
+
+# ---------------- 检查台账与周期复查（v1.3.0）----------------
+@app.post("/api/inspection/plans")
+def plan_create(body: dict):
+    if not body.get("name"):
+        return _err("bad_request", "计划名称必填")
+    return ledger.create_plan(body.get("name", ""), body.get("scope", ""),
+                              body.get("cycle", "quarterly"), body.get("startDate", ""),
+                              body.get("endDate", ""), body.get("owner", ""),
+                              body.get("checks"), body.get("actor", "reviewer"))
+
+
+@app.get("/api/inspection/plans")
+def plan_list():
+    return {"plans": ledger.list_plans()}
+
+
+@app.get("/api/inspection/plans/{plan_id}")
+def plan_get(plan_id: str):
+    p = ledger.get_plan(plan_id)
+    if not p:
+        return _err("not_found", "计划不存在", 404)
+    return p
+
+
+@app.post("/api/inspection/runs/{run_id}/evidence")
+async def evidence_upload(run_id: str, file: UploadFile = File(...),
+                          checkCode: str = Form(""), note: str = Form(""),
+                          actor: str = Form("reviewer"), uploadedBy: str = Form("")):
+    """证据归档：文件落盘 app/data/evidence_uploads/，元数据入 inspection_evidence。"""
+    content = await file.read()
+    if len(content) > 10 * 1024 * 1024:
+        return _err("too_large", "证据文件超过 10MB", 413)
+    ev_dir = Path(APP_DATA) / "evidence_uploads"
+    ev_dir.mkdir(parents=True, exist_ok=True)
+    orig = Path(file.filename or "evidence.bin").name          # 防目录穿越
+    fname = f"{run_id}_{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}_{orig}"
+    dest = ev_dir / fname
+    dest.write_bytes(content)
+    return ledger.attach_evidence(run_id, checkCode, orig, str(dest),
+                                  uploadedBy or actor, note)
+
+
+@app.get("/api/inspection/runs/{run_id}/evidence")
+def evidence_list(run_id: str):
+    return {"evidence": ledger.list_evidence(run_id)}
+
+
+@app.post("/api/inspection/runs/{run_id}/signoff")
+def run_signoff(run_id: str, body: dict):
+    return ledger.sign_off(run_id, body.get("signer", ""), body.get("role", "复核"),
+                           body.get("decision", "approved"), body.get("comment", ""),
+                           body.get("actor", "reviewer"))
+
+
+@app.get("/api/inspection/ledger")
+def inspection_ledger():
+    return ledger.get_ledger()
+
+
+# ---------------- 图存储后端（v1.4.0：标准 SPARQL 层）----------------
+@app.get("/api/graph/backend")
+def graph_backend_info():
+    return {"backend": graph_backend.current_backend(), "stats": graph_backend.stats()}
+
+
+@app.post("/api/graph/sync")
+def graph_backend_sync():
+    return graph_backend.sync()
+
+
+@app.post("/api/graph/sparql")
+def graph_backend_query(body: dict):
+    """标准 SPARQL 查询代理：对所选后端执行 SELECT/ASK，返回 JSON 行。"""
+    sparql = (body or {}).get("query", "").strip()
+    if not sparql:
+        return _err("bad_request", "query 必填")
+    if sparql.lstrip().upper().startswith("ASK"):
+        return {"ask": graph_backend.ask(sparql)}
+    return {"rows": graph_backend.query(sparql)}
+
+
+# ---------------- 导出 ----------------
+@app.get("/api/export/turtle")
+def export_turtle():
+    return PlainTextResponse(graph_store.export_turtle(), media_type="text/turtle")
+
+
+@app.get("/api/export/shapes")
+def export_shapes():
+    return PlainTextResponse(graph_store.export_shapes(), media_type="text/turtle")
+
+
+# ---------------- 接入层最小 API（v1.6.0：从 canonical 本体知识库读；v1.8.0：三态读源）----------------
+# 证明"前端 HTML ← 后端资产层知识库"链路；进程内读，不绑写库。
+# DB_READ_FROM=db 时先走 PostgreSQL 投影，未命中/库不可达自动回落 canonical.ttl（docs/09 §4.3）。
+@app.get("/api/entity/{eid}")
+def api_entity(eid: str):
+    ent = kb_read.get_entity(eid)
+    if not ent:
+        return _err("not_found", "本体库无此实体", 404)
+    return ent
+
+
+@app.get("/api/search")
+def api_search(q: str = ""):
+    return kb_read.search(q)
+
+
+@app.get("/api/controls")
+def api_controls():
+    return kb_read.list_controls()
+
+
+# ---------------- 场景组件（任务线3：配置驱动、可插拔）----------------
+# 注册表清单 / 单组件配置 / 函数调用；业务逻辑在 app/scenarios/functions/ 适配器，
+# 新增场景只改 registry.json（sc02 即纯配置注册实证，零新增 Python 文件）。
+@app.get("/api/scenarios")
+def scenarios_list():
+    try:
+        return {"components": scenario_loader.list_components()}
+    except scenario_loader.RegistryError as e:
+        return _err(e.code, e.message, 500, e.details)
+
+
+@app.get("/api/scenarios/{sid}")
+def scenario_detail(sid: str):
+    try:
+        return scenario_loader.get_component(sid)
+    except scenario_loader.RegistryError as e:
+        return _err(e.code, e.message, 404 if e.code == "component_not_found" else 500, e.details)
+
+
+@app.post("/api/scenarios/{sid}/functions/{fid}")
+def scenario_function(sid: str, fid: str, body: dict = None):
+    try:
+        return scenario_loader.call_function(sid, fid, body or {})
+    except scenario_loader.RegistryError as e:
+        status = 404 if e.code in ("component_not_found", "function_not_found") else 400
+        return _err(e.code, e.message, status, e.details)
+
+
+# ---------------- P4-4：挂载 8430 知识库静态站到 /kb/ ----------------
+# 知识库站点真源：10_知识库工程/site/（容器内通过 KB10_SITE 环境变量定位）
+# 必须挂在 app.mount("/", ...) 之前，否则会被根 mount 吞掉。
+if KB_SITE.exists():
+    app.mount("/kb", StaticFiles(directory=str(KB_SITE), html=True), name="kb-static")
+
+# ---------------- 静态首页（StaticFiles 按扩展名给正确 MIME；html=True 回退 index.html）----------------
+# 必须挂在最后：/api 路由已全部注册在前，优先匹配。真实存在的 .css/.js 由 StaticFiles
+# 以正确 Content-Type 返回，不再被吞成 text/html。
+app.mount("/", StaticFiles(directory=STATIC, html=True), name="static")

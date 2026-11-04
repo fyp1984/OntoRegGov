@@ -1,0 +1,27 @@
+# 运行时产物（SQLite / 生成的 ttl）不入库；data/.gitkeep 保留空目录
+.venv/
+__pycache__/
+*.pyc
+app/data/*.db
+app/data/*.db-*
+app/data/*.ttl
+!app/data/.gitkeep
+.DS_Store
+
+# 知识库发布影子站（生成物，由 scripts/kb_publish.py 重建，~67M）
+.kb-publish/
+
+# 数据库备份（含内部 PG dump，不入库）
+backups/
+
+# 运行时上传与预览（用户证据附件 / 站点预览）
+app/data/evidence_uploads/
+app/data/site-preview/
+
+# 日志与 WAL
+*.log
+*.db-wal
+*.db-shm
+
+# 备份文件与导出产物
+*.bak*
