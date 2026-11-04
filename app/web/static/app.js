@@ -1,4 +1,6 @@
 const $ = s => document.querySelector(s);
+// 当前系统暂不做权限控制与身份认证，写操作统一以固定操作者标识落审计。
+const ACTOR = 'ui-user';
 const api = async (p, opt) => {
   const r = await fetch(p, opt);
   return r.json();
@@ -9,23 +11,12 @@ document.querySelectorAll('#nav a').forEach(a => a.onclick = () => {
   document.querySelectorAll('.view').forEach(v => v.classList.add('hidden'));
   document.getElementById(a.dataset.v).classList.remove('hidden');
   if (a.dataset.v === 'dash') loadDash();
-  if (a.dataset.v === 'kmgmt') { switchKmTab('import'); loadQueue(); loadBrowse(); }
   if (a.dataset.v === 'checkslib') loadChecks();
   if (a.dataset.v === 'selfcheck') scInit();
   if (a.dataset.v === 'ledger') loadLedger();
   if (a.dataset.v === 'assess') loadAssets();
   if (a.dataset.v === 'llmset') loadLlmset();
 });
-
-// ---------- 知识管理 Tab 切换（自动导入 / 待审核队列 / 知识图谱）----------
-function switchKmTab(tab) {
-  $('#km_pane_import').classList.toggle('hidden', tab !== 'import');
-  $('#km_pane_review').classList.toggle('hidden', tab !== 'review');
-  $('#km_pane_graph').classList.toggle('hidden', tab !== 'graph');
-  $('#km_tab_import').className = tab === 'import' ? 'btn-primary' : '';
-  $('#km_tab_review').className = tab === 'review' ? 'btn-primary' : '';
-  $('#km_tab_graph').className = tab === 'graph' ? 'btn-primary' : '';
-}
 
 // ---------- 合规自查（InspectionRun/CheckResult）----------
 let scCurrent = null;      // 当前检查项详情
@@ -77,7 +68,7 @@ async function scSubmit() {
     actual: $(`#mt_${i}`).value.trim(),
   }));
   const target = $('#sc_target').value;
-  const actor = $('#actor').value;
+  const actor = ACTOR;
   const run = await api('/api/inspection/runs', {method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({inspectedTarget: target, inspector: actor, actor})});
   const res = await api(`/api/inspection/runs/${run.runId}/results`, {method:'POST',
@@ -116,7 +107,7 @@ async function scProposal(runId) {
   const r = await api('/api/proposals', {method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({reason: `检查项 ${scCurrent.checkCode}（${scCurrent.title}）自查存在知识缺口，需专家补全证据要求/判定规则/阈值`,
       targetKind: 'EvidenceRequirement', raisedFrom: runId,
-      payload: {checkCode: scCurrent.checkCode, runId}, actor: $('#actor').value})});
+      payload: {checkCode: scCurrent.checkCode, runId}, actor: ACTOR})});
   alert('已发起提案 ' + (r.id||JSON.stringify(r)) + '，请到「待审核队列」查看。');
 }
 
@@ -145,7 +136,7 @@ async function planCreate() {
     body: JSON.stringify({name: $('#lg_name').value, scope: $('#lg_scope').value, cycle: $('#lg_cycle').value,
       owner: $('#lg_owner').value,
       checks: $('#lg_checks').value.split(',').map(s=>s.trim()).filter(Boolean),
-      actor: $('#actor').value})});
+      actor: ACTOR})});
   if (r.error) return alert(JSON.stringify(r.error));
   alert('已创建计划 ' + r.planId); loadLedger();
 }
@@ -155,7 +146,7 @@ async function lgUploadEv() {
   if (!run || !f) return alert('填运行ID并选择文件');
   const fd = new FormData();
   fd.append('file', f); fd.append('checkCode', $('#lg_evck').value.trim());
-  fd.append('uploadedBy', $('#actor').value);
+  fd.append('uploadedBy', ACTOR);
   const r = await api(`/api/inspection/runs/${run}/evidence`, {method:'POST', body: fd});
   if (r.error) return alert(JSON.stringify(r.error));
   alert('证据已归档 ' + r.evidenceId + '（' + r.fileName + '）'); loadLedger();
@@ -170,8 +161,8 @@ async function lgSignoff() {
   const run = $('#lg_runid2').value.trim();
   if (!run) return alert('填运行ID');
   const r = await api(`/api/inspection/runs/${run}/signoff`, {method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({signer: $('#lg_signer').value || $('#actor').value, role: $('#lg_role').value,
-      decision: $('#lg_decision').value, actor: $('#actor').value})});
+    body: JSON.stringify({signer: $('#lg_signer').value || ACTOR, role: $('#lg_role').value,
+      decision: $('#lg_decision').value, actor: ACTOR})});
   if (r.error) return alert(JSON.stringify(r.error));
   alert('已签署 ' + r.signoffId); loadLedger();
 }
@@ -245,137 +236,6 @@ async function loadDash() {
   $('#audit').innerHTML = '<span class="muted">受控写操作全量写 audit_log（见后端）。</span>';
 }
 
-async function manualCreate() {
-  const type = $('#m_type').value;
-  const eid = $('#m_id').value.trim();
-  const data = {
-    title: $('#m_title').value, code: $('#m_code').value || eid,
-    text: $('#m_text').value, force: $('#m_force').value,
-    clauseOf: $('#m_clause').value || undefined,
-  };
-  const body = {type, id: eid, data, actor: $('#actor').value};
-  const r = await api('/api/entities', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
-  alert('已提交，进入待审核队列。reviewTask=' + (r.reviewTaskId || r.error?.message || JSON.stringify(r)));
-}
-
-async function doUploadExtract() {
-  const f = $('#file').files[0];
-  if (!f) return alert('先选择文件');
-  const fd = new FormData(); fd.append('file', f);
-  const up = await api('/api/documents/upload', {method:'POST', body: fd});
-  if (up.error) return alert(JSON.stringify(up.error));
-  const ex = await api('/api/extract', {method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({documentId: up.documentId, mode: $('#ex_mode').value})});
-  $('#extract_out').innerHTML = `<p class="muted">degraded=${ex.degraded||false} ${ex.reason||''}</p>
-    <table><tr><th>类型</th><th>标签</th><th>对齐类</th><th>置信度</th><th>出处片段</th></tr>
-    ${(ex.candidates||[]).map(c=>`<tr><td>${c.kind}</td><td>${c.label}</td><td>${c.mappedClass}</td>
-      <td><span class="badge b-${c.confidence>=0.85?'ok':c.confidence>=0.6?'warn':'unk'}">${c.confidence}</span></td>
-      <td>${c.span||''}</td></tr>`).join('')}</table>`;
-}
-
-async function loadQueue() {
-  const q = await api('/api/review/queue');
-  $('#queue_out').innerHTML = `<table><tr><th>任务</th><th>类型</th><th>标题</th><th>状态</th><th>提交人</th><th>操作</th></tr>
-    ${q.queue.map(t=>`<tr><td>${t.id}</td><td>${t.targetType||t.kind||''}</td><td>${t.title||t.reason||''}</td>
-      <td>${t.status}</td><td>${t.createdBy||''}</td>
-      <td>${t.targetId?`<button onclick="decide('${t.id}','approved')">批准</button>
-        <button class="ghost" onclick="decide('${t.id}','rejected')">拒绝</button>`:''}</td></tr>`).join('')}</table>`;
-}
-async function decide(tid, action) {
-  const r = await api(`/api/review/${tid}/decision`, {method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({action, actor: $('#actor').value, note:'界面审核'})});
-  alert(JSON.stringify(r)); loadQueue();
-}
-
-// ---------- 待审核队列（v1.10.1 合并：平台知识候选 + 知识库入闸候选）----------
-async function loadQueue() {
-  loadPlatformQueue();
-  loadIngest();
-}
-
-// 区块一：平台知识候选（原 /api/review/queue：实体任务+提案；队列内均为待审项）
-async function loadPlatformQueue() {
-  const q = await api('/api/review/queue');
-  $('#queue_out').innerHTML = `<table><tr><th>任务</th><th>类型</th><th>标题</th><th>状态</th><th>提交人</th><th>操作</th></tr>
-    ${(q.queue||[]).map(t=>`<tr><td>${t.id}</td><td>${t.targetType||t.kind||''}</td><td>${t.title||t.reason||''}</td>
-      <td>${t.status}</td><td>${t.createdBy||''}</td>
-      <td>${t.targetId?`<button onclick="decide('${t.id}','approved')">批准</button>
-        <button class="ghost" onclick="decide('${t.id}','rejected')">拒绝</button>`:''}</td></tr>`).join('')}</table>
-      ${(q.queue||[]).length?'':'<p class="muted">当前无待审平台候选</p>'}`;
-}
-
-// 区块二：知识库入闸候选（ingest staging；按批次，批准/拒绝写 decisions.json）
-const IR_TYPE = {case:'案例', law:'法规', standard:'标准', term:'术语', control:'控制', organization:'组织', solution:'方案'};
-const IR_CONF = {high:'高', medium:'中', low:'低'};
-const IR_STAT = {approved:'已批准', rejected:'已拒绝', pending:'待审核'};
-// P1-4 风险分级：法规=P0 / 标准=P1 / 其他=P2
-const IR_RISK = {law:['P0','b-p0'], standard:['P1','b-p1'], case:['P2','b-p2'], term:['P2','b-p2'], control:['P1','b-p1'], organization:['P2','b-p2'], solution:['P2','b-p2']};
-// P1-1 来源分级：官方URL=官方 / 外部同步=标准 / 本地学习=本地
-function irSourceLevel(i) {
-  if (i.official_url) return ['官方','b-ok'];
-  if (i.source_kind === 'external') return ['外部','b-warn'];
-  return ['本地','b-unk'];
-}
-let irCurrent = '';
-async function loadIngest() {
-  const batches = (await api('/api/ingest/review/batches')).batches || [];
-  const sel = $('#ir_batch');
-  if (batches.length && (sel.options.length === 0 || ![...sel.options].some(o=>o.value===irCurrent))) {
-    irCurrent = batches[0].batch;
-    sel.innerHTML = batches.map(b=>`<option value="${b.batch}">${b.batch}</option>`).join('');
-  }
-  if (sel.value) irCurrent = sel.value;   // 用户切换批次时同步记忆，避免旧批次残留
-  const b = irCurrent || (batches[0] && batches[0].batch) || '';
-  if (!b) { $('#ingest_out').innerHTML = '<p class="muted">暂无待审核批次</p>'; $('#ir_summary').textContent=''; return; }
-  const meta = batches.find(x=>x.batch===b);
-  $('#ir_summary').textContent = meta ? `｜候选 ${meta.candidates} · 待审 ${meta.pending} · 已批 ${meta.approved} · 已拒 ${meta.rejected}` : '';
-  const d = await api('/api/ingest/review?batch='+encodeURIComponent(b));
-  const stB = {approved:'b-ok', rejected:'b-unk', pending:'b-warn'};
-  const btn = i => i.status === 'pending'
-    ? `<div class="row"><button onclick="ingestDecide('${i.id}','approve')">批准</button>
-        <button class="ghost" onclick="ingestDecide('${i.id}','reject')">拒绝</button></div>` : '';
-  $('#ingest_out').innerHTML = d.items.map(i=>{
-    const [riskLabel, riskClass] = IR_RISK[i.type] || ['P2','b-p2'];
-    const [srcLabel, srcClass] = irSourceLevel(i);
-    return `<div class="card">
-    <div class="row"><span class="badge ${stB[i.status]||'b-warn'}">${IR_STAT[i.status]||i.status}</span>
-      <span class="badge">${IR_TYPE[i.type]||i.type}</span>
-      <span class="badge ${riskClass}">${riskLabel} 风险</span>
-      <span class="badge ${srcClass}">${srcLabel}来源</span>
-      <span class="muted">${i.id}</span>
-      <span class="muted" style="margin-left:auto">置信度 ${IR_CONF[i.confidence]||i.confidence}</span></div>
-    <h3>${i.title}</h3>
-    <p class="muted">${i.summary||''}</p>
-    <p class="muted">级别 ${i.level}${i.tags&&i.tags.length?' · '+i.tags.map(t=>'#'+t).join(' '):''}</p>
-    ${i.official_url?`<p class="muted"><a href="${i.official_url}" target="_blank">${i.official_url}</a></p>`:''}
-    ${(i.sources||[]).length?`<p class="muted">来源：${i.sources.map(s=>`<a href="${s.url}" target="_blank">${s.name||s.url}</a>`).join(' · ')}</p>`:''}
-    ${(i.relations||[]).length?`<p class="muted">建议双链：${i.relations.map(r=>`${r.rel}→${r.to}`).join(' · ')}</p>`:''}
-    ${btn(i)}
-  </div>`}).join('') || '<p class="muted">该批次无候选</p>';
-}
-async function ingestDecide(eid, action) {
-  const b = $('#ir_batch').value || irCurrent;
-  const r = await api(`/api/ingest/review/${eid}/decision?batch=${encodeURIComponent(b)}`,
-    {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({action, actor:$('#actor').value})});
-  if (r.error) { alert(JSON.stringify(r.error)); return; }
-  loadIngest();
-}
-
-async function loadBrowse() {
-  const cls = await api('/api/ontology/classes');
-  $('#class_tree').innerHTML = cls.classes.map(c=>`<div>${c.label} <span class="muted">${c.name}</span></div>`).join('');
-  const types = [...new Set(cls.classes.map(c=>c.name))];
-  const sel = $('#b_type');
-  if (sel.options.length <= 1) types.forEach(t=>{const o=document.createElement('option');o.value=t;o.textContent=t;sel.appendChild(o);});
-  const e = await api('/api/entities?type='+$('#b_type').value);
-  $('#ent_list').innerHTML = `<table><tr><th>ID</th><th>标签</th><th>状态</th></tr>
-    ${e.entities.map(x=>`<tr style="cursor:pointer" onclick="showDetail('${x.id}')"><td>${x.id}</td><td>${x.label}</td><td>${x.status}</td></tr>`).join('')}</table>`;
-}
-async function showDetail(id) {
-  const d = await api('/api/entities/'+id);
-  $('#ent_detail').innerHTML = `<b>${id}</b> (${d.type})<pre>${JSON.stringify(d.data,null,2)}</pre>`;
-}
-
 // ---------- 知识库检索（总览驾驶舱子栏目，接 /api/search + /api/entity 双源链）----------
 const KBT = {case:'案例', law:'法规', standard:'标准', term:'术语', control:'控制', organization:'组织', solution:'方案', topic:'专题', guide:'指引', check:'检查项'};
 async function kbSearch() {
@@ -415,7 +275,7 @@ let lastRuns = {};
 async function runAssess() {
   const aid = $('#asset_sel').value;
   const r = await api('/api/assessments', {method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({assetId: aid, actor: $('#actor').value})});
+    body: JSON.stringify({assetId: aid, actor: ACTOR})});
   lastRuns[aid] = r.runId;
   renderAssess(r);
 }
@@ -477,12 +337,4 @@ async function llmTest() {
   const st = await api('/api/settings/llm/test', {method: 'POST',
     headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)}).catch(() => null);
   $('#llm_status').innerHTML = (st && st.ok ? '✓ ' : '✗ ') + (st ? st.detail : '测试失败：API 不可达');
-}
-
-// ---------- 知识图谱 Tab 切换（列表浏览 / 关系图谱）----------
-function switchKbTab(tab) {
-  $('#kb_pane_list').classList.toggle('hidden', tab !== 'list');
-  $('#kb_pane_graph').classList.toggle('hidden', tab !== 'graph');
-  $('#kb_tab_list').className = tab === 'list' ? 'btn-primary' : '';
-  $('#kb_tab_graph').className = tab === 'graph' ? 'btn-primary' : '';
 }
