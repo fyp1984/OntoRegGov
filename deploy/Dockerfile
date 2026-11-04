@@ -18,10 +18,11 @@ COPY run.sh CHANGELOG.md README.md ROADMAP.md ./
 
 EXPOSE 8420
 
-# 默认运行形态：复用卷内既有数据（SKIP_SEED=1，不重置种子）、JSON+SQLite 读取、
-# 图后端 memory（如需 Fuseki 可在 compose 环境变量切换）
-ENV DB_READ_FROM=json
-ENV KB_READ_FROM=json
+# 默认运行形态：复用卷内既有数据（SKIP_SEED=1，不重置种子）；
+# v1.15.0 工程收敛切源：读源默认 db（PG 投影）+ canonical（权威本体），
+# 库不可达自动回落 canonical/SQLite；图后端 memory（如需 Fuseki 可在 compose 环境变量切换）
+ENV DB_READ_FROM=db
+ENV KB_READ_FROM=canonical
 ENV GRAPH_STORE_BACKEND=memory
 ENV SKIP_SEED=1
 ENV PORT=8420

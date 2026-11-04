@@ -1,5 +1,26 @@
 # 变更记录
 
+## v1.15.0（2026-11-04，线④ 工程收敛切源）
+
+- **读源默认收敛**：`app/config.py` / `deploy/Dockerfile` / `deploy/docker-compose.ontoreggov.yml`
+  默认值由 `DB_READ_FROM=json` → **`db`**、`KB_READ_FROM=json` → **`canonical`**。
+  即：只读 API 默认优先 PostgreSQL 投影（`ekos_ds_kb`），未命中/库不可达自动回落 canonical 图
+  → SQLite 旧链路，永不中断 200；权威本体统一以确定性编译器产出的 canonical 快照为准。
+- **退役 base-snapshot 手工副本**：`app/ontology/base_import.py` 删除"读 `knowledge.json` 抄成精简副本
+  （仅 8 类 + type/title/summary/seeAlso）"的旧路径，统一走 `kb_compiler.adapter` 编译 canonical → dsecb 富字段快照
+  （含 `ctCode`/`ctLayer`/`controlType`/`lifecycle`）。编辑源不可达（打包运行态）时保留既有快照、绝不覆盖为空。
+- **图存储只读 ACL（命名空间 ACL）**：`app/ontology/graph_backend.py` 新增 `assert_readonly()`，
+  `query()`/`ask()` 入口只放行 `SELECT/ASK/CONSTRUCT/DESCRIBE`，任何 SPARQL Update
+  （`INSERT/DELETE/DROP/CLEAR/LOAD/CREATE/ADD/MOVE/COPY/WITH`）一律拒绝——平台命名图与 EKOS 底座图均只读禁写。
+  REST `/api/graph/sparql` 命中即返回 400（`readonly_violation`），MCP `dsec_graph_sparql` 返回 `error`。
+- **容器内 db 读源连通性修复**：`app/services/db_kb.py` 抽取 `_dsn_candidates()`，`_connect()` 与
+  `_pg_connect_optional()` 统一按候选依次连库——容器内（`/.dockerenv` 存在）首试
+  `127.0.0.1`→`host.docker.internal` 改写版。修复前容器内 `health()` 恒为 False（直连 `127.0.0.1` 不可达），
+  默认切 db 后实际仍回落 canonical、名不副实；修复后容器内 `health()=True`、`kb_read.get_check` 实测 `source=db`。
+- **回归加固**：`scripts/smoke_v18_gateway.py` 修正陈旧断言（`controls=104` → 与 canonical 对账一致的 `115`），
+  新增 SPARQL 只读 ACL 断言（REST/MCP 双入口：写操作拒绝、读操作放行）。
+- 版本 `1.14.0` → `1.15.0`（`app/main.py` health、`deploy/docker-compose.ontoreggov.yml`）。
+
 ## v1.14.0（2026-11-04，线③ 语义检索增强）
 
 - **知识底座向量化补齐（覆盖率 2% → 100%）**：新增 `scripts/weknora_reparse_batch.py`，批量调用底座重解析接口，

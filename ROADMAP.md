@@ -84,14 +84,14 @@
 |---|---|---|
 | 13 缺口清零 | 知识侧按 `reports/align-report.json` 补码 11 条 + 人工对齐 2 条标题措辞（机房物理安全防护→CT-NW-017、同意管理系统功能→CT-PROTO-014），随后 `python scripts/align_controls.py --apply` | 机制已就绪（v1.7.0），等知识侧 csv |
 | ~~质量门收紧到 0/0~~ ✅ v1.13.1 | `kb_publish.py` 质量门默认终态：要求字面 ERROR=0/WARN=0，回归即拦截回滚；`--allow-baseline` 保留"基线无回归"过渡模式（知识侧仍有已知告警时用） | 实测默认门通过 0/0 |
-| B3 消费端正式切换 | base_import 退役 base-snapshot 手工副本、只读 API 全量切读 canonical；MCP 只读工具加命名空间 ACL（禁 UPDATE/禁写 kb 图） | `KB_READ_FROM=canonical` 已旁路可用 |
+| ~~B3 消费端正式切换~~ ✅ v1.15.0 | base_import 退役 base-snapshot 手工副本（改统一走 canonical 编译器）、只读 API 默认切读 canonical/db；MCP/REST SPARQL 工具加命名空间 ACL（`assert_readonly`，禁 UPDATE/禁写 kb 图） | 已切默认 `KB_READ_FROM=canonical`、`DB_READ_FROM=db` |
 | 116 检查 richer 层入 canonical | Metric 342 / InterviewQuestion 243 / InspectionMethodStep 705 / VerdictRule / FindingPattern 从 SQLite 种子推广进 canonical.ttl | 现仅 CheckItem+Element+Clause canonical 化 |
 | 93号文检查项现场检查化 | 若 93号文附件2 的 139 项要做成可执行 InspectionCheck，单独建模（决策 D5 已记，用户可改） | 现以 topic 正文承载 |
 | ~~**全量 richer 层入库（db 资产层）**~~ ✅ 线A | 已新建 richer 层 5 表（`check_metric` 342 / `check_method_step` 705 / `check_interview` 243 / `check_verdict_rule` 116 / `check_finding_pattern` 285，外键 `inspection_check(check_code) ON DELETE CASCADE`），并补投影缺失：检查标题、`check_element.text`、`law_clause.text` | v1.8 已入 9 表（entity/relation/control/check/element/clause/doc93item），richer 细层已补齐 |
 | ~~**kb_publish 挂接 step_load_db**~~ ✅ 线A | 发布流水线在三道质量门后加 `step_load_db`（门4）：影子比对通过后自动跑 `db_migrate up` + `db_seed_kb`，db 资产层随 canonical 发布同步整批重建（库不可达仅告警不阻断）；`--skip-db` 可跳过 | 已实测随发布自动刷新 |
 | ~~**pgvector 启用评估**~~ ✅ v1.14.0 | 评估两条路：① 把 ekos-postgres（自带 pgvector 0.8.0）换到未占用端口启动；② 在 wren-postgres 内装 vector 扩展。启用后才灌 embedding、开语义检索 | 实测 15432 宿主即 `ekos-postgres`（pgvector 0.8.0 / pg16），资产层 `kb_embedding`/`law_chunk` 已 100% 非空（344/344），"启用评估"无需再做 |
 | ~~**知识底座语义向量化补齐**~~ ✅ v1.14.0 | 底座 526 篇 manual 文档停留 `draft` 未分块/未向量化，`weknora_vector` 路由近乎空转 | 新增 `scripts/weknora_reparse_batch.py` 批量重解析；实测 chunks 90→3508 / embeddings 84→3502（12→526 篇，768 维，覆盖率→100%），`/api/search` 语义路实测打通 |
-| **DB_READ_FROM 灰度切默认 / B3 正式切源** | 待 db 影子比对对账通过后，把 `DB_READ_FROM` 默认从 json 切到 db；并完成 B3 消费端正式切源（退役 base-snapshot 手工副本、只读 API 全量切读 canonical/db） | v1.8 三态回落已通（db→canonical→SQLite），默认仍 json、db 仅灰度 |
+| ~~**DB_READ_FROM 灰度切默认 / B3 正式切源**~~ ✅ v1.15.0 | 已把 `DB_READ_FROM` 默认从 json 切到 **db**、`KB_READ_FROM` 切到 **canonical**；并完成 B3 消费端正式切源（退役 base-snapshot 手工副本、只读 API 全量切读 canonical/db） | v1.8 三态回落已通（db→canonical→SQLite）；实测 PG 投影健康、canonical 对账一致（controls=115），三态冒烟全绿 |
 
 ### 中长期（原规划表）
 | 方向 | 说明 | 前置/替换点 |

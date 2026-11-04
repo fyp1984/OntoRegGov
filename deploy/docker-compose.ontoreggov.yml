@@ -11,7 +11,7 @@ services:
     build:
       context: ..
       dockerfile: deploy/Dockerfile
-    image: ontoreggov-app:1.14.0
+    image: ontoreggov-app:1.15.0
     container_name: ontoreggov-app
     ports:
       - "8420:8420"
@@ -22,8 +22,8 @@ services:
       # 知识库静态站（8430 site/ 目录，挂载到 /kb/）
       - ../../@西北人的成长/20-Areas/信息安全/数据安全/10_知识库工程/site:/app/kb_site:ro
     environment:
-      - DB_READ_FROM=json
-      - KB_READ_FROM=json
+      - DB_READ_FROM=db
+      - KB_READ_FROM=canonical
       - GRAPH_STORE_BACKEND=memory
       # EKOS / WeKnora 底座对接（P0 网络打通后启用）
       - WEKNORA_API_BASE=http://ekos-weknora:8080

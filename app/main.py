@@ -103,7 +103,7 @@ async def gateway_guard(request: Request, call_next):
 # ---------------- 基础 ----------------
 @app.get("/api/health")
 def health():
-    h = {"status": "ok", "service": "dsec-mvp", "version": "1.14.0",
+    h = {"status": "ok", "service": "dsec-mvp", "version": "1.15.0",
          "baseSnapshot": graph_store.BASE_SNAPSHOT_TTL.exists()}
     if hasattr(app.state, "ekos_health"):
         h["ekos"] = app.state.ekos_health
@@ -733,13 +733,19 @@ def graph_backend_sync():
 
 @app.post("/api/graph/sparql")
 def graph_backend_query(body: dict):
-    """标准 SPARQL 查询代理：对所选后端执行 SELECT/ASK，返回 JSON 行。"""
+    """标准 SPARQL 查询代理：对所选后端执行只读查询（SELECT/ASK），返回 JSON 行。
+
+    v1.15.0 命名空间 ACL：图存储全只读，非读查询（SPARQL Update）一律 400 拒绝。
+    """
     sparql = (body or {}).get("query", "").strip()
     if not sparql:
         return _err("bad_request", "query 必填")
-    if sparql.lstrip().upper().startswith("ASK"):
-        return {"ask": graph_backend.ask(sparql)}
-    return {"rows": graph_backend.query(sparql)}
+    try:
+        if sparql.lstrip().upper().startswith("ASK"):
+            return {"ask": graph_backend.ask(sparql)}
+        return {"rows": graph_backend.query(sparql)}
+    except ValueError as e:
+        return _err("readonly_violation", str(e), 400)
 
 
 # ---------------- 导出 ----------------

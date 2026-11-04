@@ -3,7 +3,7 @@
 """v1.8 工作包 C 冒烟（进程内 TestClient，不起 uvicorn / 不起浏览器）。
 
 覆盖：
-  ① DB_READ_FROM 三态（json/canonical/db）四路由 200 + 结构一致 + controls=104；
+  ① DB_READ_FROM 三态（json/canonical/db）四路由 200 + 结构一致 + controls=115；
   ② 网关认证：无 token / 坏 token 401，白名单 token 200 且落审计；
   ③ 限流件单测（RateLimiter）；
   ④ MCP 工具进程内调用（dsec_check_detail 三态读源）。
@@ -58,8 +58,8 @@ def test_three_states(client):
         r = client.get("/api/controls")
         check(f"{mode}: /api/controls 200", r.status_code == 200)
         if r.status_code == 200:
-            check(f"{mode}: controls=104（与 canonical 对账一致）",
-                  r.json().get("total") == 104, f"(total={r.json().get('total')})")
+            check(f"{mode}: controls=115（与 canonical 对账一致）",
+                  r.json().get("total") == 115, f"(total={r.json().get('total')})")
         r = client.get("/api/checks/1.1")
         check(f"{mode}: /api/checks/1.1 200", r.status_code == 200,
               f"(title={str(r.json().get('title'))[:30] if r.status_code==200 else r.text[:60]})")
@@ -100,6 +100,23 @@ def test_gateway(client):
         cfg.GATEWAY_AUTH_ENABLED = False
     r = client.get("/api/controls")
     check("开关复位 off → /api/controls 裸跑 200", r.status_code == 200)
+
+
+def test_sparql_acl(client):
+    print("--- SPARQL 只读 ACL（线④：图存储禁写）---")
+    r = client.post("/api/graph/sparql", json={"query": "INSERT DATA { <a> <b> <c> }"})
+    check("REST /api/graph/sparql INSERT → 400 拒绝", r.status_code == 400, f"({r.status_code})")
+    r = client.post("/api/graph/sparql", json={"query": "DROP GRAPH <http://dsec/platform>"})
+    check("REST /api/graph/sparql DROP → 400 拒绝", r.status_code == 400, f"({r.status_code})")
+    r = client.post("/api/graph/sparql", json={"query": "SELECT ?s WHERE { ?s ?p ?o } LIMIT 1"})
+    check("REST /api/graph/sparql SELECT → 200 放行", r.status_code == 200, f"({r.status_code})")
+    from app.mcp_server.server import make_server
+    fn = make_server()._tool_manager._tools["dsec_graph_sparql"].fn
+    r = fn("CLEAR ALL")
+    check("MCP dsec_graph_sparql CLEAR → error 拒绝", "error" in r, f"({r})")
+    r = fn("SELECT ?s WHERE { ?s ?p ?o } LIMIT 1")
+    check("MCP dsec_graph_sparql SELECT → rows 放行",
+          "rows" in r or "ask" in r, f"(keys={sorted(r.keys())})")
 
 
 def test_rate_limiter():
@@ -143,6 +160,7 @@ def main():
     with TestClient(app) as client:
         test_three_states(client)
         test_gateway(client)
+        test_sparql_acl(client)
     test_rate_limiter()
     test_mcp_tools()
     print("=" * 60)

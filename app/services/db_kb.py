@@ -23,13 +23,34 @@ _health_cache: bool | None = None
 _health_ts: float = 0.0
 
 
+def _dsn_candidates() -> list[str]:
+    """连接串候选：容器内（/.dockerenv 存在）把 127.0.0.1 改写为 host.docker.internal。
+
+    宿主直连时只返回配置原值。与 `_pg_connect_optional()` 保持同一容器改写范式，
+    否则容器内 `_connect()` 会因 127.0.0.1 不可达而 health()=False（v1.15.0 修复）。
+    """
+    dsn = KB_PG_DSN
+    if "127.0.0.1" in dsn and _os.path.exists("/.dockerenv"):
+        return [dsn.replace("127.0.0.1", "host.docker.internal"), dsn]
+    return [dsn]
+
+
 def _connect():
-    """懒加载 psycopg2 并建立只读连接。任何失败都抛给调用方捕获。"""
+    """懒加载 psycopg2 并建立只读连接。任何失败都抛给调用方捕获。
+
+    依次尝试 DSN 候选（容器内首试 host.docker.internal 改写版），全部失败才抛出。
+    """
     import psycopg2  # 可选依赖（工作包 B 落地；未装时整体降级）
     import psycopg2.extras
-    conn = psycopg2.connect(KB_PG_DSN, connect_timeout=3)
-    conn.set_session(readonly=True, autocommit=True)
-    return conn
+    last_err: Exception | None = None
+    for dsn in _dsn_candidates():
+        try:
+            conn = psycopg2.connect(dsn, connect_timeout=3)
+            conn.set_session(readonly=True, autocommit=True)
+            return conn
+        except Exception as e:  # noqa: BLE001 — 换下一个候选，全失败后抛出
+            last_err = e
+    raise last_err if last_err else RuntimeError("no PostgreSQL DSN candidate")
 
 
 def health(force: bool = False) -> bool:
@@ -270,12 +291,9 @@ def _http_json(method: str, url: str, payload: dict | None = None,
 
 
 def _pg_connect_optional():
-    """三路检索专用连接：先试配置 DSN，失败改写 127.0.0.1→host.docker.internal 重试。
+    """三路检索专用连接：按 DSN 候选依次尝试（容器内首试 host.docker.internal 改写版）。
     任何失败返回 None（调用方降级），不抛给上层。"""
-    candidates = [KB_PG_DSN]
-    if "127.0.0.1" in KB_PG_DSN:
-        candidates.append(KB_PG_DSN.replace("127.0.0.1", "host.docker.internal"))
-    for dsn in candidates:
+    for dsn in _dsn_candidates():
         try:
             import psycopg2  # noqa: E402
             conn = psycopg2.connect(dsn, connect_timeout=3)

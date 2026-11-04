@@ -1,51 +1,27 @@
-"""底座只读投影：一次性把 10_知识库工程/data/knowledge.json 投影为 base-snapshot.ttl。
-绝不写回底座、不 import 底座脚本、不读其运行态；靠重跑刷新。
+"""底座只读投影（v1.15.0 工程收敛切源）：统一走 canonical 编译器产出 dsecb 富字段底座快照。
+
+大白话：旧版把 10 工程 build 产物 knowledge.json 手工"抄"成一份精简副本（仅 8 类、只投
+type/title/summary/seeAlso）——该**手工副本路径已退役**；现一律由确定性编译器把编辑源编成
+canonical RDF，再投影为平台 dsecb 命名空间快照：单一正本、同输入同输出、绝不回写底座。
 """
 from __future__ import annotations
-import json
-from rdflib import Graph, URIRef, Literal, RDF, RDFS, OWL
+from rdflib import Graph, RDF, OWL
 from .ns import DSECB
-from ..config import KB_KNOWLEDGE_JSON, BASE_SNAPSHOT_TTL, KB_READ_FROM
-
-# 底座实体类型 -> 投影类（与 ns.BASE_PROJECTED_CLASSES 对齐）
-PROJECTED_TYPES = {"law", "standard", "term", "role", "organization",
-                   "control", "case", "scenario"}
+from ..config import BASE_SNAPSHOT_TTL, KB_ROOT
 
 
 def project() -> str:
-    # v1.5.0：KB_READ_FROM=canonical 时改读 10 工程编辑源经编译器+适配器生成富字段快照
-    if KB_READ_FROM == "canonical":
+    # 编辑源可达（研发态）：确定性编译器 + 适配器，产富字段底座快照（唯一正本链路）
+    if KB_ROOT.exists():
         from ..kb_compiler.adapter import write_snapshot
         return write_snapshot()
-    if not KB_KNOWLEDGE_JSON.exists():
-        # 底座不可达时生成空快照（保证零依赖可跑）
-        g = Graph()
-        g.bind("dsecb", DSECB)
-        g.add((DSECB["Note"], RDF.type, OWL.Class))
-        out = g.serialize(format="turtle")
-        BASE_SNAPSHOT_TTL.write_text(out, encoding="utf-8")
-        return out
-    data = json.loads(KB_KNOWLEDGE_JSON.read_text(encoding="utf-8"))
+    # 编辑源不可达（打包运行态）：保留既有快照，绝不覆盖为空
+    if BASE_SNAPSHOT_TTL.exists():
+        return BASE_SNAPSHOT_TTL.read_text(encoding="utf-8")
+    # 两无：生成最小空快照，保证零依赖可跑
     g = Graph()
     g.bind("dsecb", DSECB)
-    # 类声明
-    for t in PROJECTED_TYPES:
-        g.add((DSECB[t], RDF.type, OWL.Class))
-        g.add((DSECB[t], RDFS.label, Literal(t, lang="en")))
-    n = 0
-    for e in data.get("entities", []):
-        etype = e.get("type")
-        if etype not in PROJECTED_TYPES:
-            continue
-        eid = e["id"]
-        subj = DSECB[f"{etype}/{eid}"]
-        g.add((subj, RDF.type, DSECB[etype]))
-        g.add((subj, RDFS.label, Literal(e.get("title", eid), lang="zh")))
-        if e.get("summary"):
-            g.add((subj, DSECB["summary"], Literal(e["summary"], lang="zh")))
-        if e.get("official_url"):
-            g.add((subj, RDFS.seeAlso, URIRef(e["official_url"])))
-        n += 1
+    g.add((DSECB["Note"], RDF.type, OWL.Class))
     out = g.serialize(format="turtle")
     BASE_SNAPSHOT_TTL.write_text(out, encoding="utf-8")
     return out
