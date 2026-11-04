@@ -11,6 +11,7 @@ from __future__ import annotations
 import json, uuid, datetime
 from ..db import db
 from . import audit
+from . import run_db
 
 CYCLES = {"monthly": 30, "quarterly": 90, "half-yearly": 180, "yearly": 365}
 
@@ -35,6 +36,10 @@ def create_plan(name: str, scope: str, cycle: str = "quarterly",
             (pid, name, scope, cycle, start_date, end_date, "active", owner,
              json.dumps(checks or [], ensure_ascii=False), ts, ts))
     audit.log(actor, "inspection.plan.create", pid, {"name": name, "cycle": cycle, "checks": len(checks or [])})
+    run_db.mirror_plan({"plan_id": pid, "name": name, "scope": scope, "cycle": cycle,
+                        "owner": owner, "check_scope": checks or [], "status": "active",
+                        "start_date": start_date, "end_date": end_date,
+                        "created_at": ts, "updated_at": ts})
     return {"planId": pid, "name": name, "scope": scope, "cycle": cycle, "status": "active"}
 
 
@@ -95,6 +100,9 @@ def attach_evidence(run_id: str, check_code: str, file_name: str, file_path: str
             (eid, run_id, check_code, file_name, file_path, uploaded_by, note, ts))
     audit.log(uploaded_by, "inspection.evidence.attach", eid,
               {"run": run_id, "check": check_code, "file": file_name})
+    run_db.mirror_evidence({"evidence_id": eid, "run_id": run_id, "check_code": check_code,
+                            "file_name": file_name, "file_path": file_path,
+                            "uploaded_by": uploaded_by, "note": note, "uploaded_at": ts})
     return {"evidenceId": eid, "runId": run_id, "checkCode": check_code,
             "fileName": file_name, "uploadedBy": uploaded_by, "uploadedAt": ts}
 
@@ -122,6 +130,8 @@ def sign_off(run_id: str, signer: str, role: str, decision: str,
             "VALUES(?,?,?,?,?,?,?)",
             (sid, run_id, signer, role, decision, comment, ts))
     audit.log(actor, "inspection.signoff", run_id, {"signer": signer, "decision": decision})
+    run_db.mirror_signoff({"signoff_id": sid, "run_id": run_id, "signer": signer, "role": role,
+                           "decision": decision, "comment": comment, "signed_at": ts})
     return {"signoffId": sid, "runId": run_id, "signer": signer, "role": role,
             "decision": decision, "comment": comment, "signedAt": ts}
 

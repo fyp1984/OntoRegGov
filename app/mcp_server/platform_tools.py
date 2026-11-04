@@ -9,7 +9,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from app.db import db  # noqa: E402
-from app.services import inspection, ledger, kb_read, db_kb, p1_lawqa  # noqa: E402
+from app.services import inspection, ledger, kb_read, db_kb, p1_lawqa, kb_source  # noqa: E402
 from app.ontology import graph_backend  # noqa: E402
 from app.scenarios.functions import doc93_questionnaire  # noqa: E402
 
@@ -206,3 +206,36 @@ def register(mcp) -> None:
         if not query.strip():
             return {"error": "query 必填"}
         return p1_lawqa.search(query, limit=limit)
+
+    # ---- v1.16.0 统一知识取数（kb_source 适配器：实时知识库优先 + 多源降级）----
+    @mcp.tool()
+    def dsec_kb_get(check_code: str) -> dict:
+        """按检查项编号取实时六维详情（知识库平台覆盖 + 结构化投影/运行台账底座）。
+
+        统一信封：{content, source, fetchedAt}；source 说明本次数据来自哪一级
+        （weknora/canonical/db/sqlite 的组合）。六维恒为完整形状，不会出现 undefined/空白。
+        """
+        env = kb_source.fetch_check(check_code)
+        if not env or env.get("content") is None:
+            return {"error": f"检查项不存在: {check_code}"}
+        return env
+
+    @mcp.tool()
+    def dsec_kb_search(query: str, limit: int = 20) -> dict:
+        """融合检索（关键词/向量/图谱/RAG + 知识库实时向量路），带来源标注。"""
+        if not query.strip():
+            return {"error": "query 必填"}
+        return kb_source.fetch_search(query, limit=limit)
+
+    @mcp.tool()
+    def dsec_kb_wiki(page_id: str = "", limit: int = 200) -> dict:
+        """读知识库平台 Wiki：给定 page_id/精确标题读整页正文；留空返回页面目录。
+
+        统一信封：{content, source, fetchedAt, version?}。
+        """
+        if page_id.strip():
+            env = kb_source.fetch_wiki(page_id.strip())
+            if not env or env.get("content") is None:
+                return {"error": f"知识页面不存在: {page_id}"}
+            return env
+        return kb_source.fetch_wiki_index(limit)
