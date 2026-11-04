@@ -13,7 +13,6 @@
   <div>
     <h1>本体驱动的数据安全管理平台</h1>
   </div>
-  <span class="sub" style="margin-left:auto">演示身份：<select id="actor" style="width:120px"><option value="editor">editor(编辑)</option><option value="reviewer">reviewer(审核)</option><option value="admin">admin</option></select></span>
 </header>
 <div class="wrap">
 <nav id="nav">
@@ -21,8 +20,6 @@
   <a data-v="checkslib">监管检查库</a>
   <a data-v="selfcheck">合规自查</a>
   <a data-v="assess">合规检查</a>
-  <a data-v="kmgmt">知识管理</a>
-  <a data-v="manual">手动收集</a>
   <a data-v="ledger">检查台账</a>
   <a data-v="aiadmit">AI 准入</a>
   <a data-v="llmset">LLM 配置</a>
@@ -30,79 +27,6 @@
 <main>
   <section id="dash" class="view">
     <iframe src="/kb/?v=3" style="width:100%;height:calc(100vh - 140px);border:none;border-radius:8px;background:#fff"></iframe>
-  </section>
-
-  <section id="manual" class="view hidden">
-    <div class="card"><h3>手动收集：新增受控知识对象</h3>
-      <div class="grid2">
-        <div>
-          <label>类型</label>
-          <select id="m_type"><option>Law</option><option>Clause</option><option>Obligation</option><option>Control</option><option>DataAsset</option></select>
-          <label>ID(稳定slug)</label><input id="m_id" placeholder="如 ob-new">
-          <label>标题/名称</label><input id="m_title">
-          <label>代码/编号</label><input id="m_code">
-        </div>
-        <div>
-          <label>义务类型(force)</label><select id="m_force"><option value="mandatory">mandatory</option><option value="recommended">recommended</option></select>
-          <label>正文/说明</label><textarea id="m_text" rows="4"></textarea>
-          <label>关联条款 clauseOf（Clause:cl-xx）</label><input id="m_clause" placeholder="Clause:cl-19">
-        </div>
-      </div>
-      <p><button onclick="manualCreate()">提交（进入待审核）</button></p>
-      <p class="muted">提交后需 reviewer 审核并通过 SHACL 校验方可发布。</p>
-    </div>
-  </section>
-
-  <section id="kmgmt" class="view hidden">
-    <div class="row" style="margin-bottom:12px">
-      <button id="km_tab_import" class="btn-primary" onclick="switchKmTab('import')">自动导入</button>
-      <button id="km_tab_review" onclick="switchKmTab('review')">待审核队列</button>
-      <button id="km_tab_graph" onclick="switchKmTab('graph')">知识图谱</button>
-    </div>
-
-    <div id="km_pane_import">
-      <div class="card"><h3>自动导入：上传 PDF/MD/TXT 抽取候选</h3>
-        <input type="file" id="file">
-        <p class="row">模式：<select id="ex_mode"><option value="rule">rule(规则)</option><option value="llm">llm(无key自动降级)</option></select>
-        <button onclick="doUploadExtract()">上传并抽取</button></p>
-        <div id="extract_out"></div>
-      </div>
-    </div>
-
-    <div id="km_pane_review" class="hidden">
-      <div class="card"><h3>待审核队列 · 平台知识候选（提交人≠审核人）</h3>
-        <div id="queue_out"></div>
-      </div>
-      <div class="card"><h3>待审核队列 · 知识库入闸候选（外部同步/本地学习，批准后经 merge 入库）</h3>
-        <p class="muted">批次：<select id="ir_batch" onchange="loadIngest()"></select>
-          <span id="ir_summary"></span></p>
-        <div id="ingest_out"></div>
-      </div>
-    </div>
-
-    <div id="km_pane_graph" class="hidden">
-      <div class="row" style="margin-bottom:12px">
-        <button id="kb_tab_list" class="btn-primary" onclick="switchKbTab('list')">列表浏览</button>
-        <button id="kb_tab_graph" onclick="switchKbTab('graph')">关系图谱</button>
-      </div>
-      <div id="kb_pane_list">
-        <div class="grid2">
-          <div class="card"><h3>类树</h3><div id="class_tree"></div></div>
-          <div class="card"><h3>实体列表</h3>
-            <select id="b_type" onchange="loadBrowse()"><option value="">全部</option></select>
-            <div id="ent_list"></div>
-          </div>
-        </div>
-        <div class="card"><h3>详情 / why 溯源</h3><div id="ent_detail">点击左侧实体查看。</div></div>
-      </div>
-      <div id="kb_pane_graph" class="hidden">
-        <div class="card"><h3>关系图谱（自写 SVG 力导向）</h3>
-          <div class="row"><button onclick="drawGraph()">渲染主链子图</button>
-          <span class="muted">节点按类着色，点击钻取</span></div>
-          <svg id="graph"></svg>
-        </div>
-      </div>
-    </div>
   </section>
 
   <section id="kbsearch" class="view hidden">
@@ -246,7 +170,6 @@
   </section>
 </main>
 </div>
-<script src="/app.js?v=20261104"></script>
-<script src="/graph.js?v=20261104"></script>
+<script src="/app.js?v=20261104b"></script>
 </body>
 </html>
