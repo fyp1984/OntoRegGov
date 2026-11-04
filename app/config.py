@@ -56,10 +56,10 @@ KB_READ_FROM = os.environ.get("KB_READ_FROM", "json").strip().lower() or "json"
 DB_READ_FROM = os.environ.get("DB_READ_FROM", "json").strip().lower() or "json"
 
 # v1.8.0 PostgreSQL 投影只读连接串（工作包 B：复用 OrbStack 既有 PG，不起新服务）。
-# 实测：15432 宿主 = wren-postgres(postgres:15.15, 用户/口令 test/test)；
-#       本平台独立库 = ekos_ds_kb（CREATE DATABASE 新建，不动 wren 既有 test 库）。
-#       ekos-postgres(pgvector/pg16) 处于停止态且 15432 被占，按"能连既有不起新"复用 wren-postgres。
-#       该宿主为 plain pg15-alpine，无 pgvector 扩展——按 docs/09 Q3 pgvector 仅预留位，本期不启用。
+# 实测（v1.13.1 校正）：15432 宿主 = ekos-postgres(pgvector/pgvector:0.8.0-pg16-bookworm,
+#       用户/口令 test/test, PostgreSQL 16.10)；本平台独立库 = ekos_ds_kb。
+#       该宿主自带 pgvector 0.8.0（`vector` 扩展已装），资产层向量表 kb_embedding / law_chunk
+#       均已 100% 非空（344/344），语义向量路（db_kb.vector_search）已可用，无需再评估启用。
 # 库不可达时 db_kb.health()=False，DB_READ_FROM=db 自动降级回 canonical（docs/09 §4.3）。
 KB_PG_DSN = os.environ.get(
     "KB_PG_DSN", "postgresql://test:test@127.0.0.1:15432/ekos_ds_kb").strip()

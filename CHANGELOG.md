@@ -1,5 +1,20 @@
 # 变更记录
 
+## v1.14.0（2026-11-04，线③ 语义检索增强）
+
+- **知识底座向量化补齐（覆盖率 2% → 100%）**：新增 `scripts/weknora_reparse_batch.py`，批量调用底座重解析接口，
+  把窗口内停留 `draft` 的文档转为 `completed`（分批提交 + 轮询终态 + 可续跑；`--dry-run/--limit/--watch/--batch`）。
+  实测知识底座 526 篇：`completed` 覆盖率 4.0% → **100%**；`chunks` 90 → **3508**（768 维）；`embeddings` 84 → **3502**，
+  覆盖 12 → **526** 篇；全部文档 `enable_status=enabled`。
+- **语义向量路端到端打通**：`/api/search` 五路融合（keyword/vector/graph/rag/weknora）中的 `weknora_vector` 路由
+  现可对自然语言查询稳定返回相关命中——如"怎么防止内部人员把客户数据带走"→ `insider-threat` /
+  `sensitive-personal-information`，"境外传输数据要注意什么"→ `law-state-secrets` / `info-tech-outsourcing-risk-measures`；
+  结果与其它路同形合并去重。
+- **配置勘误**：`app/config.py` 更正 15432 宿主的陈旧注释——实为 `ekos-postgres`
+  （`pgvector/pgvector:0.8.0-pg16-bookworm` / PostgreSQL 16.10），资产层 `kb_embedding`、`law_chunk`
+  均已 100% 非空（344/344），语义向量路（`db_kb.vector_search`）本就可用，无需再"评估启用"。
+- 版本 `1.13.1` → `1.14.0`（`app/main.py` health、`deploy/docker-compose.ontoreggov.yml`）。
+
 ## v1.13.1（2026-11-04，线A 数据资产层/发布链闭环 + 线② 知识质量闭环）
 
 ### 线② 知识质量闭环（质量门默认 0/0 终态）
