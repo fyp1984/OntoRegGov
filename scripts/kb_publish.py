@@ -2,21 +2,24 @@
 # -*- coding: utf-8 -*-
 """kb_publish.py — kb-publish 统一发布流水线（任务线2·工作包B）。
 
-大白话：一次"改一条知识"触发：影子同步 → 双端 strict 校验 → 前端快照 build →
-平台本体库 kb_compile（含 SHACL/断言/CSV对账）→ 双产物（canonical.ttl + 前端预览）
-一起发布；任一步失败整批回滚到上一版，绝不留半成品。
+大白话：一次"改一条知识"触发：影子同步 → 双端 strict 质量门（默认要求 ERROR=0/WARN=0 终态）→
+前端快照 build → 平台本体库 kb_compile（含 SHACL/断言/CSV对账）→ 双产物（canonical.ttl +
+前端预览）一起发布 → 投影入库闭环（db_migrate up + db_seed_kb）；任一步失败整批回滚到上一版，
+绝不留半成品（投影入库除外：库是正本派生件，坏了可整批重跑，不可达仅告警不阻断发布）。
 
 边界纪律（硬约束）：
-- 10_知识库工程 全程只读：content/ontology/sources/data/site/scripts 一律拷贝进
+- 10_知识库工程 全程只读：content/ontology/sources/data/site/scripts/ingest 一律拷贝进
   本工程 .kb-publish/shadow/ 影子工作区；build.py / validate.py 跑的是影子里的副本
   （其 kbcommon.ROOT 由 __file__ 解析到影子），输出落影子，再提升到 app/data/site-preview/。
 - 绝不写回 10 工程任何文件（含 site/）。
 
 用法：
-  python scripts/kb_publish.py                 # 同步影子 + 校验 + build + 编译 + 发布
+  python scripts/kb_publish.py                 # 同步影子 + 校验 + build + 编译 + 发布 + 入库
   python scripts/kb_publish.py --no-sync        # 复用现有影子（不重新拷贝）
   python scripts/kb_publish.py --edit terms/cia-triad.md --append-summary "标记文本"
   python scripts/kb_publish.py --demo-edit      # 内置演示：给 cia-triad.summary 追加联调标记
+  python scripts/kb_publish.py --allow-baseline # 质量门退回"基线无回归"（默认 0/0 终态）
+  python scripts/kb_publish.py --skip-db        # 跳过投影入库（仅发布正本与预览）
   python scripts/kb_publish.py --rollback       # 手动回滚到上一版 canonical/preview
 """
 from __future__ import annotations
@@ -209,18 +212,22 @@ def capture_baseline() -> None:
         f"（{len(errs)} 条 ERROR 签名）-> {BASELINE_JSON.name}")
 
 
-def step_validate_gate(strict_zero: bool) -> dict:
-    """质量门：本包编辑不得引入新 ERROR、不得抬高 ERROR 计数。
-    strict_zero=True 时额外要求字面 ERROR=0/WARN=0（终态目标）。"""
+def step_validate_gate(allow_baseline: bool) -> dict:
+    """质量门（默认终态纪律）：要求字面 ERROR=0/WARN=0，任何回归即拦截回滚。
+
+    allow_baseline=True 时退回"基线无回归"模式：允许既有非零，但本包编辑不得引入新 ERROR、
+    不得抬高 ERROR 计数（用于知识侧仍存在已知告警时的过渡发布）。
+    """
     summary, errs = run_validate()
     if not summary:
         rollback("validate 无 SUMMARY_JSON 输出")
         raise SystemExit(1)
-    if strict_zero:
+    if not allow_baseline:
         if summary["errors"] != 0 or summary["warnings"] != 0:
-            rollback(f"--strict-zero 要求 ERROR=0/WARN=0，当前 "
+            rollback(f"质量门要求 ERROR=0/WARN=0，当前 "
                      f"ERROR={summary['errors']} WARN={summary['warnings']}")
             raise SystemExit(1)
+        log("质量门通过：ERROR=0 WARN=0（终态 0/0）")
     else:
         base = json.loads(BASELINE_JSON.read_text(encoding="utf-8"))
         new_sigs = sorted(set(errs) - set(base["error_signatures"]))
@@ -229,7 +236,7 @@ def step_validate_gate(strict_zero: bool) -> dict:
                      f"(ERROR {base['errors']}->{summary['errors']})")
             raise SystemExit(1)
         warn_delta = summary["warnings"] - base["warnings"]
-        log(f"质量门通过：ERROR {base['errors']}->{summary['errors']}（无新增）；"
+        log(f"质量门通过（基线无回归）：ERROR {base['errors']}->{summary['errors']}（无新增）；"
             f"WARN {base['warnings']}->{summary['warnings']}"
             f"{'（+'+str(warn_delta)+'）' if warn_delta else '（持平）'}")
     return summary
@@ -316,8 +323,8 @@ def main() -> int:
     ap.add_argument("--demo-edit", action="store_true", help="内置演示编辑：cia-triad.summary 追加联调标记")
     ap.add_argument("--bad-edit", action="store_true",
                     help="反向演示：cia-triad.level 改为非法枚举 L9，验证质量门拦截+回滚")
-    ap.add_argument("--strict-zero", action="store_true",
-                    help="质量门要求字面 ERROR=0/WARN=0（终态目标；默认按基线无回归）")
+    ap.add_argument("--allow-baseline", action="store_true",
+                    help="质量门退回'基线无回归'模式（默认要求字面 ERROR=0/WARN=0 终态）")
     ap.add_argument("--no-reconcile", action="store_true",
                     help="不剔除在途未登记控制（影子原样保留全部 MD 控制）")
     ap.add_argument("--rollback", action="store_true", help="回滚到上一版后退出")
@@ -349,8 +356,8 @@ def main() -> int:
     # 发布前快照上一版
     snapshot_previous()
 
-    # 门1：双端 strict 质量门（默认无回归；--strict-zero 要求 0/0）
-    step_validate_gate(args.strict_zero)
+    # 门1：双端 strict 质量门（默认要求 0/0 终态；--allow-baseline 退回无回归模式）
+    step_validate_gate(args.allow_baseline)
     # 门2：前端快照 build（影子内，输出重定向）
     step_build_preview()
     # 门3：平台本体编译 + SHACL/断言/CSV对账

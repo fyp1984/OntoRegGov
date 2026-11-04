@@ -83,12 +83,12 @@
 | 方向 | 说明 | 前置/替换点 |
 |---|---|---|
 | 13 缺口清零 | 知识侧按 `reports/align-report.json` 补码 11 条 + 人工对齐 2 条标题措辞（机房物理安全防护→CT-NW-017、同意管理系统功能→CT-PROTO-014），随后 `python scripts/align_controls.py --apply` | 机制已就绪（v1.7.0），等知识侧 csv |
-| 质量门收紧到 0/0 | `kb_publish.py --strict-zero` 跑成默认终态（ERROR 0 / WARN 0） | 现为"基线无回归"默认 |
+| ~~质量门收紧到 0/0~~ ✅ v1.13.1 | `kb_publish.py` 质量门默认终态：要求字面 ERROR=0/WARN=0，回归即拦截回滚；`--allow-baseline` 保留"基线无回归"过渡模式（知识侧仍有已知告警时用） | 实测默认门通过 0/0 |
 | B3 消费端正式切换 | base_import 退役 base-snapshot 手工副本、只读 API 全量切读 canonical；MCP 只读工具加命名空间 ACL（禁 UPDATE/禁写 kb 图） | `KB_READ_FROM=canonical` 已旁路可用 |
 | 116 检查 richer 层入 canonical | Metric 342 / InterviewQuestion 243 / InspectionMethodStep 705 / VerdictRule / FindingPattern 从 SQLite 种子推广进 canonical.ttl | 现仅 CheckItem+Element+Clause canonical 化 |
 | 93号文检查项现场检查化 | 若 93号文附件2 的 139 项要做成可执行 InspectionCheck，单独建模（决策 D5 已记，用户可改） | 现以 topic 正文承载 |
-| **全量 richer 层入库（db 资产层）** | 把 Metric 342 / InterviewQuestion 243 / InspectionMethodStep 705 等 richer 细层从 SQLite 种子同时灌进 PG 资产层（db_seed_kb 扩表/扩列），并补投影缺失：检查短标题、`law_clause.text` | v1.8 已入 9 表（entity1113/relation7860/control104/check129/element483/clause57/doc93item139），richer 细层仍未入库 |
-| **kb_publish 挂接 step_load_db** | 在发布流水线三道质量门之后加一步 `step_load_db`：影子比对通过后自动跑 `db_migrate up` + `db_seed_kb`，让 db 资产层随 canonical 发布同步刷新 | v1.8 库已可手工灌（db_seed_kb 幂等），尚未挂进 kb_publish 自动链 |
+| ~~**全量 richer 层入库（db 资产层）**~~ ✅ 线A | 已新建 richer 层 5 表（`check_metric` 342 / `check_method_step` 705 / `check_interview` 243 / `check_verdict_rule` 116 / `check_finding_pattern` 285，外键 `inspection_check(check_code) ON DELETE CASCADE`），并补投影缺失：检查标题、`check_element.text`、`law_clause.text` | v1.8 已入 9 表（entity/relation/control/check/element/clause/doc93item），richer 细层已补齐 |
+| ~~**kb_publish 挂接 step_load_db**~~ ✅ 线A | 发布流水线在三道质量门后加 `step_load_db`（门4）：影子比对通过后自动跑 `db_migrate up` + `db_seed_kb`，db 资产层随 canonical 发布同步整批重建（库不可达仅告警不阻断）；`--skip-db` 可跳过 | 已实测随发布自动刷新 |
 | **pgvector 启用评估** | 评估两条路：① 把 ekos-postgres（自带 pgvector 0.8.0）换到未占用端口启动；② 在 wren-postgres 内装 vector 扩展。启用后才灌 embedding、开语义检索 | 本期按 Q3 不启用、向量列仅预留；宿主 plain pg15-alpine 无 vector |
 | **DB_READ_FROM 灰度切默认 / B3 正式切源** | 待 db 影子比对对账通过后，把 `DB_READ_FROM` 默认从 json 切到 db；并完成 B3 消费端正式切源（退役 base-snapshot 手工副本、只读 API 全量切读 canonical/db） | v1.8 三态回落已通（db→canonical→SQLite），默认仍 json、db 仅灰度 |
 
