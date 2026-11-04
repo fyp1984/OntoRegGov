@@ -166,9 +166,80 @@ DROP TABLE IF EXISTS kb_relation;
 DROP TABLE IF EXISTS kb_entity;
 """
 
+M0002_UP = r"""
+-- 检查方法·富层 5 表（jg24 金规24号检查法：度量 / 方法步骤 / 访谈 / 判定 / 常见问题）。
+-- 全部由 data/checks/jg24-checks.json 投影而来，外键挂 inspection_check(check_code)。
+-- （对应 app/ontology/checks_import.py 的 Metric/InspectionMethodStep/InterviewQuestion/
+--   VerdictRule/FindingPattern 实体形状，保持字段语义一致。）
+
+-- 9. 度量表（检查方法·量化指标 method.metrics）
+CREATE TABLE IF NOT EXISTS check_metric (
+  metric_id    TEXT PRIMARY KEY,            -- ic-1-1-m1
+  check_code   TEXT NOT NULL REFERENCES inspection_check(check_code) ON DELETE CASCADE,
+  seq          INTEGER NOT NULL,
+  name         TEXT,
+  data_source  TEXT,                        -- 数据来源台账
+  threshold    TEXT                         -- 判定阈值
+);
+CREATE INDEX IF NOT EXISTS idx_check_metric_check ON check_metric(check_code);
+
+-- 10. 检查方法步骤表（查制度 policy / 查证据 evidence，method.policy_steps + evidence_steps）
+CREATE TABLE IF NOT EXISTS check_method_step (
+  step_id     TEXT PRIMARY KEY,             -- ic-1-1-msp1 / ic-1-1-mse1
+  check_code  TEXT NOT NULL REFERENCES inspection_check(check_code) ON DELETE CASCADE,
+  step_kind   TEXT NOT NULL,                -- policy | evidence
+  seq         INTEGER NOT NULL,
+  step_no     TEXT,
+  action      TEXT,                         -- 调阅/取证动作
+  focus       TEXT                          -- 关注点 / 取证标准
+);
+CREATE INDEX IF NOT EXISTS idx_check_step_check ON check_method_step(check_code);
+
+-- 11. 访谈问题表（method.interviews）
+CREATE TABLE IF NOT EXISTS check_interview (
+  interview_id TEXT PRIMARY KEY,            -- ic-1-1-i1
+  check_code   TEXT NOT NULL REFERENCES inspection_check(check_code) ON DELETE CASCADE,
+  seq          INTEGER NOT NULL,
+  target       TEXT,                        -- 访谈对象
+  question     TEXT,
+  cross_check  TEXT                         -- 交叉验证方式
+);
+CREATE INDEX IF NOT EXISTS idx_check_interview_check ON check_interview(check_code);
+
+-- 12. 判定规则表（三档判定要点 verdict）
+CREATE TABLE IF NOT EXISTS check_verdict_rule (
+  check_code      TEXT PRIMARY KEY REFERENCES inspection_check(check_code) ON DELETE CASCADE,
+  verdict_pass    JSONB,                    -- ["…通过情形…"]
+  verdict_partial JSONB,                    -- ["…部分符合…"]
+  verdict_fail    JSONB                     -- ["…不通过…"]
+);
+
+-- 13. 常见问题模式表（findings）
+CREATE TABLE IF NOT EXISTS check_finding_pattern (
+  finding_id   TEXT PRIMARY KEY,            -- ic-1-1-fp1
+  check_code   TEXT NOT NULL REFERENCES inspection_check(check_code) ON DELETE CASCADE,
+  seq          INTEGER NOT NULL,
+  rank         TEXT,
+  problem      TEXT,
+  root_cause   TEXT,
+  remediation  TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_check_finding_check ON check_finding_pattern(check_code);
+"""
+
+M0002_DOWN = r"""
+-- 逆序 DROP（子表先删）。inspection_check 由 M0001 管，不在此动。
+DROP TABLE IF EXISTS check_finding_pattern;
+DROP TABLE IF EXISTS check_verdict_rule;
+DROP TABLE IF EXISTS check_interview;
+DROP TABLE IF EXISTS check_method_step;
+DROP TABLE IF EXISTS check_metric;
+"""
+
 # (version, name, up, down)
 MIGRATIONS: list[tuple[int, str, str, str]] = [
     (1, "init_core_9tables", M0001_UP, M0001_DOWN),
+    (2, "add_check_rich_layer_5tables", M0002_UP, M0002_DOWN),
 ]
 
 

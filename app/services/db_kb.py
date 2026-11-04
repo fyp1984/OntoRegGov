@@ -162,9 +162,9 @@ def list_controls() -> dict:
 def get_check(check_code: str) -> dict | None:
     """inspection_check JOIN check_element 查六维；citesClause 来自 kb_relation。
 
-    实测 B 投影的口径（以库实读为准）：
-      - check 短标题未入 kb_entity.title/label（留空），正文落 inspection_check.article_text；
-      - check_element.text 未投影，检查员逐条问句落 check_element.criteria；
+    投影口径（线A 补全后，以库实读为准）：
+      - check 标题入 kb_entity.title/label 与 inspection_check.title（346/346 非空）；
+      - check_element.text 取正本 rdfs:label、law_clause.text 取同条号 article_text（均 100% 覆盖）；
       - 投影后若 title 与正文双双为空 → 视为"该检查未被投影覆盖"，返回 None 让上层回落 canonical。
     """
     try:

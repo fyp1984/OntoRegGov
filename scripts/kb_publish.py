@@ -59,11 +59,16 @@ def run(cmd: list[str], env: dict | None = None, cwd: Path | None = None) -> sub
 # 影子工作区同步（只读拷贝 10 工程骨架 + content）
 # ---------------------------------------------------------------------------
 def sync_shadow() -> None:
-    """把 10 工程骨架与 content 只读拷贝进影子。10 工程绝不写回。"""
+    """把 10 工程骨架与 content 只读拷贝进影子。10 工程绝不写回。
+
+    ingest/ 也必须拷入：kb_compile 的 93号文编译器（app/kb_compiler/doc93.py）只读
+    `ingest/v17/att1-selfcheck.txt` 产出 13 个自查检查项；影子缺该文件会导致编译结果
+    静默丢弃 93 号文检查项（canonical 回退）。
+    """
     log(f"同步影子工作区 <- {KB10_REAL}（只读拷贝）")
     if SHADOW.exists():
         shutil.rmtree(SHADOW)
-    for sub in ("scripts", "ontology", "sources", "site", "content"):
+    for sub in ("scripts", "ontology", "sources", "site", "content", "ingest"):
         src = KB10_REAL / sub
         if src.exists():
             shutil.copytree(src, SHADOW / sub)
@@ -271,6 +276,32 @@ def promote_preview() -> None:
     log(f"前端预览快照已发布 -> {PREVIEW}")
 
 
+def step_load_db() -> None:
+    """收尾：投影入库闭环——表结构迁移（db_migrate up）+ 投影重建（db_seed_kb）。
+
+    库（ekos_ds_kb）是 canonical.ttl 的派生只读复印件（坏了整批重建即可，知识不丢），
+    故入库失败不回滚已发布的"知识正本 + 前端预览"，仅告警并提示重跑脚本，
+    避免"库不可达"阻断发布（本地/离线场景）。
+    """
+    env = dict(os.environ)
+    m = run([PY, str(PLATFORM_ROOT / "scripts" / "db_migrate.py"), "up"], env=env)
+    sys.stdout.write(m.stdout)
+    if m.stderr.strip():
+        sys.stderr.write(m.stderr)
+    if m.returncode != 0:
+        log("!! 投影迁移未完成（PostgreSQL 不可达？）：知识正本与预览已发布；"
+            "稍后可重跑 scripts/db_migrate.py up")
+        return
+    s = run([PY, str(PLATFORM_ROOT / "scripts" / "db_seed_kb.py")], env=env)
+    sys.stdout.write(s.stdout)
+    if s.stderr.strip():
+        sys.stderr.write(s.stderr)
+    if s.returncode != 0:
+        log("!! 投影入库未完成：知识正本与预览已发布；稍后可重跑 scripts/db_seed_kb.py")
+        return
+    log("投影入库闭环完成：ekos_ds_kb 已按正本整批重建 ✅")
+
+
 # ---------------------------------------------------------------------------
 def cmd_rollback() -> None:
     rollback("手动 --rollback")
@@ -290,6 +321,8 @@ def main() -> int:
     ap.add_argument("--no-reconcile", action="store_true",
                     help="不剔除在途未登记控制（影子原样保留全部 MD 控制）")
     ap.add_argument("--rollback", action="store_true", help="回滚到上一版后退出")
+    ap.add_argument("--skip-db", action="store_true",
+                    help="跳过投影入库（db_migrate up + db_seed_kb）；默认发布后自动闭环入库")
     args = ap.parse_args()
 
     if args.rollback:
@@ -324,6 +357,9 @@ def main() -> int:
     step_compile_canonical()
     # 提升前端预览（此前一直落在影子，此刻才发布）
     promote_preview()
+    # 门4：投影入库闭环（表结构迁移 + 投影重建；库不可达仅告警不阻断）
+    if not args.skip_db:
+        step_load_db()
 
     log("发布成功：canonical.ttl + 前端预览已整体更新，上一版留存于 .kb-publish/previous/")
     return 0
