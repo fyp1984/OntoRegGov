@@ -63,8 +63,24 @@ def test_three_states(client):
         r = client.get("/api/checks/1.1")
         check(f"{mode}: /api/checks/1.1 200", r.status_code == 200,
               f"(title={str(r.json().get('title'))[:30] if r.status_code==200 else r.text[:60]})")
+        if r.status_code == 200:
+            b = r.json()
+            # v1.15.1 回归守卫：三态下检查详情必须返回完整六维，不得被图/库精简形状短路，
+            # 否则前端「检查清单/检查方法/三档判定/常见问题/建议控制」会 undefined / 空白。
+            check(f"{mode}: 检查详情六维完整（未被图/库精简形状短路）",
+                  all(k in b for k in ("elements", "methodSteps", "metrics", "interviews",
+                                       "verdict", "findings", "related", "suggestedControls")),
+                  f"(keys={sorted(b.keys())})")
+            check(f"{mode}: 要素含 code（前端表格首列非 undefined）",
+                  bool(b.get("elements")) and "code" in (b["elements"][0] or {}))
         if mode == "db":
             check(f"db 态：PG 未就绪时自动降级未中断", r.status_code == 200)
+        # 兜底守卫：仅存本体的检查（93号文 93-3.4）→ 回落图/库轨道精简形状
+        if mode in ("canonical", "db"):
+            r = client.get("/api/checks/93-3.4")
+            check(f"{mode}: 仅存本体的检查 93-3.4 回落图/库轨道",
+                  r.status_code == 200 and r.json().get("source") in ("db", "canonical"),
+                  f"({r.status_code}, source={r.json().get('source') if r.status_code==200 else '-'})")
     cfg.DB_READ_FROM = "json"
     reset_state()
 
@@ -129,28 +145,29 @@ def test_rate_limiter():
 
 
 def test_mcp_tools():
-    print("--- MCP 工具进程内调用（dsec_check_detail 三态读源）---")
+    print("--- MCP 工具进程内调用（dsec_check_detail 六维 + 图/库兜底）---")
     from app.mcp_server.server import make_server
     import app.config as cfg
     mcp = make_server()
     fn = mcp._tool_manager._tools["dsec_check_detail"].fn
-    cfg.DB_READ_FROM = "json"
-    reset_state()
-    r = fn("1.1")
-    check("json 态：MCP dsec_check_detail(1.1) 命中 SQLite 六维",
-           r.get("checkCode") == "1.1" and "elements" in r,
-           f"(keys={sorted(r.keys())[:6]})")
-    cfg.DB_READ_FROM = "canonical"
-    reset_state()
-    r = fn("1.1")
-    check("canonical 态：MCP 回落 canonical 图轨道",
-           r.get("checkCode") == "1.1" and r.get("source") in ("canonical",),
-           f"(source={r.get('source')})")
-    cfg.DB_READ_FROM = "db"
-    reset_state()
-    r = fn("1.1")
-    check("db 态：PG 未就绪自动降级回落（仍 200 语义）",
-           r.get("checkCode") == "1.1", f"(source={r.get('source')})")
+    for mode in ("json", "canonical", "db"):
+        cfg.DB_READ_FROM = mode
+        reset_state()
+        r = fn("1.1")
+        # v1.15.1 回归守卫：三态下 MCP 必须返回完整六维，不得被图/库精简形状短路。
+        check(f"{mode} 态：MCP dsec_check_detail(1.1) 返回六维（未被短路）",
+              r.get("checkCode") == "1.1"
+              and all(k in r for k in ("elements", "suggestedControls"))
+              and "code" in ((r.get("elements") or [{}])[0] or {}),
+              f"(keys={sorted(r.keys())[:6]})")
+    # 兜底：仅存本体的检查（93号文 93-3.4）→ 回落 kb_read（db→canonical）精简形状
+    for mode in ("canonical", "db"):
+        cfg.DB_READ_FROM = mode
+        reset_state()
+        r = fn("93-3.4")
+        check(f"{mode} 态：MCP 回落图/库轨道（93-3.4）",
+              r.get("checkCode") == "93-3.4" and r.get("source") in ("db", "canonical"),
+              f"(source={r.get('source')})")
     cfg.DB_READ_FROM = "json"
     reset_state()
 

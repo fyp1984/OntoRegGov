@@ -59,11 +59,37 @@ def register(mcp) -> None:
     def dsec_check_detail(check_code: str) -> dict:
         """监管检查项六维详情（要素/方法/判定/建议控制等）。
 
-        v1.8.0（docs/09 §4.2）：读源对齐资产层——DB_READ_FROM=db 时先查 PostgreSQL 投影
-        （kb_entity/inspection_check/check_element），未命中/库不可达自动回落 canonical 图，
-        再回落 SQLite 旧链路。写工具不涉及本轨道。
+        读源纪律（v1.15.1 修复）：六维详情唯一来源=已发布运行台账 SQLite；canonical/db 投影
+        仅含标量字段与精简元素，先短路会丢失六维。故 SQLite 命中即返回完整六维，
+        仅当 SQLite 未命中（93号文 93-x.y 等仅存本体的检查）才回落 kb_read（db→canonical）。
         """
-        # ① 资产层轨道：db → canonical 图（输出形状与下方 SQLite 分支对齐）
+        # ① SQLite 运行台账（六维详查，唯一完整来源）
+        with db() as conn:
+            r = conn.execute("SELECT * FROM entities WHERE type='InspectionCheck' AND status='published' "
+                             "AND dataJSON LIKE ?", (f'%"checkCode": "{check_code}"%',)).fetchone()
+            if r:
+                d = json.loads(r["dataJSON"])
+                rels = json.loads(r["relationsJSON"])
+
+                def load_ent(eid):
+                    er = conn.execute("SELECT dataJSON FROM entities WHERE id=?", (eid,)).fetchone()
+                    return json.loads(er["dataJSON"]) if er else None
+
+                sc = []
+                for o in rels:
+                    if o["p"] == "suggestsControl":
+                        p = load_ent(o["o"].split(":", 1)[1])
+                        if p:
+                            sc.append({"hint": p.get("controlCodeHint"), "name": p.get("controlName"),
+                                       "layer": p.get("suggestedLayer"), "status": p.get("alignmentStatus"),
+                                       "ctCode": p.get("ctCode"), "ctLayer": p.get("ctLayer")})
+                return {"checkCode": d.get("checkCode"), "title": d.get("title"),
+                        "domain": d.get("domain"), "priority": d.get("priority"),
+                        "regulation": d.get("regulation"), "articleNo": d.get("articleNo"),
+                        "citesClause": [o["o"] for o in rels if o["p"] == "citesClause"],
+                        "elements": [load_ent(o["o"].split(":", 1)[1]) for o in rels if o["p"] == "hasElement"],
+                        "suggestedControls": sc}
+        # ② 图/库轨道兜底：仅存于本体的检查（db → canonical 精简形状）
         kb = kb_read.get_check(check_code)
         if kb:
             return {"checkCode": kb.get("checkCode"), "title": kb.get("title"),
@@ -74,33 +100,7 @@ def register(mcp) -> None:
                     "elements": kb.get("elements", []),
                     "suggestedControls": [],
                     "source": kb.get("source", "canonical")}
-        # ② SQLite 运行台账旧链路（六维详查，行为与 v1.7 一致）
-        with db() as conn:
-            r = conn.execute("SELECT * FROM entities WHERE type='InspectionCheck' AND status='published' "
-                             "AND dataJSON LIKE ?", (f'%"checkCode": "{check_code}"%',)).fetchone()
-            if not r:
-                return {"error": f"检查项不存在: {check_code}"}
-            d = json.loads(r["dataJSON"])
-            rels = json.loads(r["relationsJSON"])
-
-            def load_ent(eid):
-                er = conn.execute("SELECT dataJSON FROM entities WHERE id=?", (eid,)).fetchone()
-                return json.loads(er["dataJSON"]) if er else None
-
-            sc = []
-            for o in rels:
-                if o["p"] == "suggestsControl":
-                    p = load_ent(o["o"].split(":", 1)[1])
-                    if p:
-                        sc.append({"hint": p.get("controlCodeHint"), "name": p.get("controlName"),
-                                   "layer": p.get("suggestedLayer"), "status": p.get("alignmentStatus"),
-                                   "ctCode": p.get("ctCode"), "ctLayer": p.get("ctLayer")})
-            return {"checkCode": d.get("checkCode"), "title": d.get("title"),
-                    "domain": d.get("domain"), "priority": d.get("priority"),
-                    "regulation": d.get("regulation"), "articleNo": d.get("articleNo"),
-                    "citesClause": [o["o"] for o in rels if o["p"] == "citesClause"],
-                    "elements": [load_ent(o["o"].split(":", 1)[1]) for o in rels if o["p"] == "hasElement"],
-                    "suggestedControls": sc}
+        return {"error": f"检查项不存在: {check_code}"}
 
     @mcp.tool()
     def dsec_create_inspection_run(inspected_target: str, inspector: str,
