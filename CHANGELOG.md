@@ -17,6 +17,10 @@
   `_pg_connect_optional()` 统一按候选依次连库——容器内（`/.dockerenv` 存在）首试
   `127.0.0.1`→`host.docker.internal` 改写版。修复前容器内 `health()` 恒为 False（直连 `127.0.0.1` 不可达），
   默认切 db 后实际仍回落 canonical、名不副实；修复后容器内 `health()=True`、`kb_read.get_check` 实测 `source=db`。
+- **部署修复：`/kb/` 知识库静态站挂载路径**：`deploy/docker-compose.ontoreggov.yml` 的相对挂载路径
+  `../..` 误解析为 `<WorkSpace>/@西北人的成长/...`（compose 相对本文件 `deploy/` 解析，少一级），
+  导致容器内 `/app/kb_site` 为空、`/kb/` 返回 404（Not Found）。修正为 `../../..`，挂载源回归
+  `~/Documents/@西北人的成长/20-Areas/信息安全/数据安全/10_知识库工程/site`；`/kb/` 及 assets/data 全部 200。
 - **回归加固**：`scripts/smoke_v18_gateway.py` 修正陈旧断言（`controls=104` → 与 canonical 对账一致的 `115`），
   新增 SPARQL 只读 ACL 断言（REST/MCP 双入口：写操作拒绝、读操作放行）。
 - 版本 `1.14.0` → `1.15.0`（`app/main.py` health、`deploy/docker-compose.ontoreggov.yml`）。

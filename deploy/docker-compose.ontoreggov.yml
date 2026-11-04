@@ -19,8 +19,8 @@ services:
       # 代码热挂载（替代 docker cp 注入）
       - ../app:/app/app
       - ../app/data:/app/app/data
-      # 知识库静态站（8430 site/ 目录，挂载到 /kb/）
-      - ../../@西北人的成长/20-Areas/信息安全/数据安全/10_知识库工程/site:/app/kb_site:ro
+      # 知识库静态站（8430 site/ 目录，挂载到 /kb/）；路径相对本 compose 文件（deploy/）解析
+      - ../../../@西北人的成长/20-Areas/信息安全/数据安全/10_知识库工程/site:/app/kb_site:ro
     environment:
       - DB_READ_FROM=db
       - KB_READ_FROM=canonical
