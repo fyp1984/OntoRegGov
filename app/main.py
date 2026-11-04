@@ -103,7 +103,7 @@ async def gateway_guard(request: Request, call_next):
 # ---------------- 基础 ----------------
 @app.get("/api/health")
 def health():
-    h = {"status": "ok", "service": "dsec-mvp", "version": "1.15.0",
+    h = {"status": "ok", "service": "dsec-mvp", "version": "1.15.1",
          "baseSnapshot": graph_store.BASE_SNAPSHOT_TTL.exists()}
     if hasattr(app.state, "ekos_health"):
         h["ekos"] = app.state.ekos_health
@@ -544,22 +544,22 @@ def list_checks(domain: str = "", priority: str = "", chapter: str = "", keyword
 
 @app.get("/api/checks/{check_code}")
 def get_check(check_code: str):
-    # v1.8.0 三态回落（docs/09 §4.3）：DB_READ_FROM=db/canonical 时先问图/库轨道
-    # （kb_read 内部 db→canonical），命中即返；未命中再落 SQLite 旧链路。
-    # DB_READ_FROM=json：与 v1.7 完全一致（SQLite 优先；仅 KB_READ_FROM=canonical 时回图）。
-    if _cfg.DB_READ_FROM in ("db", "canonical"):
-        ck = kb_read.get_check(check_code)
-        if ck:
-            return ck
+    # 检查详情六维（elements/methodSteps/metrics/interviews/verdict/findings/related/
+    # suggestedControls）唯一来源=已发布运行台账 SQLite；canonical/db 投影仅含标量字段与
+    # 精简元素（无六维、元素无 code/focusLevels）。故纪律：SQLite 命中即返回完整六维；
+    # 仅当 SQLite 未命中（如 93号文 93-x.y 等仅存本体的检查）才回落图/库轨道兜底。
+    # v1.15.1 修复：此前 db/canonical 先短路返回精简形状，导致检查详情页 undefined/空白。
     with db() as conn:
         r = conn.execute("SELECT * FROM entities WHERE type='InspectionCheck' AND status='published' "
                          "AND dataJSON LIKE ?", (f'%"checkCode": "{check_code}"%',)).fetchone()
-    # v1.6.0 回退语义：KB_READ_FROM=canonical 且 SQLite 未命中 → 回落本体库（93号文 93-x.y 等）
-    if not r and _cfg.DB_READ_FROM == "json" and KB_READ_FROM == "canonical":
-        ck = canonical_kb.get_check(check_code)
+    if not r:
+        ck = None
+        if _cfg.DB_READ_FROM in ("db", "canonical"):
+            ck = kb_read.get_check(check_code)          # db（健康时）→ canonical
+        elif _cfg.DB_READ_FROM == "json" and KB_READ_FROM == "canonical":
+            ck = canonical_kb.get_check(check_code)     # v1.6.0 回退语义原样保留
         if ck:
             return ck
-    if not r:
         return _err("not_found", "检查项不存在", 404)
     with db() as conn:
         d = json.loads(r["dataJSON"])

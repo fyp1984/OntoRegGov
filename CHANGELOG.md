@@ -1,5 +1,23 @@
 # 变更记录
 
+## v1.15.1（2026-11-04，检查详情读源修复）
+
+- **修复：检查详情六维被图/库精简形状短路（页面 undefined / 空白）**：`/api/checks/{code}`
+  （[main.py](file:///Users/FYP/Documents/WorkSpace/OntoRegGov/app/main.py)）与 MCP `dsec_check_detail`
+  （[platform_tools.py](file:///Users/FYP/Documents/WorkSpace/OntoRegGov/app/mcp_server/platform_tools.py)）
+  原在 `DB_READ_FROM=db/canonical` 下先返回 `kb_read.get_check()` 的图/库精简形状
+  （仅 checkCode/title/domain/priority/articleNo/summary/citesClause/elements[elementCode,text]），
+  丢失 methodSteps/metrics/interviews/verdict/findings/related/suggestedControls 六维与元素
+  的 code/criteria/focusLevels —— 前端「检查清单首列」「检查方法」「三档判定要点」「常见问题」
+  「建议控制措施」随即 undefined / 空白。v1.15.0 默认切 `DB_READ_FROM=db` 后暴露。
+- **修复口径**：六维详情唯一来源=已发布运行台账 SQLite（六维未投影到 canonical/db），
+  故改为 **SQLite 命中即返回完整六维**；仅当 SQLite 未命中（93号文 `93-3.4`/`93-3.5` 等仅存本体）
+  才回落图/库轨道精简形状兜底（`db → canonical`）。`DB_READ_FROM=json` 的 v1.6/v1.7 回落语义原样保留。
+  注：`entity/search/controls` 路由的 `db` 优先链不受影响。
+- **回归加固**：`smoke_v18_gateway.py` 三态断言改为「检查详情六维完整 + 要素含 code」，
+  新增仅存本体检查（`93-3.4`）回落图/库轨道的兜底断言（REST + MCP 双入口）。
+- 版本 `1.15.0` → `1.15.1`（`app/main.py` health、`deploy/docker-compose.ontoreggov.yml`）。
+
 ## v1.15.0（2026-11-04，线④ 工程收敛切源）
 
 - **读源默认收敛**：`app/config.py` / `deploy/Dockerfile` / `deploy/docker-compose.ontoreggov.yml`
