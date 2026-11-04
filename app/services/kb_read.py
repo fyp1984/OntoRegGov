@@ -8,8 +8,8 @@
 判定顺序（docs/09 §4.3 表 + v1.10 json 兜底）：
   /api/entity/{id}   db? kb_entity → 未命中/库不可达 → canonical_kb.get_entity
                      → json 快照兜底（case/law/standard 等非编译实体）→ 404
-  /api/search        db? ILIKE kb_entity → 未命中/库不可达 → canonical_kb.search
-                     → json 快照兜底
+  /api/search        db 关键词 + canonical + json 快照三源合并（v1.15.2 起不提前返回）
+                     → 叠加 P0 三路融合（向量/图谱/RAG/WeKnora 语义）路由标注
   /api/controls      db? control JOIN kb_entity → 未命中/库不可达 → canonical_kb.list_controls
   /api/checks/{id}  db? inspection_check+check_element → 未命中(如 93-x.y) → canonical_kb.get_check
                      → SQLite 旧链路（由 main.py /api/checks/{code} 原有逻辑承担）
@@ -94,21 +94,21 @@ def get_entity(slug: str) -> dict | None:
 
 
 def search(q: str, limit: int = 20) -> dict:
+    # 基线三源同权合并：db 关键词（库健康时）+ canonical（term/control 等编译实体）
+    # + json 快照（case/law/standard 等全量），按 id 去重。v1.15.2：db 命中不再提前返回，
+    # 否则会跳过下面的三路融合，使 WeKnora 语义检索仅在关键词无命中时才生效。
+    baseline: list[dict] = []
     if _db_on():
-        r = db_kb.search(q, limit)
-        if r.get("total"):
-            return r
-    # canonical（term/control 等编译实体）与 json 快照（case/law/standard 等全量）双源合并，
-    # 避免 canonical 命中即返回而漏掉 json 中的同关键词实体。
+        baseline = list((db_kb.search(q, limit) or {}).get("results", []) or [])
     r1 = canonical_kb.search(q, limit) or {}
     r2 = _json_fallback_search(q, limit) or {}
     seen: dict[str, dict] = {}
-    for it in list(r1.get("results", [])) + list(r2.get("results", [])):
+    for it in baseline + list(r1.get("results", [])) + list(r2.get("results", [])):
         iid = it.get("id")
         if iid and iid not in seen:
             seen[iid] = it
-    # P0 三路融合（向量/图谱/RAG）+ 关键词：独立于 DB_READ_FROM 开关，逐路探测、
-    # 任一路不可用自动跳过，只增量补充命中，不剔除 canonical+JSON 既有结果（不回归）。
+    # P0 三路融合（向量/图谱/RAG）+ 关键词 + WeKnora 向量：独立于 DB_READ_FROM 开关，
+    # 逐路探测、任一路不可用自动跳过，只增量补充命中并与基线合并路由，不剔除基线（不回归）。
     try:
         fused = db_kb.fused_search(q, limit) or {}
         for it in fused.get("results", []):

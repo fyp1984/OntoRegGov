@@ -1,5 +1,19 @@
 # 变更记录
 
+## v1.15.2（2026-11-04，检索融合口径修正）
+
+- **修复：`/api/search` 关键词命中即提前返回，跳过三路融合**：`kb_read.search()`
+  （[kb_read.py](file:///Users/FYP/Documents/WorkSpace/OntoRegGov/app/services/kb_read.py)）
+  原在 `DB_READ_FROM=db` 且 `db_kb.search` 命中时直接返回，导致其后的 P0 融合检索
+  （向量/图谱/RAG + WeKnora 语义路）不执行——WeKnora 语义检索仅在关键词无命中时才生效。
+- **口径**：改为 **db 关键词 + canonical + json 快照三源同权合并（按 id 去重，不提前返回）**，
+  再叠加三路融合，逐路探测、任一路不可用自动跳过，只增量补充命中并与基线合并路由标注，
+  仍不剔除基线结果（不回归）。结果仍按 `limit` 截断。
+- **回归加固**：`smoke_v18_gateway.py` 新增 `test_search_always_fused`（monkeypatch
+  `db_kb.search` 与 `db_kb.fused_search` 返回互不相交命中，断言二者均出现在 `/api/search` 结果，
+  锁死"不提前返回、始终融合"）。
+- 版本 `1.15.1` → `1.15.2`（`app/main.py` health、`deploy/docker-compose.ontoreggov.yml`）。
+
 ## v1.15.1（2026-11-04，检查详情读源修复）
 
 - **修复：检查详情六维被图/库精简形状短路（页面 undefined / 空白）**：`/api/checks/{code}`

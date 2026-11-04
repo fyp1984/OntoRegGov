@@ -103,7 +103,7 @@ async def gateway_guard(request: Request, call_next):
 # ---------------- 基础 ----------------
 @app.get("/api/health")
 def health():
-    h = {"status": "ok", "service": "dsec-mvp", "version": "1.15.1",
+    h = {"status": "ok", "service": "dsec-mvp", "version": "1.15.2",
          "baseSnapshot": graph_store.BASE_SNAPSHOT_TTL.exists()}
     if hasattr(app.state, "ekos_health"):
         h["ekos"] = app.state.ekos_health

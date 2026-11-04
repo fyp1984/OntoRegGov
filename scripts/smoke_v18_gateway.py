@@ -172,12 +172,40 @@ def test_mcp_tools():
     reset_state()
 
 
+def test_search_always_fused(client):
+    """v1.15.2 回归守卫：/api/search 关键词命中时不得提前返回，必须继续融合。
+
+    monkeypatch db_kb.search / db_kb.fused_search 返回互不相交命中，断言两条都在结果里。
+    """
+    print("--- /api/search 始终融合（v1.15.2：关键词命中不跳过融合）---")
+    import app.config as cfg
+    from app.services import db_kb
+    orig_search, orig_fused, orig_mode = db_kb.search, db_kb.fused_search, cfg.DB_READ_FROM
+    try:
+        cfg.DB_READ_FROM = "db"
+        db_kb.search = lambda q, limit=20: {
+            "query": q, "total": 1,
+            "results": [{"id": "kw-1", "type": "Term", "label": "关键词命中", "checkCode": ""}]}
+        db_kb.fused_search = lambda q, limit=20: {
+            "query": q, "total": 1,
+            "results": [{"id": "vec-1", "type": "weknora_chunk", "label": "向量命中",
+                         "route": "weknora_vector"}],
+            "routes": ["keyword", "vector", "graph", "rag", "weknora"]}
+        r = client.get("/api/search?q=__fusion_probe__")
+        ids = {x.get("id") for x in (r.json().get("results") or [])}
+        check("/api/search 关键词命中时仍合并融合结果（不提前返回）",
+              r.status_code == 200 and {"kw-1", "vec-1"} <= ids, f"(ids={sorted(ids)})")
+    finally:
+        db_kb.search, db_kb.fused_search, cfg.DB_READ_FROM = orig_search, orig_fused, orig_mode
+
+
 def main():
     from app.main import app
     with TestClient(app) as client:
         test_three_states(client)
         test_gateway(client)
         test_sparql_acl(client)
+        test_search_always_fused(client)
     test_rate_limiter()
     test_mcp_tools()
     print("=" * 60)
