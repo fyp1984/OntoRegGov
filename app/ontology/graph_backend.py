@@ -16,7 +16,7 @@
   deploy/README-fuseki-neo4j.md 中的 Cypher 映射草案。
 """
 from __future__ import annotations
-import io, json, os, base64, urllib.request, urllib.parse, urllib.error
+import io, json, os, re, base64, urllib.request, urllib.parse, urllib.error
 from pathlib import Path
 
 from . import graph_store as gs
@@ -175,6 +175,30 @@ def _fuseki_stats() -> dict:
 
 
 # ---------------------------------------------------------------------------
+# 命名空间 ACL（v1.15.0 线④ 工程收敛切源）：图存储全只读，严禁写入。
+# 平台命名图与 EKOS 底座默认图（19,927 三元组）均为只读资产；本入口只放行读查询。
+# ---------------------------------------------------------------------------
+_DECL_RE = re.compile(r"^\s*(?:PREFIX\s+\w*:\s*<[^>]*>|BASE\s*<[^>]*>)\s*", re.I)
+_READ_KW_RE = re.compile(r"^(SELECT|ASK|CONSTRUCT|DESCRIBE)\b", re.I)
+
+
+def assert_readonly(sparql: str) -> None:
+    """命名空间 ACL：只放行只读 SPARQL（SELECT/ASK/CONSTRUCT/DESCRIBE）。
+
+    SPARQL Update（INSERT/DELETE/DROP/CLEAR/LOAD/CREATE/ADD/MOVE/COPY/WITH）一律拒绝：
+    平台命名图与 EKOS 底座图均只读，绝不允许经本入口写入或清空。
+    """
+    q = sparql or ""
+    while True:  # 逐条剥掉前导 PREFIX / BASE 声明，再看首个关键字
+        m = _DECL_RE.match(q)
+        if not m:
+            break
+        q = q[m.end():]
+    if not _READ_KW_RE.match(q.lstrip()):
+        raise ValueError("只允许只读 SPARQL 查询（SELECT/ASK/CONSTRUCT/DESCRIBE）；图存储禁止写入")
+
+
+# ---------------------------------------------------------------------------
 # 统一入口
 # ---------------------------------------------------------------------------
 def current_backend() -> str:
@@ -205,9 +229,11 @@ def sync(ttl: str | None = None) -> dict:
 def query(sparql: str) -> list:
     """标准 SPARQL SELECT 查询，返回 [{var: value}, ...]。
 
+    只读 ACL：非读查询（SPARQL Update 等）直接拒绝（ValueError）。
     权威=Fuseki 平台命名图；Fuseki 不可达时只读降级进程内 memory 物化，不中断 200。
     Neo4j 后端：仅支持有限 Cypher 等价查询，其余回退 memory。
     """
+    assert_readonly(sparql)
     if BACKEND == "memory":
         return _memory_query(sparql)
     if BACKEND == "oxigraph":
@@ -233,6 +259,7 @@ def query(sparql: str) -> list:
 
 
 def ask(sparql: str) -> bool:
+    assert_readonly(sparql)
     if BACKEND == "memory":
         return bool(gs.materialize().query(sparql))
     if BACKEND == "oxigraph":

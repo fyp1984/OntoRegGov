@@ -140,12 +140,18 @@ def register(mcp) -> None:
 
     @mcp.tool()
     def dsec_graph_sparql(query: str) -> dict:
-        """对图存储后端执行标准 SPARQL 查询（SELECT/ASK），返回 JSON 行。"""
+        """对图存储后端执行标准 SPARQL 只读查询（SELECT/ASK），返回 JSON 行。
+
+        v1.15.0 命名空间 ACL：图存储全只读，非读查询（SPARQL Update）一律拒绝。
+        """
         if not query.strip():
             return {"error": "query 必填"}
-        if query.lstrip().upper().startswith("ASK"):
-            return {"ask": graph_backend.ask(query)}
-        return {"rows": graph_backend.query(query)}
+        try:
+            if query.lstrip().upper().startswith("ASK"):
+                return {"ask": graph_backend.ask(query)}
+            return {"rows": graph_backend.query(query)}
+        except ValueError as e:  # 只读 ACL：SPARQL Update 等被拒
+            return {"error": str(e)}
 
     # ---- P1 新增：三路检索 / 四文号检查项 / 93问卷 / 法规带引用问答 ----
     @mcp.tool()

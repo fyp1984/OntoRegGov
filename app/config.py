@@ -43,17 +43,18 @@ GRAPH_STORE_USER = os.environ.get("GRAPH_STORE_USER", "").strip()
 GRAPH_STORE_PASSWORD = os.environ.get("GRAPH_STORE_PASSWORD", "").strip()
 GRAPH_STORE_FILE = os.environ.get("GRAPH_STORE_FILE", "").strip()
 
-# v1.5.0 知识源开关：json=旧 base_import(读 knowledge.json 副产品，默认，可回退)
-#                    canonical=新确定性编译器(读 10 工程编辑源) 产出的更丰富底座快照
-KB_READ_FROM = os.environ.get("KB_READ_FROM", "json").strip().lower() or "json"
+# v1.15.0 知识源开关（线④ 工程收敛切源）：默认 canonical
+#   canonical = 确定性编译器产出的权威底座快照（平台唯一正本，默认）
+#   json      = 旧 base_import 手工副本（已退役，base_import 不再据此分支；开关位仅为兼容保留）
+KB_READ_FROM = os.environ.get("KB_READ_FROM", "canonical").strip().lower() or "canonical"
 
-# v1.8.0 资产层读源开关（docs/09 §4.3，与 KB_READ_FROM 同范式）：
-#   json     = 现状行为：旧 SQLite 业务库优先（/api/checks/{id}），entity/search/controls 读 canonical.ttl
-#   canonical= canonical 图优先（/api/checks/{id} 先回落图再回落 SQLite 旧链路）
+# v1.8.0 资产层读源开关（docs/09 §4.3，与 KB_READ_FROM 同范式）；v1.15.0 起默认 db：
 #   db       = PostgreSQL 投影优先（kb_entity/control/inspection_check/check_element），
 #              未命中或库不可达 → 自动回落 canonical 图 → 再回落 SQLite，永远不中断 200。
-# 默认 json（docs/09 Q4 倾向：最稳、不破坏 8420 演示）。
-DB_READ_FROM = os.environ.get("DB_READ_FROM", "json").strip().lower() or "json"
+#   canonical= canonical 图优先（/api/checks/{id} 先回落图再回落 SQLite 旧链路）
+#   json     = 旧行为：SQLite 业务库优先（/api/checks/{id}），entity/search/controls 读 canonical.ttl
+# 线④ 实测：PG 投影（ekos-postgres 15432/ekos_ds_kb）健康、与 canonical 对账一致，故切默认 db。
+DB_READ_FROM = os.environ.get("DB_READ_FROM", "db").strip().lower() or "db"
 
 # v1.8.0 PostgreSQL 投影只读连接串（工作包 B：复用 OrbStack 既有 PG，不起新服务）。
 # 实测（v1.13.1 校正）：15432 宿主 = ekos-postgres(pgvector/pgvector:0.8.0-pg16-bookworm,
