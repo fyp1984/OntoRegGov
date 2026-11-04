@@ -1,5 +1,24 @@
 # 变更记录
 
+## v1.13.1（2026-11-04，线A 数据资产层/发布链闭环 + 线② 知识质量闭环）
+
+### 线② 知识质量闭环（质量门默认 0/0 终态）
+- `scripts/kb_publish.py` 质量门语义收紧：**默认要求字面 `ERROR=0/WARN=0`**（原 `--strict-zero` 转为默认终态），
+  任何回归即拦截并整批回滚；新增 `--allow-baseline` 保留"基线无回归"过渡模式（知识侧仍有已知告警时的临时发布）。
+- 模块 docstring / 用法同步刷新（影子子目录含 `ingest`；`--skip-db` 跳过投影入库；投影入库不可达仅告警不阻断）。
+- 实测：`python scripts/kb_publish.py`（默认门）→ `质量门通过：ERROR=0 WARN=0（终态 0/0）` → build 515 实体
+  → `kb_compile --check`（SHACL conforms / 断言 0 / CSV对账 0 漂移）→ 投影入库 → 发布成功。
+
+### 线A 数据资产层补全 + 发布链入库闭环（PR #2）
+- `scripts/db_migrate.py` 新增 M0002：richer 层 5 表（`check_metric`/`check_method_step`/`check_interview`/
+  `check_verdict_rule`/`check_finding_pattern`，外键 `inspection_check(check_code) ON DELETE CASCADE`）。
+- `scripts/db_seed_kb.py`：canonical 独有检查项并集补齐（`build_canonical_check_rows`，零删除/零断链）；
+  修复 `rdfs:seeAlso` 外链外键违例（`build_type_map` 让全部边端点入 `kb_entity`）。
+- `scripts/kb_publish.py` 新增门4 `step_load_db`（`db_migrate up` + `db_seed_kb`）；`sync_shadow()` 补拷 `ingest/`
+  （修复 93号文 13 检查项在发布链中被静默丢失）。
+- 投影缺口闭合（以库实读为准）：`inspection_check.title` 346/346、`check_element.text` 483/483、
+  `law_clause.text` 57/57 均 100% 非空；整批重建幂等（连跑计数一致）。
+
 ## v1.11.0（2026-10-19，监管检查库多文号补全：93号/人行令3号/金发8号）
 
 - **新增三份检查数据**（`data/checks/`，均由 `tools/build_checks.py` 从权威原文构建）：
