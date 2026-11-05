@@ -27,8 +27,8 @@ _WK_PG_DB = os.getenv("WEKNORA_PG_DB", "weknora")
 _OLLAMA_BASE = os.getenv("OLLAMA_BASE", "http://host.docker.internal:11434")
 _EMBED_MODEL = os.getenv("WEKNORA_EMBED_MODEL", "nomic-embed-text")
 
-# 知识库 ID（数据安全知识库）
-_KB_ID = os.getenv("WEKNORA_KB_ID", "71fbeecd-fada-46b7-8643-a86793a73a9b")
+# 知识库 ID（数据安全统一知识库）
+_KB_ID = os.getenv("WEKNORA_KB_ID", "59ad56fe-6673-49af-9380-b7d11f194a0d")
 
 
 def _ollama_embed(text: str) -> list[float] | None:

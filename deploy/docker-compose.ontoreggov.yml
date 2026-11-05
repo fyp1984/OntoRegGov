@@ -28,6 +28,8 @@ services:
       # EKOS / WeKnora 底座对接（P0 网络打通后启用）
       - WEKNORA_API_BASE=http://ekos-weknora:8080
       - WEKNORA_API_TOKEN=${WEKNORA_API_TOKEN:-}
+      # 统一知识库（数据安全统一知识库，526 篇全量合并去重后）
+      - WEKNORA_KB_ID=59ad56fe-6673-49af-9380-b7d11f194a0d
       - WEKNORA_NEO4J_URI=bolt://ekos-weknora-neo4j:7687
       - WEKNORA_NEO4J_USER=neo4j
       - WEKNORA_NEO4J_PASSWORD=weknora_p2_dev_only_change_me
