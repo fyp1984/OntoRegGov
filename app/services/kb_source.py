@@ -22,7 +22,7 @@ import time
 import datetime
 
 from .. import config
-from ..config import DB_PATH
+from ..config import DB_PATH, APP_DATA
 from . import canonical_kb, db_kb, weknora_retriever
 from ..db import db
 
@@ -464,3 +464,89 @@ def fetch_wiki_index(limit: int = 500) -> dict:
         return {"content": None, "source": "none", "fetchedAt": _now_iso()}
 
     return _cached("wiki:index", _produce)
+
+
+# ===========================================================================
+# v1.17.0 知识库能力开放（PRD M11）
+# 大白话：Wiki 目录按"业务分类"聚合（映射表在 app/data/kb_taxonomy.json，改分类只改它）；
+# 知识加工走知识库平台官方 API（投递 + 查进度），平台不落库处理态（D5）。
+# ===========================================================================
+
+_TAXONOMY_CACHE: dict | None = None
+
+
+def _taxonomy() -> dict:
+    """加载业务分类映射（进程内缓存；文件缺失用内置兜底，不阻断）。"""
+    global _TAXONOMY_CACHE
+    if _TAXONOMY_CACHE is not None:
+        return _TAXONOMY_CACHE
+    tx = {"fallback": "其他", "order": [], "map": {}}
+    try:
+        raw = json.loads((APP_DATA / "kb_taxonomy.json").read_text(encoding="utf-8"))
+        tx["fallback"] = raw.get("fallback") or "其他"
+        tx["order"] = [str(x) for x in (raw.get("order") or []) if x]
+        tx["map"] = {str(k).strip().lower(): v for k, v in (raw.get("map") or {}).items() if v}
+    except Exception:  # noqa: BLE001
+        pass
+    _TAXONOMY_CACHE = tx
+    return tx
+
+
+def _category(type_prefix: str) -> str:
+    """type 前缀 → 业务分类：精确命中 → 包含命中 → fallback。"""
+    tx = _taxonomy()
+    key = (type_prefix or "").strip().lower()
+    m = tx["map"]
+    if key and key in m:
+        return m[key]
+    if key:
+        for k, v in m.items():  # 包含匹配（如 type="法规条文" 命中 "法规"）
+            if k and (k in key or key in k):
+                return v
+    return tx["fallback"]
+
+
+def fetch_wiki_tree(limit: int = 500) -> dict:
+    """Wiki 目录树：把页面按业务分类聚合成 [{category, count, pages}]。"""
+    def _produce() -> dict:
+        try:
+            pages = weknora_retriever.wiki_list(limit)
+        except Exception:  # noqa: BLE001
+            pages = []
+        if not pages:
+            return {"content": None, "source": "none", "fetchedAt": _now_iso()}
+        groups: dict[str, list] = {}
+        for p in pages:
+            cat = _category(p.get("type") or "")
+            groups.setdefault(cat, []).append({
+                "pageId": p.get("pageId"), "title": p.get("title"),
+                "name": p.get("name") or p.get("title"), "type": p.get("type") or "",
+                "updatedAt": p.get("updatedAt") or "",
+            })
+        order = [c for c in _taxonomy()["order"] if c in groups]
+        rest = sorted(c for c in groups if c not in order)
+        tree = [{"category": c, "count": len(groups[c]), "pages": groups[c]}
+                for c in order + rest]
+        return _env({"total": len(pages), "categories": [t["category"] for t in tree],
+                     "tree": tree}, "weknora")
+
+    return _cached(f"wiki:tree:{limit}", _produce)
+
+
+def submit_ingest(title: str, content: str) -> dict:
+    """知识加工投递（仅 /admin）：走知识库平台官方 API，平台不落库处理态。"""
+    res = weknora_retriever.submit_manual(title, content)
+    if res.get("ok"):
+        invalidate("wiki:")   # 投递成功即失效目录缓存，查阅/检索尽快可见
+    return _env(res, "weknora" if res.get("ok") else "none")
+
+
+def fetch_ingest_status(knowledge_id: str) -> dict:
+    """加工进度：读知识库平台该条知识的分块/向量化状态。"""
+    try:
+        st = weknora_retriever.knowledge_status(knowledge_id)
+    except Exception:  # noqa: BLE001
+        st = None
+    if st:
+        return _env(st, "weknora")
+    return {"content": None, "source": "none", "fetchedAt": _now_iso()}

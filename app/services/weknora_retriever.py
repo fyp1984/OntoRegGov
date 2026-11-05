@@ -5,11 +5,15 @@
 
 v1.16.0 扩展（PRD M1/M6）：新增 Wiki 页面读取（knowledges + chunks）与
 "检查项实时覆盖"查询，供 kb_source 取数适配器作为"实时源"调用。
+
+v1.17.0 扩展（PRD M11.4 / D5）：新增知识加工**写路径**（官方 API `knowledge/manual`
+投递，不直写库表）与加工状态查询（`knowledge_status`），供 /api/kb/ingest 使用。
 """
 from __future__ import annotations
 
 import os
 import urllib.request
+import urllib.error
 import json
 
 # WeKnora Postgres 连接配置（从环境变量读，默认值为本地开发）
@@ -227,3 +231,101 @@ def wiki_find(query: str, limit: int = 5) -> list[dict]:
     )
     return [{"pageId": r["id"], "title": r.get("title") or "",
              "type": r.get("type") or ""} for r in rows]
+
+
+# ===========================================================================
+# v1.17.0 知识加工写路径（PRD M11.4 / D5）
+# 大白话：加工**不直写知识库的表**（会绕过它的解析/分块/向量化管线、破坏一致性），
+# 一律走知识库平台**官方 API** 投递，由平台自己解析；进度再读它的 knowledges 状态。
+# 纪律：所有异常由调用方（kb_source）降级处理，本层不吞错但也不主动崩溃进程。
+# ===========================================================================
+
+_API_BASE = os.getenv("WEKNORA_API_BASE", "http://ekos-weknora:8080").rstrip("/")
+_API_TOKEN = os.getenv("WEKNORA_API_TOKEN", "")
+
+
+def api_configured() -> bool:
+    """加工通道是否可用（配置了官方 API 地址与令牌）。"""
+    return bool(_API_BASE and _API_TOKEN)
+
+
+def submit_manual(title: str, content: str, timeout: int = 30) -> dict:
+    """投递一条知识到知识库平台（官方 API `knowledge/manual`）。
+
+    返回：{ok, knowledgeId?, title, status, detail?}。失败不抛错，`ok=False` 由上层降级。
+    """
+    title = (title or "").strip()
+    content = (content or "").strip()
+    if not title or not content:
+        return {"ok": False, "status": "invalid", "detail": "标题与正文不能为空"}
+    if not api_configured():
+        return {"ok": False, "status": "unconfigured",
+                "detail": "WEKNORA_API_BASE / WEKNORA_API_TOKEN 未配置"}
+    url = f"{_API_BASE}/api/v1/knowledge-bases/{_KB_ID}/knowledge/manual"
+    payload = json.dumps({"title": title, "content": content}).encode("utf-8")
+    req = urllib.request.Request(
+        url, data=payload, method="POST",
+        headers={"Authorization": f"Bearer {_API_TOKEN}",
+                 "Content-Type": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            body = resp.read().decode("utf-8", "ignore")
+        data = {}
+        try:
+            data = json.loads(body) if body else {}
+        except Exception:  # noqa: BLE001
+            data = {}
+        inner = data.get("data") if isinstance(data.get("data"), dict) else data
+        kid = (inner.get("id") or inner.get("knowledge_id")
+               or data.get("id") or data.get("knowledge_id") or "")
+        return {"ok": True, "knowledgeId": str(kid), "title": title,
+                "status": (inner.get("parse_status") or inner.get("status") or "submitted")}
+    except urllib.error.HTTPError as e:  # noqa: F821 — urllib.error 已隐含导入
+        detail = ""
+        try:
+            detail = e.read().decode("utf-8", "ignore")[:300]
+        except Exception:  # noqa: BLE001
+            detail = ""
+        return {"ok": False, "status": f"http_{e.code}", "detail": detail or str(e)}
+    except Exception as e:  # noqa: BLE001
+        return {"ok": False, "status": "error", "detail": str(e)[:300]}
+
+
+def knowledge_status(knowledge_id: str) -> dict | None:
+    """读取某条知识的加工状态（解析/分块/向量化）：knowledges 主表 + chunks/embeddings 计数。"""
+    kid = (knowledge_id or "").strip()
+    if not kid:
+        return None
+    rows = _q(
+        f"""SELECT {_PAGE_COLS} FROM knowledges
+            WHERE knowledge_base_id = %s AND id::text = %s
+            LIMIT 1""",
+        (_KB_ID, kid),
+    )
+    if not rows:
+        return None
+    r = rows[0]
+    chunk_n = 0
+    emb_n = 0
+    try:
+        c = _q("SELECT COUNT(*) AS n FROM chunks WHERE knowledge_id = %s AND deleted_at IS NULL",
+               (r["id"],))
+        chunk_n = int(c[0]["n"]) if c else 0
+    except Exception:  # noqa: BLE001
+        chunk_n = 0
+    try:
+        e = _q("""SELECT COUNT(*) AS n FROM embeddings
+                  WHERE knowledge_id = %s AND is_enabled = true""", (r["id"],))
+        emb_n = int(e[0]["n"]) if e else 0
+    except Exception:  # noqa: BLE001
+        emb_n = 0
+    return {
+        "knowledgeId": r["id"], "title": r.get("title") or "",
+        "parseStatus": r.get("parse_status") or "",
+        "enableStatus": r.get("enable_status") or "",
+        "chunkCount": chunk_n, "embeddingCount": emb_n,
+        "updatedAt": str(r.get("updated_at") or ""),
+        # 分块与向量化都就绪即视为加工完成
+        "ready": bool(chunk_n > 0 and emb_n > 0),
+    }

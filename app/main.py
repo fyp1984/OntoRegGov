@@ -3,7 +3,7 @@ from __future__ import annotations
 import json, hashlib, datetime
 from pathlib import Path
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Query
-from fastapi.responses import HTMLResponse, PlainTextResponse, JSONResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse, JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from .db import db, init_db
 from .config import APP_DATA
@@ -12,7 +12,7 @@ from .services import (review, proposal, assessment, provenance, audit,
                        extractor_rule, extractor_llm, confidence, gate, versioning,
                        inspection, ledger)
 from .models import (EntityCreate, EntityUpdate, ExtractReq, ReviewDecision,
-                     AssessmentReq, ProposalCreate, ProposalDecision)
+                     AssessmentReq, ProposalCreate, ProposalDecision, KbIngestReq)
 from .services import kb_read        # v1.8.0 三态读源路由：db→canonical→SQLite 回落链
 from .services import kb_source      # v1.16.0 取数适配器：实时知识库优先 + 多源降级 + 30s 缓存
 from .services import run_db         # v1.16.0 运行态统一库：影子镜像 + 启动回填
@@ -109,7 +109,7 @@ async def gateway_guard(request: Request, call_next):
 # ---------------- 基础 ----------------
 @app.get("/api/health")
 def health():
-    h = {"status": "ok", "service": "dsec-mvp", "version": "1.16.0",
+    h = {"status": "ok", "service": "dsec-mvp", "version": "1.17.0",
          "baseSnapshot": graph_store.BASE_SNAPSHOT_TTL.exists()}
     if hasattr(app.state, "ekos_health"):
         h["ekos"] = app.state.ekos_health
@@ -795,6 +795,13 @@ def kb_wiki_index(limit: int = 500):
     return kb_source.fetch_wiki_index(limit)
 
 
+# v1.17.0（M11.1/M11.2）：Wiki 目录树（按业务分类聚合）。
+# 必须注册在 /api/kb/wiki/{page_id} 之前，否则 "tree" 会被 {page_id} 吞掉。
+@app.get("/api/kb/wiki/tree")
+def kb_wiki_tree(limit: int = 500):
+    return kb_source.fetch_wiki_tree(limit)
+
+
 @app.get("/api/kb/wiki/{page_id}")
 def kb_wiki_page(page_id: str):
     env = kb_source.fetch_wiki(page_id)
@@ -808,10 +815,45 @@ def kb_search(q: str = "", limit: int = 20):
     return kb_source.fetch_search(q, limit)
 
 
+# v1.17.0（M11.4）：知识加工——投递文档/正文到知识库平台官方 API（仅 /admin 入口使用）。
+# 平台不直写知识库库表：处理态由知识库平台承载，本接口只做投递 + 回执。
+@app.post("/api/kb/ingest")
+def kb_ingest(req: KbIngestReq):
+    env = kb_source.submit_ingest(req.title, req.content)
+    c = env.get("content") or {}
+    if not c.get("ok"):
+        return _err("ingest_failed", c.get("detail") or "知识加工投递失败", 400,
+                    {"status": c.get("status")})
+    try:
+        audit.log(req.actor, "kb.ingest", c.get("knowledgeId") or req.title,
+                  {"title": req.title, "len": len(req.content)})
+    except Exception:  # noqa: BLE001 — 审计失败不阻断投递回执
+        pass
+    return env
+
+
+@app.get("/api/kb/ingest/{knowledge_id}")
+def kb_ingest_status(knowledge_id: str):
+    env = kb_source.fetch_ingest_status(knowledge_id)
+    if env.get("content") is None:
+        return _err("not_found", "该知识条目不存在或知识库不可达", 404)
+    return env
+
+
 @app.post("/api/kb/cache/invalidate")
 def kb_cache_invalidate(prefix: str = ""):
     """主动失效缓存（知识入库后调用，使前端下一次取数即拿最新）。"""
     return kb_source.invalidate_env(prefix)
+
+
+# v1.17.0（O6）：管理入口（含知识加工）。应用层不鉴权，安全边界交给网络层（PRD §2）。
+# 注册在所有 mount 之前，交由 StaticFiles 根挂载兜底前优先命中。
+@app.get("/admin")
+def admin_page():
+    p = STATIC / "admin.html"
+    if not p.exists():
+        return _err("not_found", "管理入口未就绪", 404)
+    return FileResponse(str(p), media_type="text/html")
 
 
 # ---------------- P4-4：挂载 8430 知识库静态站到 /kb/ ----------------

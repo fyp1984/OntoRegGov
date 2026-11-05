@@ -48,3 +48,10 @@ class ProposalDecision(BaseModel):
     decision: str                # accepted/rejected/closed
     actor: str
     note: str = ""
+
+
+class KbIngestReq(BaseModel):
+    """知识加工投递入参（PRD M11.4，仅 /admin 入口使用）。"""
+    title: str
+    content: str
+    actor: str = "ui-admin"

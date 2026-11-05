@@ -10,7 +10,8 @@ document.querySelectorAll('#nav a').forEach(a => a.onclick = () => {
   a.classList.add('active');
   document.querySelectorAll('.view').forEach(v => v.classList.add('hidden'));
   document.getElementById(a.dataset.v).classList.remove('hidden');
-  if (a.dataset.v === 'dash') loadDash();
+  if (a.dataset.v === 'kbdash') kbLoadTree();
+  if (a.dataset.v === 'kbproc') kbProcReset();
   if (a.dataset.v === 'checkslib') loadChecks();
   if (a.dataset.v === 'selfcheck') scInit();
   if (a.dataset.v === 'ledger') loadLedger();
@@ -223,48 +224,144 @@ async function showCheck(code) {
       <ul>${sc||'<li>—</li>'}</ul></details>`;
 }
 
-async function loadDash() {
-  const [c, q, p] = await Promise.all([
-    api('/api/entities?status=published'),
-    api('/api/review/queue'),
-    api('/api/proposals'),
-  ]);
-  $('#stats').innerHTML = `
-    <span class="stat"><b>${c.entities.length}</b>已发布实体</span>
-    <span class="stat"><b>${q.queue.length}</b>待审核</span>
-    <span class="stat"><b>${p.proposals.filter(x=>x.status==='open').length}</b>待处理提案</span>`;
-  $('#audit').innerHTML = '<span class="muted">受控写操作全量写 audit_log（见后端）。</span>';
+// ---------- 知识库能力开放（O6 / M11）：查阅·Wiki / 检索 / 加工 ----------
+// 平台原生页面承载知识库平台四类能力，统一走 /api/kb/* 取数适配器（统一信封 + 降级链），
+// 页面只展示 source/fetchedAt 做"来源可辨"，不做分支渲染；知识库平台零改造。
+const SRC_LABEL = {weknora:'知识库实时', canonical:'正本图', db:'结构化投影', sqlite:'运行台账', none:'来源不可用'};
+function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+function srcBar(env, extra){
+  const s = (env && env.source) || 'none';
+  const ok = s !== 'none';
+  const t = ((env && env.fetchedAt) || '').replace('T',' ');
+  return `<span class="badge b-${ok?'ok':'bad'}">${SRC_LABEL[s]||s}</span>
+    <span class="muted">取数 ${t||'—'}${extra?'｜'+extra:''}</span>`;
 }
 
-// ---------- 知识库检索（总览驾驶舱子栏目，接 /api/search + /api/entity 双源链）----------
+// Wiki 目录树（按业务分类聚合）
+let kbTreeEnv = null;
+async function kbLoadTree(force){
+  const box = $('#kw_tree');
+  if (!box) return;
+  if (force) kbTreeEnv = null;
+  if (!kbTreeEnv){
+    box.innerHTML = '<p class="muted">加载中…</p>';
+    kbTreeEnv = await api('/api/kb/wiki/tree?limit=500').catch(()=>null);
+    const sb = $('#kw_src'); if (sb) sb.innerHTML = kbTreeEnv ? srcBar(kbTreeEnv) : '';
+  }
+  kbTreeFilter();
+}
+function kbTreeFilter(){
+  const box = $('#kw_tree');
+  if (!box || !kbTreeEnv) return;
+  const kw = (($('#kw_filter')||{}).value || '').trim().toLowerCase();
+  const tree = (kbTreeEnv.content && kbTreeEnv.content.tree) || [];
+  if (!tree.length){ box.innerHTML = '<p class="muted">知识库暂无可用页面（或知识库不可达，已降级）。</p>'; return; }
+  const hit = (p, cat) => !kw || (p.name||'').toLowerCase().includes(kw)
+    || (p.title||'').toLowerCase().includes(kw) || (cat||'').toLowerCase().includes(kw);
+  const html = tree.map(g=>{
+    const pages = (g.pages||[]).filter(p => hit(p, g.category));
+    if (!pages.length) return '';
+    return `<details open><summary>${esc(g.category)} <span class="muted">${g.count}</span></summary>
+      <ul class="treelist">${pages.map(p=>
+        `<li><a onclick="kbOpenPage('${p.pageId}')">${esc(p.name||p.title)}</a></li>`).join('')}</ul></details>`;
+  }).join('');
+  box.innerHTML = html || '<p class="muted">无匹配页面。</p>';
+}
+async function kbOpenPage(pageId){
+  const box = $('#kw_page');
+  if (!box) return;
+  box.innerHTML = '<p class="muted">加载中…</p>';
+  const env = await api('/api/kb/wiki/'+encodeURIComponent(pageId)).catch(()=>null);
+  if (!env || !env.content){ box.innerHTML = '<p class="muted">页面不可用（或知识库不可达）。</p>'; return; }
+  const p = env.content;
+  const sb = $('#kw_psrc'); if (sb) sb.innerHTML = srcBar(env, '分块 '+(p.chunkCount||0));
+  const paras = String(p.content||'').split(/\n{2,}/).map(x=>x.trim()).filter(Boolean)
+    .map(x=>`<p>${esc(x).replace(/\n/g,'<br>')}</p>`).join('');
+  box.innerHTML = `<h4>${esc(p.title)}</h4>
+    <p class="muted">${esc(p.type||'')}${p.folder?'｜'+esc(p.folder):''}｜更新 ${esc((p.updatedAt||'').replace('T',' '))}</p>
+    ${paras||'<p class="muted">页面无正文内容。</p>'}`;
+}
+
+// 知识检索（融合检索，来源可辨）
 const KBT = {case:'案例', law:'法规', standard:'标准', term:'术语', control:'控制', organization:'组织', solution:'方案', topic:'专题', guide:'指引', check:'检查项'};
-async function kbSearch() {
-  const q = $('#kb_q').value.trim();
-  if (!q) { $('#kb_res').innerHTML = '<p class="muted">请输入关键词</p>'; return; }
-  const r = await api('/api/search?q='+encodeURIComponent(q));
+async function kbSearch(){
+  const q = ($('#kb_q').value||'').trim();
+  if (!q){ $('#kb_res').innerHTML = '<p class="muted">请输入关键词</p>'; $('#kb_src').innerHTML = ''; return; }
+  const env = await api('/api/kb/search?q='+encodeURIComponent(q)+'&limit=20').catch(()=>null);
+  if (!env || !env.content){ $('#kb_src').innerHTML=''; $('#kb_res').innerHTML = '<p class="muted">检索不可用。</p>'; return; }
+  const r = env.content;
+  $('#kb_src').innerHTML = srcBar(env);
   $('#kb_res').innerHTML = r.total
     ? `<p class="muted">命中 ${r.total} 条（点击查看详情）</p>` + r.results.map(x=>
-        `<div class="row" style="cursor:pointer;padding:6px;border-bottom:1px solid var(--brand-border, #e5e7eb)"
-           onclick="showKbDetail('${x.id}')">
+        `<div class="row kbhit" onclick="showKbDetail('${x.id}')">
           <span class="badge">${KBT[x.type]||x.type}</span>
-          <span>${x.label||x.id}</span><span class="muted">${x.id}</span></div>`).join('')
-    : '<p class="muted">无命中，换个关键词试试（子串匹配，可试 Xandr / IDC / ICO / 公安部 / 44462）</p>';
+          <span>${esc(x.label||x.id)}</span><span class="muted">${esc(x.id)}</span></div>`).join('')
+    : '<p class="muted">无命中，换个关键词试试。</p>';
 }
 async function showKbDetail(id) {
   const d = await api('/api/entity/'+id);
-  if (!d || d.error || !d.id) { $('#kb_detail').innerHTML = '<p class="muted">详情不可用：'+((d&&d.error&&d.error.message)||'')+'</p>'; return; }
+  if (!d || d.error || !d.id) { $('#kb_detail').innerHTML = '<p class="muted">详情不可用：'+esc((d&&d.error&&d.error.message)||'')+'</p>'; return; }
   $('#kb_detail').innerHTML = `<div class="card">
     <div class="row"><span class="badge">${KBT[d.type]||d.type}</span>
-      <span class="muted">${d.id}</span>
-      <span class="muted" style="margin-left:auto">级别 ${d.level||'-'} · 状态 ${d.status||'-'}</span></div>
-    <h3>${d.title||d.label||d.id}</h3>
-    ${d.title_en?`<p class="muted">${d.title_en}</p>`:''}
-    <p>${d.summary||''}</p>
-    ${(d.aliases||[]).length?`<p class="muted">别名：${d.aliases.join(' · ')}</p>`:''}
-    ${(d.tags||[]).length?`<p class="muted">标签：${d.tags.map(t=>'#'+t).join(' ')}</p>`:''}
-    ${d.official_url?`<p class="muted"><a href="${d.official_url}" target="_blank">官方来源：${d.official_url}</a></p>`:''}
-    ${(d.relations||[]).length?`<p class="muted">关系：${d.relations.map(r=>`${r.p}→${r.slug}`).join(' · ')}</p>`:''}
+      <span class="muted">${esc(d.id)}</span>
+      <span class="muted" style="margin-left:auto">级别 ${esc(d.level||'-')} · 状态 ${esc(d.status||'-')}</span></div>
+    <h3>${esc(d.title||d.label||d.id)}</h3>
+    ${d.title_en?`<p class="muted">${esc(d.title_en)}</p>`:''}
+    <p>${esc(d.summary||'')}</p>
+    ${(d.aliases||[]).length?`<p class="muted">别名：${d.aliases.map(esc).join(' · ')}</p>`:''}
+    ${(d.tags||[]).length?`<p class="muted">标签：${d.tags.map(t=>'#'+esc(t)).join(' ')}</p>`:''}
+    ${d.official_url?`<p class="muted"><a href="${esc(d.official_url)}" target="_blank">官方来源：${esc(d.official_url)}</a></p>`:''}
+    ${(d.relations||[]).length?`<p class="muted">关系：${d.relations.map(r=>esc(r.p)+'→'+esc(r.slug)).join(' · ')}</p>`:''}
   </div>`;
+}
+
+// 知识加工（仅 /admin）：投递 → 轮询加工进度；平台不直写知识库库表
+let kbProcId = null, kbProcTimer = null;
+function kbProcReset(){ /* 进入加工页时无需预载，等待用户投递 */ }
+async function kbIngestFile(input){
+  const f = input.files && input.files[0];
+  if (!f) return;
+  const text = await f.text();
+  const t = $('#kp_title');
+  if (t && !t.value) t.value = f.name.replace(/\.[^.]+$/,'');
+  const c = $('#kp_content');
+  if (c) c.value = text;
+}
+async function kbIngestSubmit(){
+  const title = ($('#kp_title').value||'').trim();
+  const content = ($('#kp_content').value||'').trim();
+  const out = $('#kp_out');
+  if (!title || !content){ out.innerHTML = '<p class="muted">标题与正文均不能为空。</p>'; return; }
+  out.innerHTML = '<p class="muted">投递中…</p>';
+  const env = await api('/api/kb/ingest', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({title, content, actor:'ui-admin'})}).catch(()=>null);
+  if (!env || env.error){
+    out.innerHTML = '<p class="muted">投递失败：'+esc((env&&env.error&&env.error.message)||'接口不可达')+'</p>';
+    return;
+  }
+  const c = env.content || {};
+  kbProcId = c.knowledgeId || '';
+  out.innerHTML = `<p>${srcBar(env)}</p>
+    <p>已投递：<b>${esc(c.title||title)}</b>　knowledgeId=<code>${esc(kbProcId||'—')}</code></p>
+    <p class="muted">投递后由知识库平台自行解析 / 分块 / 向量化，平台只回显进度（不直写知识库）。</p>`;
+  $('#kp_status').innerHTML = kbProcId ? '<p class="muted">读取加工进度…</p>'
+    : '<p class="muted">未取得 knowledgeId，进度暂不可查（可在「知识库」刷新查看）。</p>';
+  if (kbProcId) kbPollStatus();
+}
+async function kbPollStatus(){
+  if (!kbProcId) return;
+  clearTimeout(kbProcTimer);
+  const env = await api('/api/kb/ingest/'+encodeURIComponent(kbProcId)).catch(()=>null);
+  const box = $('#kp_status');
+  if (!env || !env.content){ box.innerHTML = '<p class="muted">进度读取失败（知识库不可达）。</p>'; return; }
+  const s = env.content;
+  box.innerHTML = `<p>${srcBar(env)}</p>
+    <table><tr><th>标题</th><th>解析状态</th><th>启用状态</th><th>分块数</th><th>向量数</th><th>加工</th><th>更新时间</th></tr>
+    <tr><td>${esc(s.title||'')}</td><td>${esc(s.parseStatus||'')}</td><td>${esc(s.enableStatus||'')}</td>
+      <td>${s.chunkCount||0}</td><td>${s.embeddingCount||0}</td>
+      <td>${s.ready?'<span class="badge b-ok">已完成</span>':'<span class="badge b-warn">加工中</span>'}</td>
+      <td>${esc((s.updatedAt||'').replace('T',' '))}</td></tr></table>`;
+  if (!s.ready) kbProcTimer = setTimeout(kbPollStatus, 3000);   // 未完成则继续轮询
 }
 
 async function loadAssets() {
@@ -338,3 +435,6 @@ async function llmTest() {
     headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)}).catch(() => null);
   $('#llm_status').innerHTML = (st && st.ok ? '✓ ' : '✗ ') + (st ? st.detail : '测试失败：API 不可达');
 }
+
+// ---------- 首屏默认视图（知识库目录）----------
+if ($('#kw_tree')) kbLoadTree();
