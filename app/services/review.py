@@ -3,7 +3,7 @@ from __future__ import annotations
 import json, uuid, datetime
 from ..db import db
 from ..ontology import shacl_validator
-from . import gate, versioning, audit, provenance, run_db
+from . import gate, versioning, audit, run_db
 
 
 def create_entity(etype: str, eid: str, data: dict, relations: list,

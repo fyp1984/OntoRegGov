@@ -9,7 +9,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from app.db import db  # noqa: E402
-from app.services import inspection, ledger, kb_read, db_kb, p1_lawqa, kb_source  # noqa: E402
+from app.services import inspection, kb_read, db_kb, p1_lawqa, kb_source  # noqa: E402
 from app.ontology import graph_backend  # noqa: E402
 from app.scenarios.functions import doc93_questionnaire  # noqa: E402
 
@@ -122,16 +122,6 @@ def register(mcp) -> None:
             return inspection.record_result(run_id, check_code, elements, metrics, "reviewer")
         except ValueError as e:
             return {"error": str(e)}
-
-    @mcp.tool()
-    def dsec_inspection_ledger() -> dict:
-        """机构检查台账：计划 + 全部运行（结果汇总/证据/签署/下次复查）。"""
-        return ledger.get_ledger()
-
-    @mcp.tool()
-    def dsec_list_plans() -> dict:
-        """检查计划列表（周期/范围/负责人/覆盖检查项）。"""
-        return {"plans": ledger.list_plans()}
 
     @mcp.tool()
     def dsec_graph_backend() -> dict:

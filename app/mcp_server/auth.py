@@ -156,7 +156,6 @@ class AuthMiddleware:
                 },
                 "tools": ["dsec_control_gaps", "dsec_control_alignment", "dsec_check_detail",
                           "dsec_create_inspection_run", "dsec_record_check_result",
-                          "dsec_inspection_ledger", "dsec_list_plans",
                           "dsec_graph_backend", "dsec_graph_sparql",
                           "dsec_search", "dsec_checks_by_doc",
                           "dsec_doc93_questionnaire", "dsec_law_qa"],

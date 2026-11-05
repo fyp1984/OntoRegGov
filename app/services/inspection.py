@@ -201,26 +201,18 @@ def eval_threshold(threshold: str, actual) -> dict:
     return {"status": "manual", "parsed": False, "reason": "定性/未识别阈值形态"}
 
 
-def create_run(inspected_target: str, inspector: str, actor: str = "reviewer",
-               plan_id: str = None, assignees: list = None) -> dict:
-    """创建检查运行。plan_id 关联检查计划（台账/周期复查）；assignees 多人分工（逗号串存 dataJSON）。"""
+def create_run(inspected_target: str, inspector: str, actor: str = "reviewer") -> dict:
+    """创建检查运行。"""
     run_id = f"ir-{uuid.uuid4().hex[:8]}"
     data = {"code": run_id, "inspectedTarget": inspected_target,
             "inspector": inspector, "ranAt": _now()}
-    if plan_id:
-        data["planId"] = plan_id
-    if assignees:
-        data["assignees"] = ",".join(assignees)
     with db() as conn:
         _pub(conn, run_id, "InspectionRun", data)
-    audit.log(actor, "inspection.run.create", run_id,
-              {"target": inspected_target, "plan": plan_id, "assignees": assignees})
-    run_db.mirror_run({"run_id": run_id, "plan_id": plan_id,
-                       "inspected_target": inspected_target, "inspector": inspector,
-                       "assignees": assignees or [], "ran_at": data.get("ranAt"),
+    audit.log(actor, "inspection.run.create", run_id, {"target": inspected_target})
+    run_db.mirror_run({"run_id": run_id, "inspected_target": inspected_target,
+                       "inspector": inspector, "ran_at": data.get("ranAt"),
                        "data": data, "updated_at": data.get("ranAt") or ""})
-    return {"runId": run_id, "inspectedTarget": inspected_target, "inspector": inspector,
-            "planId": plan_id, "assignees": assignees or []}
+    return {"runId": run_id, "inspectedTarget": inspected_target, "inspector": inspector}
 
 
 def _get_check(conn, check_code: str):
@@ -339,7 +331,6 @@ def get_run(run_id: str) -> dict:
                             "result": cd["result"], "why": json.loads(cd["why"])})
         return {"runId": run_id, "inspectedTarget": rd.get("inspectedTarget"),
                 "inspector": rd.get("inspector"), "ranAt": rd.get("ranAt"),
-                "planId": rd.get("planId"), "assignees": (rd.get("assignees") or "").split(",") if rd.get("assignees") else [],
                 "results": results}
 
 
@@ -366,3 +357,197 @@ def _worst(results) -> str:
     if rs:
         return "pass"
     return "unknown"
+
+
+# ---------------- 合规自查报告（PRD M4.5 / O5）----------------
+# 纯派生、无副作用：报告随时可由「运行 + 检查项六维」复算，同输入同输出（M4 验收要点）。
+# 逐条产出：佐证是否完整 / 内容是否完备 / 是否符合监管合规要求 → 差距 → 整改建议 → 专家意见。
+# 整改建议与专家意见一律由检查项自身数据（findings / methodSteps / verdict / suggestedControls）
+# 派生，不臆造监管要求。
+_L5 = "L5-metric"
+_VERDICT_WORD = {"pass": "符合", "partial": "部分符合", "fail": "不符合"}
+_GAP_KW = {
+    "制度缺失": ("制度", "条款", "总纲", "办法", "细则", "规范"),
+    "证据缺失": ("证据", "记录", "纪要", "台账", "报告", "留痕", "清单"),
+    "阈值未达": ("度量", "阈值", "指标", "比例", "覆盖"),
+    "度量未采集": ("度量", "阈值", "指标", "采集", "统计"),
+}
+
+
+def _pct(n: int, d: int) -> float:
+    return round(n * 100.0 / d, 1) if d else 0.0
+
+
+def _check_detail(check_code: str) -> dict:
+    """取检查项六维详情（含 findings/verdict/suggestedControls）；任何异常降级为空字典。"""
+    try:
+        from . import kb_source
+        return ((kb_source.fetch_check(check_code) or {}).get("content")) or {}
+    except Exception:
+        return {}
+
+
+def _remediation_for(gap: dict, det: dict) -> list[dict]:
+    """按缺口类型从检查项自身 findings / 证据步骤 / 建议控制派生整改建议。"""
+    kws = _GAP_KW.get(gap.get("type"), ())
+    out = []
+    for f in det.get("findings") or []:
+        blob = f"{f.get('problem', '')}{f.get('rootCause', '')}"
+        if not kws or any(k in blob for k in kws):
+            out.append({"action": f.get("remediation") or "", "basis": f.get("problem") or "",
+                        "rootCause": f.get("rootCause") or ""})
+    if not out and gap.get("type") in ("证据缺失", "度量未采集"):
+        for s in det.get("methodSteps") or []:
+            if s.get("stepKind") == "evidence":
+                out.append({"action": f"按检查方法补齐证据：{s.get('action') or s.get('focus') or ''}",
+                            "basis": f"检查方法·证据步骤 {s.get('stepNo', '')}", "rootCause": ""})
+    if not out:
+        for s in det.get("suggestedControls") or []:
+            out.append({"action": f"对齐控制措施「{s.get('name')}」并补齐落地证据",
+                        "basis": f"建议控制措施（{s.get('ctCode') or s.get('layer') or '占位'}）",
+                        "rootCause": ""})
+    return [x for x in out if x.get("action")][:3]
+
+
+def _expert_opinion(item: dict, det: dict) -> str:
+    """专家意见：由依据条款 / 差距 / 核查要点 / 建议控制确定性合成。"""
+    reg, art = det.get("regulation") or "", det.get("articleNo") or ""
+    basis = (f"《{reg}》{art}" if reg else str(art)).strip()
+    parts = []
+    parts.append(f"依据 {basis} 判定为「{_VERDICT_WORD.get(item['result'], item['result'])}」"
+                 if basis else f"判定为「{_VERDICT_WORD.get(item['result'], item['result'])}」")
+    if item["gaps"]:
+        parts.append("主要差距：" + "、".join(f"{g['type']}（{g['code'] or '—'}）" for g in item["gaps"][:3]))
+    tip = det.get("tip")
+    if tip:
+        parts.append(f"核查要点：{tip}")
+    sc = det.get("suggestedControls") or []
+    if sc:
+        parts.append(f"建议优先对齐控制「{sc[0].get('name')}」")
+    if item["result"] != "pass":
+        parts.append("补齐上述佐证后建议 30 日内复检")
+    return "；".join(parts) + "。"
+
+
+def generate_report(run_id: str) -> dict | None:
+    """合规自查报告（PRD M4）：逐条佐证完整性 / 内容完备性 / 合规符合性 + 差距 + 整改建议 + 专家意见。"""
+    run = get_run(run_id)
+    if not run:
+        return None
+    items = []
+    for r in run.get("results", []):
+        why = r.get("why") or {}
+        code = why.get("checkCode") or r.get("checkCode") or ""
+        det = _check_detail(code)
+        elems = why.get("elements") or []
+        metrics = why.get("metrics") or []
+        real_elems = [e for e in elems if e.get("code") != _L5]
+
+        l1_missing = [e for e in real_elems if e.get("result") == "fail"]
+        l4_missing = [e for e in real_elems if e.get("result") == "partial"]
+        l5_fail = [e for e in elems if e.get("code") == _L5 and e.get("result") == "fail"]
+        l5_noactual = [e for e in elems if e.get("code") == _L5 and e.get("result") == "partial"]
+
+        gaps = []
+        gaps += [{"type": "制度缺失", "code": e.get("code", ""), "detail": e.get("why", "")} for e in l1_missing]
+        gaps += [{"type": "证据缺失", "code": e.get("code", ""), "detail": e.get("why", "")} for e in l4_missing]
+        gaps += [{"type": "阈值未达", "code": _L5, "detail": e.get("why", "")} for e in l5_fail]
+        gaps += [{"type": "度量未采集", "code": _L5, "detail": e.get("why", "")} for e in l5_noactual]
+        for m in metrics:
+            if m.get("status") == "manual":
+                gaps.append({"type": "度量未采集", "code": m.get("metricId") or "",
+                             "detail": m.get("reason") or f"阈值 {m.get('threshold')} 需人工判定"})
+
+        remediation = []
+        for g in gaps:
+            for rmd in _remediation_for(g, det):
+                rmd = dict(rmd)
+                rmd["forGap"] = f"{g['type']}·{g['code'] or '—'}"
+                if rmd not in remediation:
+                    remediation.append(rmd)
+
+        total_el = len(real_elems)
+        item = {
+            "checkCode": code,
+            "title": why.get("checkTitle") or det.get("title") or "",
+            "priority": why.get("priority") or det.get("priority") or "",
+            "domain": det.get("domainLabel") or why.get("domain") or "",
+            "regulation": det.get("regulation") or "",
+            "articleNo": det.get("articleNo") or "",
+            "result": r.get("result"),
+            "evidence": {"provided": max(total_el - len(l1_missing) - len(l4_missing), 0),
+                         "missing": len(l4_missing), "absent": len(l1_missing), "total": total_el},
+            "evidenceComplete": not (l1_missing or l4_missing or l5_noactual)
+                                and not any(m.get("status") in ("missing", "manual") for m in metrics),
+            "contentAdequate": not l1_missing,
+            "compliant": r.get("result") == "pass",
+            "gaps": gaps,
+            "remediation": remediation,
+        }
+        item["expertOpinion"] = _expert_opinion(item, det)
+        items.append(item)
+
+    n = len(items)
+    el_total = sum(i["evidence"]["total"] for i in items)
+    el_provided = sum(i["evidence"]["provided"] for i in items)
+    summary = {
+        "total": n,
+        "pass": sum(1 for i in items if i["result"] == "pass"),
+        "partial": sum(1 for i in items if i["result"] == "partial"),
+        "fail": sum(1 for i in items if i["result"] == "fail"),
+        "overall": _worst([i["result"] for i in items]),
+        "complianceRate": _pct(sum(1 for i in items if i["compliant"]), n),
+        "evidenceCompleteness": _pct(el_provided, el_total),
+        "contentAdequacy": _pct(sum(1 for i in items if i["contentAdequate"]), n),
+        "evidenceComplete": sum(1 for i in items if i["evidenceComplete"]),
+    }
+    p_order = {"P0": 0, "P1": 1, "P2": 2}
+    gap_summary = [{"checkCode": i["checkCode"], "title": i["title"], **g}
+                   for i in items for g in i["gaps"]]
+    expert = [{"checkCode": i["checkCode"], "priority": i["priority"], "opinion": i["expertOpinion"]}
+              for i in sorted(items, key=lambda x: (p_order.get(x["priority"], 9), x["checkCode"]))
+              if i["result"] != "pass"]
+    audit.log("system", "inspection.report", run_id,
+              {"items": n, "overall": summary["overall"], "gaps": len(gap_summary)})
+    return {"runId": run_id, "inspectedTarget": run.get("inspectedTarget"),
+            "inspector": run.get("inspector"), "ranAt": run.get("ranAt"),
+            "generatedAt": _now(), "summary": summary, "items": items,
+            "gapSummary": gap_summary, "expertOpinions": expert}
+
+
+def report_markdown(rep: dict) -> str:
+    """合规自查报告 Markdown 导出（供下载/留痕）。"""
+    s = rep.get("summary") or {}
+    L = ["# 合规自查报告", "",
+         f"- 被查对象：{rep.get('inspectedTarget') or '—'}",
+         f"- 检查人：{rep.get('inspector') or '—'}",
+         f"- 运行ID：{rep.get('runId')}",
+         f"- 运行时间：{rep.get('ranAt') or '—'}",
+         f"- 生成时间：{rep.get('generatedAt') or '—'}", "",
+         "## 一、总体结论", "",
+         f"- 检查项合计：{s.get('total', 0)}",
+         f"- 结论分布：符合 {s.get('pass', 0)} / 部分符合 {s.get('partial', 0)} / 不符合 {s.get('fail', 0)}",
+         f"- 合规率：{s.get('complianceRate', 0)}%",
+         f"- 佐证完整性：{s.get('evidenceCompleteness', 0)}%（{s.get('evidenceComplete', 0)}/{s.get('total', 0)} 条佐证齐备）",
+         f"- 内容完备性：{s.get('contentAdequacy', 0)}%",
+         f"- 总体判定：{_VERDICT_WORD.get(s.get('overall'), s.get('overall'))}", "",
+         "## 二、逐条自查结论与差距", ""]
+    for i in rep.get("items", []):
+        L += [f"### {i['checkCode']} {i['title']}", "",
+              f"- 依据：{i.get('regulation') or '—'} {i.get('articleNo') or ''}".rstrip(),
+              f"- 判定：{_VERDICT_WORD.get(i['result'], i['result'])}"
+              f"（佐证{'完整' if i['evidenceComplete'] else '不完整'} / 内容{'完备' if i['contentAdequate'] else '不完备'}）",
+              f"- 佐证：已提供 {i['evidence']['provided']} / 缺失 {i['evidence']['missing']} / 无制度 {i['evidence']['absent']}"]
+        if i["gaps"]:
+            L.append("- 差距：")
+            L += [f"  - [{g['type']}] {g['code'] or '—'}：{g['detail']}" for g in i["gaps"]]
+        if i["remediation"]:
+            L.append("- 整改建议：")
+            L += [f"  - {r['action']}（依据：{r['basis']}）" for r in i["remediation"]]
+        L += [f"- 专家意见：{i['expertOpinion']}", ""]
+    gp = rep.get("gapSummary") or []
+    L += ["## 三、差距汇总", ""]
+    L += [f"- {g['checkCode']} [{g['type']}] {g['code'] or '—'}：{g['detail']}" for g in gp] or ["- 无"]
+    L += ["", "## 四、专家意见汇总", ""]
+    L += [f"- [{e['priority'] or '—'}] {e['checkCode']}：{e['opinion']}" for e in rep.get("expertOpinions") or []] or ["- 无"]
+    return "\n".join(L) + "\n"

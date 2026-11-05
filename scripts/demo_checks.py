@@ -1,5 +1,5 @@
 """监管检查纵切 demo（端到端，退出码反映断言）。
-复用既有 assessment/proposal/review/version/audit；符号引擎聚合，无 LLM。
+复用既有 inspection/proposal/review/version/audit；符号引擎聚合，无 LLM。
 故事：1.1 党委主体责任 首次 fail（缺审议证据 + 阈值未达）→ 缺口提案 → 专家补全 → 重检 pass。
 """
 from __future__ import annotations

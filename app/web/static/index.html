@@ -6,7 +6,8 @@
 <meta name="theme-color" content="#2055D7">
 <title>本体驱动的数据安全管理平台</title>
 <link rel="icon" href="/favicon.png">
-<link rel="stylesheet" href="/styles.css?v=20261105a">
+<link rel="stylesheet" href="/styles.css?v=20261105b">
+<link rel="stylesheet" href="/kb_site.css?v=2">
 </head>
 <body>
 <header>
@@ -16,43 +17,37 @@
 </header>
 <div class="wrap">
 <nav id="nav">
+  <div class="nav-head">
+    <span class="nav-title">功能菜单</span>
+    <button class="nav-toggle" id="nav_toggle" onclick="navToggle()" title="折叠左侧菜单">«</button>
+  </div>
   <a data-v="kbdash" class="active">知识库</a>
-  <a data-v="kbsearch">知识检索</a>
   <a data-v="checkslib">监管检查库</a>
   <a data-v="selfcheck">合规自查</a>
-  <a data-v="assess">合规检查</a>
-  <a data-v="ledger">检查台账</a>
-  <a data-v="aiadmit">AI 准入</a>
   <a data-v="llmset">LLM 配置</a>
 </nav>
+<button class="nav-open" id="nav_open" onclick="navToggle()" title="展开左侧菜单">»</button>
 <main>
   <section id="kbdash" class="view">
-    <div class="grid2">
-      <div class="card"><h3>知识库目录（按业务分类）</h3>
-        <div class="row">
-          <input id="kw_filter" placeholder="过滤目录（分类/标题）" style="flex:1" oninput="kbTreeFilter()">
-          <button class="ghost" onclick="kbLoadTree(true)">刷新</button>
-        </div>
-        <div id="kw_src" class="muted"></div>
-        <div id="kw_tree" style="max-height:62vh;overflow:auto"></div>
+    <div class="kbsite">
+      <div class="nav-links kb-subnav" id="kb_nav" role="navigation" aria-label="知识库导航">
+        <a href="#/" data-nav="home">首页</a>
+        <a href="#/graph" data-nav="graph">知识图谱</a>
+        <a href="#/path/L1" data-nav="path">学习路径</a>
+        <a href="#/timeline" data-nav="timeline">法规时间线</a>
+        <a href="#/cases" data-nav="cases">案例库</a>
+        <a href="#/controls" data-nav="controls">控制体系</a>
       </div>
-      <div class="card"><h3>知识页面（查阅 / Wiki）</h3>
-        <div id="kw_psrc" class="muted"></div>
-        <div id="kw_page">点击左侧目录查看页面正文。</div>
+      <div id="kb_meta" class="muted" style="margin:-8px 0 12px"></div>
+      <div class="page" id="kb_app"></div>
+      <div class="kb-foot">
+        <span class="f-brand">数据安全知识库</span> · <span class="f-brand">中金安服</span> 出品
+        · 版本 <span class="f-ver" id="kb_ver">—</span>
+        · 内容以 CC BY-SA 4.0 发布
+        · 知识由知识库平台实时提供
+        · 生成于 <span id="kb_genat">—</span>
       </div>
     </div>
-  </section>
-
-  <section id="kbsearch" class="view hidden">
-    <div class="card"><h3>知识检索（融合检索：关键词 / 向量 / 图谱 / RAG / 知识库实时路）</h3>
-      <p class="row"><input id="kb_q" placeholder="输入关键词，如 数据分类分级 / 个人信息 / 数据出境" style="flex:1"
-        onkeydown="if(event.key==='Enter')kbSearch()">
-      <button onclick="kbSearch()">检索</button></p>
-      <div id="kb_src" class="muted"></div>
-      <div id="kb_res"></div>
-    </div>
-    <div class="card"><h3>实体详情（语义核对：标题/摘要/来源/关系）</h3>
-      <div id="kb_detail">输入关键词检索后点击结果查看详情。</div></div>
   </section>
 
   <section id="checkslib" class="view hidden">
@@ -92,72 +87,14 @@
     <div class="card"><h3>结论与 why 溯源</h3>
       <div id="sc_result">提交后此处展示三色结论、逐条 why 与常见问题。</div>
     </div>
-  </section>
-
-  <section id="ledger" class="view hidden">
-    <div class="card"><h3>检查计划（周期复查基准）</h3>
+    <div class="card"><h3>合规自查报告（差距 · 整改建议 · 专家意见）</h3>
+      <p class="muted">按本次运行生成自查报告：逐条给出佐证是否完整 / 内容是否完备 / 是否符合监管合规要求，
+        并派生<b>差距</b>、<b>整改建议</b>与<b>专家意见</b>；报告为确定性派生，同输入同输出。</p>
       <div class="row">
-        <input id="lg_name" placeholder="计划名称，如 2026年数据安全年度检查" style="width:260px">
-        <input id="lg_scope" placeholder="范围，如 总行+核心系统" style="width:180px">
-        <select id="lg_cycle"><option value="quarterly">季度</option><option value="monthly">月度</option><option value="half-yearly">半年</option><option value="yearly">年度</option></select>
-        <input id="lg_owner" placeholder="负责人" style="width:100px">
-        <input id="lg_checks" placeholder="覆盖检查项(逗号分隔，可空)" style="width:220px">
-        <button onclick="planCreate()">新建计划</button>
+        <button onclick="scReport()">生成合规自查报告</button>
+        <a id="sc_report_dl" class="muted" style="display:none" download>下载 Markdown</a>
       </div>
-      <div id="lg_plans" class="muted"></div>
-    </div>
-    <div class="card"><h3>检查台账（多人分工 · 结果汇总 · 证据 · 签署 · 周期复查）</h3>
-      <div id="lg_table"></div>
-    </div>
-    <div class="card"><h3>证据归档 / 复核签署</h3>
-      <div class="row">
-        运行ID：<input id="lg_runid" style="width:150px" placeholder="ir-xxxx">
-        检查项：<input id="lg_evck" style="width:90px" placeholder="如 1.1">
-        证据文件：<input type="file" id="lg_evfile">
-        <button onclick="lgUploadEv()">上传归档</button>
-        <button class="ghost" onclick="lgShowEv()">查看证据</button>
-      </div>
-      <div class="row">
-        运行ID：<input id="lg_runid2" style="width:150px" placeholder="ir-xxxx">
-        签署人：<input id="lg_signer" style="width:100px">
-        角色：<select id="lg_role"><option value="主查">主查</option><option value="复核">复核</option><option value="审批">审批</option></select>
-        结论：<select id="lg_decision"><option value="approved">复核通过</option><option value="returned">退回补证</option></select>
-        <button onclick="lgSignoff()">签署</button>
-      </div>
-      <div id="lg_evout" class="muted"></div>
-    </div>
-  </section>
-
-  <section id="assess" class="view hidden">
-    <div class="card"><h3>合规检查</h3>
-      <div class="row">选择资产：<select id="asset_sel"></select>
-      <button onclick="runAssess()">运行评估</button>
-      <button class="ghost" onclick="compareAssess()">对比最近两次</button></div>
-      <div id="assess_out"></div>
-    </div>
-  </section>
-
-  <section id="aiadmit" class="view hidden">
-    <div class="card"><h3>S04 AI 准入管理（MVP）</h3>
-      <p class="muted">AI 工具/模型/知识库/智能体的准入评估与资产登记</p>
-      <div class="grid2">
-        <div>
-          <h4>文档扫描准入</h4>
-          <p class="muted">上传文档自动识别敏感信息 → 三态判定（可用 / 禁用 / 脱敏后可用）</p>
-          <input type="file" id="aiadmit_file">
-          <p><button onclick="aiAdmitScan()">扫描文档</button></p>
-          <div id="aiadmit_result" class="muted">暂无扫描结果</div>
-        </div>
-        <div>
-          <h4>AI 资产清单</h4>
-          <table>
-            <tr><th>类型</th><th>名称</th><th>状态</th></tr>
-            <tr><td>模型</td><td>DeepSeek-R1 7B（本地推理）</td><td><span class="badge b-ok">已准入</span></td></tr>
-            <tr><td>知识库</td><td>数据安全知识库</td><td><span class="badge b-ok">已准入</span></td></tr>
-            <tr><td>智能体</td><td>监管检查助手</td><td><span class="badge b-warn">评估中</span></td></tr>
-          </table>
-        </div>
-      </div>
+      <div id="sc_report_out" class="muted">提交自查后可生成报告。</div>
     </div>
   </section>
 
@@ -185,6 +122,7 @@
   </section>
 </main>
 </div>
-<script src="/app.js?v=20261105a"></script>
+<script src="/kb_site.js?v=2"></script>
+<script src="/app.js?v=20261105e"></script>
 </body>
 </html>

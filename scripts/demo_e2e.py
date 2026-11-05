@@ -1,4 +1,4 @@
-"""端到端闭环演示：种子→抽取→审核→首次评估(裸义务缺口)→提案→补控→再评估→导出。
+"""端到端闭环演示：种子→抽取→审核→知识缺口提案→补控→补证据→导出。
 退出码 0=全绿，1=断言失败。运行: python scripts/demo_e2e.py 或 python -m app.cli demo
 """
 import sys, os, json
@@ -7,7 +7,7 @@ sys.path.insert(0, ROOT)
 
 from app import seed  # noqa: E402
 from app.db import db  # noqa: E402
-from app.services import (extractor_rule, review, assessment, proposal,  # noqa: E402
+from app.services import (extractor_rule, review, proposal,  # noqa: E402
                            audit)
 from app.ontology import graph_store  # noqa: E402
 
@@ -60,19 +60,7 @@ def run():
     check("审核批准产生新版本", dec.get("version", 0) >= 1, f"(version={dec.get('version')})")
 
     print("=" * 64)
-    print("步骤4: 客户信息库 首次评估（应存在裸义务 O6=§19 无控制 → unknown + 1 提案）")
-    a1 = assessment.run_assessment("asset-customer-db", actor="reviewer")
-    unknown_items = [i for i in a1["checkItems"] if i["result"] == "unknown"]
-    gap_obs = [i["obligationCode"] for i in unknown_items]
-    check("存在 unknown 检查项", len(unknown_items) >= 1, f"({gap_obs})")
-    check("裸义务为 O6(§19)", "ob-o6" in gap_obs)
-    check("自动生成知识缺口提案", len(a1["proposals"]) == 1, f"({len(a1['proposals'])} 个)")
-    check("首次总评为 partial", a1["overall"] == "partial", f"(overall={a1['overall']})")
-    run_before = a1["runId"]
-    prop_id = a1["proposals"][0]["id"]
-
-    print("=" * 64)
-    print("步骤5: 接受提案→补控制项 C7+证据要求 E7→为资产补证据→入库")
+    print("步骤4: 提交知识缺口提案（为资产补控制 C7 + 证据要求 E7）")
     payload = {
         "newControl": {
             "id": "ctrl-c7",
@@ -91,11 +79,13 @@ def run():
             "relations": [],
         },
     }
-    # 把完整补控载荷写回自动提案（auto 提案最初仅含 obligation 引用）
-    from app.db import db as _db
-    with _db() as conn:
-        conn.execute("UPDATE proposals SET payloadJSON=? WHERE id=?",
-                     (json.dumps(payload, ensure_ascii=False), prop_id))
+    prop = proposal.create("客户信息库缺少级别动态调整控制（自查缺口）",
+                           "Control", "asset-customer-db", payload, actor="system")
+    prop_id = prop["id"]
+    check("知识缺口提案创建", prop["status"] == "open", f"({prop_id})")
+
+    print("=" * 64)
+    print("步骤5: 接受提案→补控制项 C7+证据要求 E7→审核入库")
     paccept = proposal.decide(prop_id, "reviewer", "accepted", note="补控制规则")
     check("提案 accepted", paccept["status"] == "accepted")
     created_tasks = paccept["created"]
@@ -111,6 +101,8 @@ def run():
         approved_versions.append(d.get("version"))
     check("补控实体全部过 SHACL 入库", len(approved_versions) == 2, f"(versions={approved_versions})")
 
+    print("=" * 64)
+    print("步骤6: 为资产补证据记录（EvidenceRecord）→审核入库")
     # 为资产补一条 provided 证据记录（admin 补录 → reviewer 批准）
     from app.services.review import create_entity, decide
     rec_res = create_entity(
@@ -127,27 +119,12 @@ def run():
     check("补证据记录入库", rec_dec.get("version", 0) >= 1)
 
     print("=" * 64)
-    print("步骤6: 第二次评估（O6 应从 unknown→conform，总评 partial→compliant）")
-    a2 = assessment.run_assessment("asset-customer-db", actor="reviewer")
-    run_after = a2["runId"]
-    after_by_obs = {i["obligationCode"]: i["result"] for i in a2["checkItems"]}
-    check("O6 由 unknown 变为 conform", after_by_obs.get("ob-o6") == "conform",
-          f"(ob-o6={after_by_obs.get('ob-o6')})")
-    check("二次总评为 compliant", a2["overall"] == "compliant", f"(overall={a2['overall']})")
-    check("总评改善", a1["overall"] != a2["overall"])
-
-    print("=" * 64)
     print("步骤7: 导出 turtle 并可解析")
     ttl = graph_store.export_turtle()
     from rdflib import Graph
     g = Graph(); g.parse(data=ttl, format="turtle")
     check("turtle 可解析", len(g) > 0, f"({len(g)} 三元组)")
     check("turtle 含 Obligation 类", any("Obligation" in str(t) for t in g[:]))
-
-    print("=" * 64)
-    print("闭环前后对比：")
-    cmp = assessment.compare(run_before, run_after)
-    print(json.dumps(cmp, ensure_ascii=False, indent=2))
 
     print("=" * 64)
     if FAILS:
