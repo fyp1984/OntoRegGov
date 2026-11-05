@@ -6,7 +6,7 @@
 <meta name="theme-color" content="#2055D7">
 <title>本体驱动的数据安全管理平台</title>
 <link rel="icon" href="/favicon.png">
-<link rel="stylesheet" href="/styles.css?v=20261022">
+<link rel="stylesheet" href="/styles.css?v=20261105a">
 </head>
 <body>
 <header>
@@ -16,7 +16,8 @@
 </header>
 <div class="wrap">
 <nav id="nav">
-  <a data-v="dash" class="active">知识库</a>
+  <a data-v="kbdash" class="active">知识库</a>
+  <a data-v="kbsearch">知识检索</a>
   <a data-v="checkslib">监管检查库</a>
   <a data-v="selfcheck">合规自查</a>
   <a data-v="assess">合规检查</a>
@@ -25,15 +26,29 @@
   <a data-v="llmset">LLM 配置</a>
 </nav>
 <main>
-  <section id="dash" class="view">
-    <iframe src="/kb/?v=3" style="width:100%;height:calc(100vh - 140px);border:none;border-radius:8px;background:#fff"></iframe>
+  <section id="kbdash" class="view">
+    <div class="grid2">
+      <div class="card"><h3>知识库目录（按业务分类）</h3>
+        <div class="row">
+          <input id="kw_filter" placeholder="过滤目录（分类/标题）" style="flex:1" oninput="kbTreeFilter()">
+          <button class="ghost" onclick="kbLoadTree(true)">刷新</button>
+        </div>
+        <div id="kw_src" class="muted"></div>
+        <div id="kw_tree" style="max-height:62vh;overflow:auto"></div>
+      </div>
+      <div class="card"><h3>知识页面（查阅 / Wiki）</h3>
+        <div id="kw_psrc" class="muted"></div>
+        <div id="kw_page">点击左侧目录查看页面正文。</div>
+      </div>
+    </div>
   </section>
 
   <section id="kbsearch" class="view hidden">
-    <div class="card"><h3>知识库检索（含外部同步新增本体，双源：canonical 图 + knowledge.json 快照）</h3>
-      <p class="row"><input id="kb_q" placeholder="输入关键词，如 Xandr / IDC / 公安部令第176号 / 44462" style="flex:1"
+    <div class="card"><h3>知识检索（融合检索：关键词 / 向量 / 图谱 / RAG / 知识库实时路）</h3>
+      <p class="row"><input id="kb_q" placeholder="输入关键词，如 数据分类分级 / 个人信息 / 数据出境" style="flex:1"
         onkeydown="if(event.key==='Enter')kbSearch()">
       <button onclick="kbSearch()">检索</button></p>
+      <div id="kb_src" class="muted"></div>
       <div id="kb_res"></div>
     </div>
     <div class="card"><h3>实体详情（语义核对：标题/摘要/来源/关系）</h3>
@@ -170,6 +185,6 @@
   </section>
 </main>
 </div>
-<script src="/app.js?v=20261104b"></script>
+<script src="/app.js?v=20261105a"></script>
 </body>
 </html>

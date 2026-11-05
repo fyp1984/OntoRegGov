@@ -1,5 +1,37 @@
 # 变更记录
 
+## v1.17.0（2026-11-05，MS6 知识库能力开放 · O6）
+
+- **能力开放（PRD `docs/11` M11）**：把知识库平台的**加工 / 查阅 / 检索 / Wiki** 四类能力开放给终端用户，界面用
+  **平台原生页面**承载（套平台设计令牌），**知识库平台零改造**（不碰其源码 / 页面 / 库结构）。承接 v1.16.0 统一取数
+  适配器（`kb_source`）与运行态统一库（`run_db`）。
+- **入口级角色隔离（无鉴权）**：`/`（终端只读：查阅 / 检索 / Wiki + 既有业务页）与 `/admin`（管理员：**+知识加工**）
+  两个入口承载角色差异，安全边界交给网络层；页面内**无角色选择器**，加工写操作审计 actor=`ui-admin`。
+- **新增接口（统一信封）**：
+  - `GET /api/kb/wiki/tree`（[main.py](file:///Users/FYP/Documents/WorkSpace/OntoRegGov/app/main.py)）—— Wiki 目录树，
+    按**业务分类**聚合；**先于 `/api/kb/wiki/{pageId}` 注册**，否则 `tree` 会被 `{pageId}` 吞掉。
+  - `POST /api/kb/ingest`、`GET /api/kb/ingest/{knowledgeId}` —— 知识加工投递与进度回显。
+  - `GET /admin` —— 管理入口页（返回 `admin.html`；应用层不鉴权）。
+- **业务分类映射（M11.2 / D4）**：新增 [kb_taxonomy.json](file:///Users/FYP/Documents/WorkSpace/OntoRegGov/app/data/kb_taxonomy.json)，
+  平台侧维护 `type 前缀（中/英）→ 业务分类`（默认 法规依据 / 检查项 / 术语 / 控制措施 / 案例 / 标准，另有 方案 / 机构 /
+  场景 / 专题 / 路径 / 角色 / 指引 等扩展分类），未命中归 `fallback`。**改分类不动代码、不动知识库**。
+  [kb_source.py](file:///Users/FYP/Documents/WorkSpace/OntoRegGov/app/services/kb_source.py) 新增 `fetch_wiki_tree()`
+  （分类聚合，进程内缓存映射表）。
+- **加工写路径（守红线 1 / D5）**：[weknora_retriever.py](file:///Users/FYP/Documents/WorkSpace/OntoRegGov/app/services/weknora_retriever.py)
+  新增 `submit_manual()`（走知识库平台**官方 API** `POST …/knowledge/manual`）与 `knowledge_status()`（读该条知识的
+  解析 / 分块 / 向量化状态、`ready` 判据=分块与向量均 > 0）。**平台不直写知识库库表、不落库处理态、不产生第二份副本**，
+  处理一致性由知识库平台负责；`kb_source.submit_ingest()` 投递成功即主动失效 `wiki:` 缓存，查阅 / 检索尽快可见。
+- **前端（原生页面）**：[index.html](file:///Users/FYP/Documents/WorkSpace/OntoRegGov/app/web/static/index.html)
+  去 `/kb/` 静态内嵌（关闭 G2），改原生「知识库（查阅 / Wiki）」+「知识检索」两页（`#kbdash` / `#kbsearch`）；
+  新增 [admin.html](file:///Users/FYP/Documents/WorkSpace/OntoRegGov/app/web/static/admin.html)（含「知识加工」`#kbproc`：
+  文本文件 / 粘贴正文 → 投递 → 轮询进度）。[app.js](file:///Users/FYP/Documents/WorkSpace/OntoRegGov/app/web/static/app.js)
+  统一承载两入口交互，四类页面均以 `source/fetchedAt` 标注**取数来源与时间**（`source` 仅展示、不做分支渲染）。
+- **契约补充**：`source` 单值枚举 `weknora|canonical|db|sqlite`，**无可用来源为 `none`**（前端渲染"来源不可用"）。
+- **实测自检**：`/api/kb/wiki/tree` 200（知识库不可达时 `content=null / source=none`，**永不 5xx**）；
+  `/api/kb/search` 命中 20；未命中 wiki 页 / 加工进度 404、未配置令牌投递 400、缺字段 422；`/`、`/admin`、`/admin.html`
+  与 `styles.css` / `app.js` 均 200；`py_compile` 与 `node --check` 通过。
+- 版本 `1.16.0` → `1.17.0`（`app/main.py` health、`deploy/docker-compose.ontoreggov.yml`）。
+
 ## v1.15.2（2026-11-04，检索融合口径修正）
 
 - **修复：`/api/search` 关键词命中即提前返回，跳过三路融合**：`kb_read.search()`

@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#2055D7">
+<title>数据安全工作平台 · 管理入口</title>
+<link rel="icon" href="/favicon.png">
+<link rel="stylesheet" href="/styles.css?v=20261105a">
+</head>
+<body>
+<header>
+  <div>
+    <h1>数据安全工作平台 · 管理入口</h1>
+  </div>
+</header>
+<div class="wrap">
+<nav id="nav">
+  <a data-v="kbdash" class="active">知识库</a>
+  <a data-v="kbsearch">知识检索</a>
+  <a data-v="kbproc">知识加工</a>
+  <a data-v="checkslib">监管检查库</a>
+  <a data-v="selfcheck">合规自查</a>
+  <a data-v="assess">合规检查</a>
+  <a data-v="ledger">检查台账</a>
+  <a data-v="aiadmit">AI 准入</a>
+  <a data-v="llmset">LLM 配置</a>
+</nav>
+<main>
+  <section id="kbdash" class="view">
+    <div class="grid2">
+      <div class="card"><h3>知识库目录（按业务分类）</h3>
+        <div class="row">
+          <input id="kw_filter" placeholder="过滤目录（分类/标题）" style="flex:1" oninput="kbTreeFilter()">
+          <button class="ghost" onclick="kbLoadTree(true)">刷新</button>
+        </div>
+        <div id="kw_src" class="muted"></div>
+        <div id="kw_tree" style="max-height:62vh;overflow:auto"></div>
+      </div>
+      <div class="card"><h3>知识页面（查阅 / Wiki）</h3>
+        <div id="kw_psrc" class="muted"></div>
+        <div id="kw_page">点击左侧目录查看页面正文。</div>
+      </div>
+    </div>
+  </section>
+
+  <section id="kbsearch" class="view hidden">
+    <div class="card"><h3>知识检索（融合检索：关键词 / 向量 / 图谱 / RAG / 知识库实时路）</h3>
+      <p class="row"><input id="kb_q" placeholder="输入关键词，如 数据分类分级 / 个人信息 / 数据出境" style="flex:1"
+        onkeydown="if(event.key==='Enter')kbSearch()">
+      <button onclick="kbSearch()">检索</button></p>
+      <div id="kb_src" class="muted"></div>
+      <div id="kb_res"></div>
+    </div>
+    <div class="card"><h3>实体详情（语义核对：标题/摘要/来源/关系）</h3>
+      <div id="kb_detail">输入关键词检索后点击结果查看详情。</div></div>
+  </section>
+
+  <section id="kbproc" class="view hidden">
+    <div class="card"><h3>知识加工（投递 → 解析 → 分块 → 向量化）</h3>
+      <p class="muted">投递到知识库平台<b>官方 API</b>，由其自行解析 / 分块 / 向量化；平台只做投递与进度回显，
+        <b>不直写知识库库表、不产生第二份知识副本</b>。支持上传文本类文档（.md/.txt/.markdown）或直接粘贴正文。</p>
+      <div class="row" style="margin-bottom:8px">
+        <label style="margin:0">选择文本文件</label>
+        <input type="file" id="kp_file" accept=".md,.markdown,.txt,text/plain" style="width:auto" onchange="kbIngestFile(this)">
+      </div>
+      <label>标题</label>
+      <input id="kp_title" placeholder="如 [law] 某监管办法（标题前缀影响 Wiki 业务分类）">
+      <label>正文</label>
+      <textarea id="kp_content" rows="12" placeholder="粘贴正文，或选择文件自动带入"></textarea>
+      <p><button onclick="kbIngestSubmit()">投递加工</button></p>
+      <div id="kp_out" class="muted">尚未投递。</div>
+    </div>
+    <div class="card"><h3>加工进度（轮询知识库解析状态）</h3>
+      <div id="kp_status" class="muted">投递后此处显示解析 / 分块 / 向量化进度。</div>
+    </div>
+  </section>
+
+  <section id="checkslib" class="view hidden">
+    <div class="grid2">
+      <div class="card"><h3>监管检查库（多文号 · 关联检索）</h3>
+        <div class="row">
+          <select id="ck_doc" onchange="loadChecks()">
+            <option value="">全部文号</option>
+            <option value="jg24">金规〔2024〕24号（银行保险数据安全办法）</option>
+            <option value="jg93">金办发〔2025〕93号（专项行动自查表）</option>
+            <option value="pboc3">人行令〔2025〕第3号（业务领域数据安全办法）</option>
+            <option value="jf8">金发〔2026〕8号（AI安全开发应用指导意见）</option>
+          </select>
+          <select id="ck_domain"><option value="">全部领域</option><option value="gov">治理域</option><option value="tech">科技域</option><option value="cross">跨域</option></select>
+          <select id="ck_pri"><option value="">全部优先级</option><option value="P0">P0</option><option value="P1">P1</option><option value="P2">P2</option></select>
+          <input id="ck_kw" placeholder="搜索关键词" oninput="loadChecks()">
+          <button onclick="loadChecks()">筛选</button>
+        </div>
+        <div id="ck_meta" class="muted"></div>
+        <div id="ck_list" style="max-height:60vh;overflow:auto"></div>
+      </div>
+      <div class="card"><h3>检查项六维详情</h3><div id="ck_detail">点击左侧检查项。</div></div>
+    </div>
+  </section>
+
+  <section id="selfcheck" class="view hidden">
+    <div class="card"><h3>合规自查 · 检查运行（InspectionRun → CheckResult）</h3>
+      <div class="row">
+        被查对象：<select id="sc_target"></select>
+        检查项：<select id="sc_check" onchange="scLoadCheck()"></select>
+        <button onclick="scLoadCheck()">载入检查项要素</button>
+      </div>
+      <div id="sc_form"></div>
+      <p><button onclick="scSubmit()">提交自查（创建 InspectionRun/CheckResult）</button></p>
+      <p class="muted">逐要素录 L1-L3 制度 / L4 证据 / L5 实际值；阈值判定由后端符号引擎完成，无法判定者标 manual 并提示缺口。</p>
+    </div>
+    <div class="card"><h3>结论与 why 溯源</h3>
+      <div id="sc_result">提交后此处展示三色结论、逐条 why 与常见问题。</div>
+    </div>
+  </section>
+
+  <section id="ledger" class="view hidden">
+    <div class="card"><h3>检查计划（周期复查基准）</h3>
+      <div class="row">
+        <input id="lg_name" placeholder="计划名称，如 2026年数据安全年度检查" style="width:260px">
+        <input id="lg_scope" placeholder="范围，如 总行+核心系统" style="width:180px">
+        <select id="lg_cycle"><option value="quarterly">季度</option><option value="monthly">月度</option><option value="half-yearly">半年</option><option value="yearly">年度</option></select>
+        <input id="lg_owner" placeholder="负责人" style="width:100px">
+        <input id="lg_checks" placeholder="覆盖检查项(逗号分隔，可空)" style="width:220px">
+        <button onclick="planCreate()">新建计划</button>
+      </div>
+      <div id="lg_plans" class="muted"></div>
+    </div>
+    <div class="card"><h3>检查台账（多人分工 · 结果汇总 · 证据 · 签署 · 周期复查）</h3>
+      <div id="lg_table"></div>
+    </div>
+    <div class="card"><h3>证据归档 / 复核签署</h3>
+      <div class="row">
+        运行ID：<input id="lg_runid" style="width:150px" placeholder="ir-xxxx">
+        检查项：<input id="lg_evck" style="width:90px" placeholder="如 1.1">
+        证据文件：<input type="file" id="lg_evfile">
+        <button onclick="lgUploadEv()">上传归档</button>
+        <button class="ghost" onclick="lgShowEv()">查看证据</button>
+      </div>
+      <div class="row">
+        运行ID：<input id="lg_runid2" style="width:150px" placeholder="ir-xxxx">
+        签署人：<input id="lg_signer" style="width:100px">
+        角色：<select id="lg_role"><option value="主查">主查</option><option value="复核">复核</option><option value="审批">审批</option></select>
+        结论：<select id="lg_decision"><option value="approved">复核通过</option><option value="returned">退回补证</option></select>
+        <button onclick="lgSignoff()">签署</button>
+      </div>
+      <div id="lg_evout" class="muted"></div>
+    </div>
+  </section>
+
+  <section id="assess" class="view hidden">
+    <div class="card"><h3>合规检查</h3>
+      <div class="row">选择资产：<select id="asset_sel"></select>
+      <button onclick="runAssess()">运行评估</button>
+      <button class="ghost" onclick="compareAssess()">对比最近两次</button></div>
+      <div id="assess_out"></div>
+    </div>
+  </section>
+
+  <section id="aiadmit" class="view hidden">
+    <div class="card"><h3>S04 AI 准入管理（MVP）</h3>
+      <p class="muted">AI 工具/模型/知识库/智能体的准入评估与资产登记</p>
+      <div class="grid2">
+        <div>
+          <h4>文档扫描准入</h4>
+          <p class="muted">上传文档自动识别敏感信息 → 三态判定（可用 / 禁用 / 脱敏后可用）</p>
+          <input type="file" id="aiadmit_file">
+          <p><button onclick="aiAdmitScan()">扫描文档</button></p>
+          <div id="aiadmit_result" class="muted">暂无扫描结果</div>
+        </div>
+        <div>
+          <h4>AI 资产清单</h4>
+          <table>
+            <tr><th>类型</th><th>名称</th><th>状态</th></tr>
+            <tr><td>模型</td><td>DeepSeek-R1 7B（本地推理）</td><td><span class="badge b-ok">已准入</span></td></tr>
+            <tr><td>知识库</td><td>数据安全知识库</td><td><span class="badge b-ok">已准入</span></td></tr>
+            <tr><td>智能体</td><td>监管检查助手</td><td><span class="badge b-warn">评估中</span></td></tr>
+          </table>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="llmset" class="view hidden">
+    <div class="card"><h3>LLM 配置（OpenAI 兼容）</h3>
+      <p class="muted">配置保存后立即生效（六维生成 / 法规问答 / 自然语言查库共用），无需重启；
+      未配置 API Key 时自动降级为确定性规则抽取，不阻断流程。</p>
+      <div style="max-width:640px">
+        <label>Base URL</label>
+        <input id="llm_base" placeholder="如 https://api.openai.com/v1（本地网关亦可）"
+          style="width:100%;box-sizing:border-box;padding:9px 12px;border:1px solid #dfe1e5;border-radius:8px;margin:4px 0 12px">
+        <label>API Key</label>
+        <input id="llm_key" type="password" placeholder="已设置的 Key 不回显；留空=保留当前 Key"
+          autocomplete="off" style="width:100%;box-sizing:border-box;padding:9px 12px;border:1px solid #dfe1e5;border-radius:8px;margin:4px 0 12px">
+        <label>Model</label>
+        <input id="llm_model" placeholder="如 gpt-4o-mini"
+          style="width:100%;box-sizing:border-box;padding:9px 12px;border:1px solid #dfe1e5;border-radius:8px;margin:4px 0 12px">
+        <div class="row">
+          <button onclick="llmTest()">测试连通</button>
+          <button class="ghost" onclick="llmSave()">保存配置</button>
+        </div>
+        <div id="llm_status" class="muted" style="margin-top:10px"></div>
+      </div>
+    </div>
+  </section>
+</main>
+</div>
+<script src="/app.js?v=20261105a"></script>
+</body>
+</html>

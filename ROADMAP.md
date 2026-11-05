@@ -1,5 +1,33 @@
 # 路线图（本轮已做 vs 后续）
 
+## 本轮（v1.17.0 · MS6 知识库能力开放，已交付）
+
+**目标（PRD `docs/11` M11 / O6）**：把知识库平台的**加工 / 查阅 / 检索 / Wiki** 四类能力开放给终端用户；界面用**平台原生页面**承载，**知识库平台零改造**（不碰其源码 / 页面 / 库结构）。
+
+- **角色（无鉴权下的入口级隔离）**：`/` 终端只读（查阅 / 检索 / Wiki）；`/admin` 管理员可加工。页面内**无角色选择器**；加工写操作审计 actor=`ui-admin`。
+- **Wiki 业务分类映射**：平台侧 `app/data/kb_taxonomy.json` 维护 `type 前缀（中/英）→ 业务分类`（默认 法规依据 / 检查项 / 术语 / 控制措施 / 案例 / 标准，另有 方案 / 机构 / 场景 / 专题 / 路径 / 角色 / 指引 等扩展分类），未命中归 `fallback`（默认"其他"）；**分类集合与顺序以该文件为准，改分类不动知识库**。
+- **接口（统一信封 `{content, source, fetchedAt, version?}`）**：
+  - `GET /api/kb/wiki/tree`（按业务分类聚合的 Wiki 目录树，先于 `{pageId}` 注册）
+  - `GET /api/kb/wiki/{pageId}`（既有，页面正文）
+  - `GET /api/kb/search`（既有，融合检索）
+  - `POST /api/kb/ingest`（知识加工：投递文档 / 正文）
+  - `GET /api/kb/ingest/{knowledgeId}`（加工进度：解析 / 分块 / 向量化）
+  - `GET /admin`（管理入口页，应用层不鉴权，边界交给网络层）
+- **加工写路径（守红线 1）**：平台 BFF → **知识库平台官方 API**（`POST …/knowledge/manual`）→ 由知识库平台自行解析 / 分块 / 向量化 → 平台轮询其状态回显。**平台不直写知识库库表、不落库处理态**（避免二次副本，D5）。
+- **前端**：`index.html` 去 `/kb/` 静态内嵌（关闭 G2），改原生「知识库（查阅 / Wiki）」「知识检索」两页；新增 `admin.html`（含「知识加工」）；四类页面均标注取数来源与时间。
+
+```mermaid
+flowchart LR
+  U1["终端 /"] --> RO["只读页: 查阅·检索·Wiki"]
+  U2["管理员 /admin"] --> RO
+  U2 --> IN["加工页: 上传/进度"]
+  RO --> API["/api/kb/*"]
+  IN --> API
+  API --> SRC["kb_source 适配器"]
+  SRC -->|"只读旁路"| WKDB[("知识库平台 PG: knowledges/chunks/embeddings")]
+  SRC -->|"加工投递"| WKAPI["知识库平台官方 API"]
+```
+
 ## 本轮（v1.8.0，已交付）
 - **数据库统一管理资产层（任务线3 工作包 A/B）**：`docs/09` 设计定稿（ER 9 表 + 迁移台账 + 三态读源契约）；
   复用 OrbStack 既有 `wren-postgres`（15432）建独立库 `ekos_ds_kb`（DSN 入 `app/config.py`，未动 test 默认库）。
