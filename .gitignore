@@ -29,3 +29,4 @@ app/data/site-preview/
 # 本地验收/QA 报告产物（仅本地留存，不入库）
 reports/
 QA_ACCEPTANCE_REPORT_*.md
+data/*
