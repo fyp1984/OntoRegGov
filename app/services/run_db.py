@@ -1,6 +1,6 @@
 """运行态统一数据库（v1.16.0，PRD §6.2 / D1）。
 
-大白话：知识态归知识库平台（只读），运行态（自查运行/结果/证据/签署/计划/提案/队列/审计）
+大白话：知识态归知识库平台（只读），运行态（自查运行/结果/提案/队列/审计）
 归平台自己写。本模块把运行态的"权威落点"从进程内 SQLite 收敛到 PostgreSQL 独立库
 （`dsec_run`），与资产投影库 `ekos_ds_kb` 物理分离、互不污染（红线 3）。
 
@@ -9,9 +9,6 @@
   - 每次运行态写操作**影子镜像**到 PG（best-effort，失败只记不抛，绝不影响主流程）；
   - 启动时 `ensure_schema()` 幂等建表，`backfill_from_sqlite()` 幂等回填历史数据；
   - `compare()` 提供 SQLite↔PG 影子比对，作为切换读路径前的门禁。
-
-表结构严格对齐 PRD §6.2 的 9 张目标表命名（plan/run/result/evidence/signoff/
-knowledge_proposal/review_task/kb_snapshot_cache/audit_log）。
 """
 from __future__ import annotations
 
@@ -67,22 +64,12 @@ def _connect(dsn: str):
 
 
 SCHEMA = r"""
-CREATE TABLE IF NOT EXISTS inspection_plan(
-  plan_id text PRIMARY KEY, name text, scope text, cycle text, owner text,
-  check_scope jsonb, status text, start_date text, end_date text,
-  created_at text, updated_at text);
 CREATE TABLE IF NOT EXISTS inspection_run(
-  run_id text PRIMARY KEY, plan_id text, inspected_target text, inspector text,
-  assignees jsonb, ran_at text, data jsonb, updated_at text);
+  run_id text PRIMARY KEY, inspected_target text, inspector text,
+  ran_at text, data jsonb, updated_at text);
 CREATE TABLE IF NOT EXISTS check_result(
   result_id text PRIMARY KEY, run_id text, check_code text, elements_json jsonb,
   metrics_json jsonb, result text, why_json jsonb, created_at text);
-CREATE TABLE IF NOT EXISTS inspection_evidence(
-  evidence_id text PRIMARY KEY, run_id text, check_code text, file_name text,
-  file_path text, uploaded_by text, note text, uploaded_at text);
-CREATE TABLE IF NOT EXISTS inspection_signoff(
-  signoff_id text PRIMARY KEY, run_id text, signer text, role text, decision text,
-  comment text, signed_at text);
 CREATE TABLE IF NOT EXISTS knowledge_proposal(
   proposal_id text PRIMARY KEY, reason text, target_kind text, raised_from text,
   status text, payload jsonb, reviewer text, decided_at text, created_at text);
@@ -98,12 +85,11 @@ CREATE TABLE IF NOT EXISTS audit_log(
 
 # 逻辑表名 → 主键列（upsert 用）
 _PK = {
-    "inspection_plan": "plan_id", "inspection_run": "run_id", "check_result": "result_id",
-    "inspection_evidence": "evidence_id", "inspection_signoff": "signoff_id",
+    "inspection_run": "run_id", "check_result": "result_id",
     "knowledge_proposal": "proposal_id", "review_task": "task_id",
     "kb_snapshot_cache": "cache_key",
 }
-_JSON_COLS = {"check_scope", "assignees", "data", "elements_json", "metrics_json",
+_JSON_COLS = {"data", "elements_json", "metrics_json",
               "why_json", "payload", "params"}
 
 
@@ -242,24 +228,12 @@ def counts() -> dict:
 # ===========================================================================
 # 影子镜像：SQLite 权威写 → PG 副本（服务层各写点调用，一行接入）
 # ===========================================================================
-def mirror_plan(row: dict) -> bool:
-    return upsert("inspection_plan", row)
-
-
 def mirror_run(row: dict) -> bool:
     return upsert("inspection_run", row)
 
 
 def mirror_result(row: dict) -> bool:
     return upsert("check_result", row)
-
-
-def mirror_evidence(row: dict) -> bool:
-    return upsert("inspection_evidence", row)
-
-
-def mirror_signoff(row: dict) -> bool:
-    return upsert("inspection_signoff", row)
 
 
 def mirror_proposal(row: dict) -> bool:
@@ -284,23 +258,11 @@ def backfill_from_sqlite() -> dict:
         n[k] = n.get(k, 0) + 1
 
     with _db() as conn:
-        for r in conn.execute("SELECT * FROM inspection_plans").fetchall():
-            d = dict(r)
-            if mirror_plan({"plan_id": d["id"], "name": d.get("name"),
-                            "scope": d.get("scope"), "cycle": d.get("cycle"),
-                            "owner": d.get("owner"),
-                            "check_scope": d.get("checkScopeJSON") or "[]",
-                            "status": d.get("status"), "start_date": d.get("startDate") or "",
-                            "end_date": d.get("endDate") or "",
-                            "created_at": d.get("createdAt") or "",
-                            "updated_at": d.get("updatedAt") or ""}):
-                _bump("inspection_plan")
         for r in conn.execute("SELECT id,dataJSON FROM entities WHERE type='InspectionRun'").fetchall():
             d = json.loads(r["dataJSON"])
-            if mirror_run({"run_id": r["id"], "plan_id": d.get("planId"),
+            if mirror_run({"run_id": r["id"],
                            "inspected_target": d.get("inspectedTarget"),
                            "inspector": d.get("inspector"),
-                           "assignees": (d.get("assignees") or "").split(",") if d.get("assignees") else [],
                            "ran_at": d.get("ranAt"), "data": d, "updated_at": d.get("ranAt") or ""}):
                 _bump("inspection_run")
         for r in conn.execute("SELECT id,dataJSON FROM entities WHERE type='CheckResult'").fetchall():
@@ -313,20 +275,6 @@ def backfill_from_sqlite() -> dict:
                               "result": d.get("result"), "why_json": d.get("why"),
                               "created_at": ""}):
                 _bump("check_result")
-        for r in conn.execute("SELECT * FROM inspection_evidence").fetchall():
-            d = dict(r)
-            if mirror_evidence({"evidence_id": d["id"], "run_id": d.get("runId"),
-                                "check_code": d.get("checkCode"), "file_name": d.get("fileName"),
-                                "file_path": d.get("filePath"), "uploaded_by": d.get("uploadedBy"),
-                                "note": d.get("note"), "uploaded_at": d.get("uploadedAt") or ""}):
-                _bump("inspection_evidence")
-        for r in conn.execute("SELECT * FROM inspection_signoffs").fetchall():
-            d = dict(r)
-            if mirror_signoff({"signoff_id": d["id"], "run_id": d.get("runId"),
-                               "signer": d.get("signer"), "role": d.get("role"),
-                               "decision": d.get("decision"), "comment": d.get("comment"),
-                               "signed_at": d.get("signedAt") or ""}):
-                _bump("inspection_signoff")
         for r in conn.execute("SELECT * FROM proposals").fetchall():
             d = dict(r)
             if mirror_proposal({"proposal_id": d["id"], "reason": d.get("reason"),
@@ -354,11 +302,8 @@ def compare() -> dict:
     from ..db import db as _db
     with _db() as conn:
         sqlite_n = {
-            "inspection_plan": conn.execute("SELECT COUNT(*) n FROM inspection_plans").fetchone()["n"],
             "inspection_run": conn.execute("SELECT COUNT(*) n FROM entities WHERE type='InspectionRun'").fetchone()["n"],
             "check_result": conn.execute("SELECT COUNT(*) n FROM entities WHERE type='CheckResult'").fetchone()["n"],
-            "inspection_evidence": conn.execute("SELECT COUNT(*) n FROM inspection_evidence").fetchone()["n"],
-            "inspection_signoff": conn.execute("SELECT COUNT(*) n FROM inspection_signoffs").fetchone()["n"],
             "knowledge_proposal": conn.execute("SELECT COUNT(*) n FROM proposals").fetchone()["n"],
             "review_task": conn.execute("SELECT COUNT(*) n FROM review_tasks").fetchone()["n"],
         }

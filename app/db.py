@@ -38,37 +38,9 @@ CREATE TABLE IF NOT EXISTS proposals(
   targetKind TEXT, raisedFrom TEXT, payloadJSON TEXT,
   reviewer TEXT, decidedAt TEXT, createdAt TEXT);
 
-CREATE TABLE IF NOT EXISTS assessments(
-  runId TEXT PRIMARY KEY, assetId TEXT, ranAt TEXT, overall TEXT, summaryJSON TEXT);
-
-CREATE TABLE IF NOT EXISTS check_items(
-  id TEXT PRIMARY KEY, runId TEXT, assetId TEXT, obligationCode TEXT,
-  controlCode TEXT, result TEXT, whyJSON TEXT);
-
-CREATE TABLE IF NOT EXISTS findings(
-  id TEXT PRIMARY KEY, checkItemId TEXT, severity TEXT, gapKind TEXT, detail TEXT,
-  status TEXT DEFAULT 'open');
-
-CREATE TABLE IF NOT EXISTS remediations(
-  id TEXT PRIMARY KEY, findingId TEXT, action TEXT, dueDate TEXT, status TEXT DEFAULT 'open');
-
 CREATE TABLE IF NOT EXISTS audit_log(
   id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT, actor TEXT, action TEXT,
   target TEXT, paramsJSON TEXT);
-
--- v1.3.0 多人检查台账与周期复查
-CREATE TABLE IF NOT EXISTS inspection_plans(
-  id TEXT PRIMARY KEY, name TEXT NOT NULL, scope TEXT, cycle TEXT,
-  startDate TEXT, endDate TEXT, status TEXT DEFAULT 'active',
-  owner TEXT, checkScopeJSON TEXT, createdAt TEXT, updatedAt TEXT);
-
-CREATE TABLE IF NOT EXISTS inspection_evidence(
-  id TEXT PRIMARY KEY, runId TEXT NOT NULL, checkCode TEXT,
-  fileName TEXT, filePath TEXT, uploadedBy TEXT, note TEXT, uploadedAt TEXT);
-
-CREATE TABLE IF NOT EXISTS inspection_signoffs(
-  id TEXT PRIMARY KEY, runId TEXT NOT NULL, signer TEXT, role TEXT,
-  decision TEXT, comment TEXT, signedAt TEXT);
 """
 
 
@@ -99,8 +71,6 @@ def init_db() -> None:
 def reset_db() -> None:
     """种子重置：清空全部业务表（幂等初始化用）。"""
     with db() as conn:
-        for t in ["audit_log", "inspection_signoffs", "inspection_evidence",
-                  "inspection_plans", "remediations", "findings", "check_items",
-                  "assessments", "proposals", "review_tasks", "candidates",
+        for t in ["audit_log", "proposals", "review_tasks", "candidates",
                   "entity_versions", "entities", "documents", "actors"]:
             conn.execute(f"DELETE FROM {t}")

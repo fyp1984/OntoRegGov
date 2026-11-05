@@ -17,13 +17,17 @@ JSON，并附带"这次数据从哪来、什么时候取的"。
 """
 from __future__ import annotations
 
+import hashlib
 import json
+import os
+import re
 import time
 import datetime
+from pathlib import Path
 
 from .. import config
 from ..config import DB_PATH, APP_DATA
-from . import canonical_kb, db_kb, weknora_retriever
+from . import canonical_kb, db_kb, kb_knowledge, weknora_retriever
 from ..db import db
 
 SOURCES = ("weknora", "canonical", "db", "sqlite")
@@ -31,6 +35,9 @@ SOURCES = ("weknora", "canonical", "db", "sqlite")
 # ---------------- 统一形状 + 缓存（30s TTL + 主动失效） ----------------
 _CACHE_TTL_SEC = 30.0
 _cache: dict[str, tuple[float, dict]] = {}
+# 全量知识契约（站点 KNOWLEDGE_BASE）缓存：
+#   {at, data, src, topics:{name:{etag,body}}, etag?, body?}（v1.19.0 起按主题共享）
+_KB_CACHE: dict = {}
 
 
 def _now_iso() -> str:
@@ -51,10 +58,14 @@ def invalidate(prefix: str = "") -> int:
     if not prefix:
         n = len(_cache)
         _cache = {}
+        _KB_CACHE.clear()
         return n
     keys = [k for k in _cache if k.startswith(prefix)]
     for k in keys:
         _cache.pop(k, None)
+    # 知识契约与各主题派生载荷同源：knowledge/kb/wiki 任一失效都一并清掉
+    if prefix.startswith(("knowledge", "kb", "wiki")):
+        _KB_CACHE.clear()
     return len(keys)
 
 
@@ -550,3 +561,267 @@ def fetch_ingest_status(knowledge_id: str) -> dict:
     if st:
         return _env(st, "weknora")
     return {"content": None, "source": "none", "fetchedAt": _now_iso()}
+
+
+# ===========================================================================
+# v1.18.0 全量知识契约（M11.3）：站点 KNOWLEDGE_BASE 形状
+# 大白话：菜单1静态站原本靠构建期生成的 knowledge-data.js 驱动；合并为单一
+# 「知识库」入口后，改为运行期从知识库平台的原始 Markdown 现场装配同一形状，
+# 前端零改造渲染。全量载荷按字节缓存 + ETag，避免每次请求重复序列化/压缩。
+#
+# v1.19.0（M11.5）按主题拆分子接口：全量契约约 5MB（body_html 46% / edges 21% /
+# relations_out 13%），随知识库增长会持续变重。故按"页面实际需要"切成四个主题：
+#   /api/kb/knowledge/index      轻量索引（列表/筛选/检索候选；无正文、无边）
+#   /api/kb/knowledge/graph      图谱（nodes + edges，仅图谱视图加载）
+#   /api/kb/knowledge/entity/{id} 单实体详情（正文/来源/出链 + 入链）
+#   /api/kb/knowledge/search     服务端全字段检索（含正文，替代前端全量建索引）
+# 全部由同一份装配结果派生（同一 30s TTL 缓存），各自独立 ETag/304；全量
+# /api/kb/knowledge 保留，供 MCP 与兜底使用。
+# ===========================================================================
+
+def _static_knowledge() -> dict | None:
+    """兜底快照：知识库站点内挂载的构建产物 data/knowledge-data.js。
+
+    知识库平台不可达时，退回上一份构建快照（内容同源、可能略旧），保证页面
+    不空窗、不 5xx。
+    """
+    site = Path(os.environ.get("KB10_SITE", "/app/kb_site"))
+    p = site / "data" / "knowledge-data.js"
+    if not p.exists():
+        return None
+    try:
+        text = p.read_text(encoding="utf-8", errors="ignore")
+        i, j = text.find("{"), text.rfind("}")
+        if i < 0 or j <= i:
+            return None
+        snap = json.loads(text[i:j + 1])
+        return snap if snap.get("entities") else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _json_default(o):
+    """frontmatter 中的 YYYY-MM-DD 会被 PyYAML 解析为 date/datetime，统一转 ISO 字符串。"""
+    if isinstance(o, datetime.date):  # datetime 是 date 的子类
+        return o.isoformat()
+    raise TypeError(f"Object of type {o.__class__.__name__} is not JSON serializable")
+
+
+def _strip_ts(obj):
+    """剔除装配时间戳，使 ETag 对同一份知识恒定（浏览器可稳定命中 304）。"""
+    if not isinstance(obj, dict):
+        return obj
+    return {k: v for k, v in obj.items() if k not in ("generated_at", "fetchedAt")}
+
+
+def _etag_of(content) -> str:
+    """内容 ETag（不含装配时间戳）。注：不加 sort_keys —— attrs 可能含 YAML 数字键。"""
+    raw = json.dumps(_strip_ts(content), ensure_ascii=False,
+                     default=_json_default).encode("utf-8")
+    return '"' + hashlib.sha256(raw).hexdigest()[:32] + '"'
+
+
+def _load_knowledge(force: bool = False) -> dict:
+    """装配（或复用）全量知识契约；返回 _KB_CACHE 本身。30s TTL。
+
+    缓存键：data（装配结果）/ src（来源）/ at（装配时刻）/ topics（各主题派生载荷）/
+    etag + body（全量契约序列化结果，按需惰性生成）。
+    """
+    now = time.time()
+    if (not force and _KB_CACHE.get("data") is not None
+            and (now - _KB_CACHE.get("at", 0.0)) < _CACHE_TTL_SEC):
+        return _KB_CACHE
+    docs = []
+    try:
+        docs = weknora_retriever.knowledge_docs()
+    except Exception:  # noqa: BLE001
+        docs = []
+    data, src = None, "none"
+    if docs:
+        try:
+            data = kb_knowledge.build(docs)
+            src = "weknora"
+        except Exception:  # noqa: BLE001 — 装配失败同样降级到快照
+            data = None
+    if not data or not data.get("entities"):
+        data, src = _static_knowledge(), "canonical"
+    if not data or not data.get("entities"):
+        data, src = None, "none"
+    _KB_CACHE.clear()
+    _KB_CACHE.update({"at": now, "data": data, "src": src, "topics": {}})
+    return _KB_CACHE
+
+
+def _kb_bytes(content, src: str) -> bytes:
+    return json.dumps(_env(content, src), ensure_ascii=False,
+                      default=_json_default).encode("utf-8")
+
+
+def _kb_topic(topic: str, producer) -> tuple[str, bytes]:
+    """按主题生成 (etag, json_bytes)；与全量契约共享 30s TTL 与主动失效。"""
+    st = _load_knowledge()
+    bucket = st.setdefault("topics", {})
+    hit = bucket.get(topic)
+    if hit:
+        return hit["etag"], hit["body"]
+    data, src = st.get("data"), st.get("src") or "none"
+    content = producer(data) if data else None
+    etag = _etag_of(content) if content is not None else ""
+    body = _kb_bytes(content, src)
+    bucket[topic] = {"etag": etag, "body": body}
+    return etag, body
+
+
+# ---- 主题派生：索引 / 图谱 / 实体 / 检索 ----
+# 索引投影：仅保留列表、筛选、卡片与关系指向所需的字段（正文/来源/出链不进索引）
+_INDEX_FIELDS = (
+    "id", "type", "title", "title_en", "level", "aliases", "tags", "summary",
+    "status", "updated", "official_url", "md_path", "attrs",
+    "code", "layer", "lifecycle", "control_type", "family", "standard_mappings",
+)
+
+_TAG_RE = re.compile(r"<[^>]+>")
+
+
+def _strip_html(html: str) -> str:
+    return _TAG_RE.sub("", html or "").strip()
+
+
+def _snippet(e: dict, q: str) -> str:
+    """与前端一致的摘要：正文命中处截 110 字，未命中回退 summary。"""
+    full = _strip_html(e.get("body_html") or "")
+    idx = full.lower().find((q or "").strip().lower())
+    if idx < 0:
+        return e.get("summary") or ""
+    s = max(0, idx - 30)
+    return ("…" if s > 0 else "") + full[s:s + 110] + "…"
+
+
+def _project_index(data: dict) -> dict:
+    ents = data.get("entities") or []
+    return {
+        "generated_at": data.get("generated_at"),
+        "version": data.get("version"),
+        "counts": data.get("counts") or {},
+        "entityCount": len(ents),
+        "edgeCount": len(data.get("edges") or []),
+        "entities": [{k: e.get(k) for k in _INDEX_FIELDS if k in e} for e in ents],
+    }
+
+
+def knowledge_index_payload() -> tuple[str, bytes]:
+    """轻量索引（首页/列表/筛选/卡片）：无正文、无来源、无关系明细、无边。"""
+    return _kb_topic("index", _project_index)
+
+
+def knowledge_graph_payload() -> tuple[str, bytes]:
+    """图谱主题：nodes + edges（仅知识图谱视图加载）。"""
+    def _produce(data):
+        return {
+            "generated_at": data.get("generated_at"),
+            "version": data.get("version"),
+            "nodes": data.get("nodes") or [],
+            "edges": data.get("edges") or [],
+        }
+    return _kb_topic("graph", _produce)
+
+
+def knowledge_entity(eid: str) -> tuple[str, bytes]:
+    """单实体详情：完整记录（正文/来源/出链）+ 入链（自 edges 反查）。
+
+    未命中返回 ("", body)，由路由转 404（知识库不可达时同样返回未命中）。
+    """
+    def _produce(data):
+        rec = next((e for e in (data.get("entities") or [])
+                    if e.get("id") == eid), None)
+        if not rec:
+            return None
+        rel_in, seen = [], set()
+        for x in (data.get("edges") or []):
+            if x.get("target") != eid:
+                continue
+            key = (x.get("source"), x.get("rel"))
+            if key in seen:
+                continue
+            seen.add(key)
+            rel_in.append({"rel": x.get("rel"), "source": x.get("source"),
+                           "label": x.get("label"), "inline": bool(x.get("inline"))})
+        return {"entity": rec, "relations_in": rel_in}
+
+    return _kb_topic("entity:" + eid, _produce)
+
+
+def knowledge_search(q: str, limit: int = 12) -> bytes:
+    """服务端全字段检索（含正文）：与前端原打分口径一致，避免首屏传全量正文。
+
+    不缓存：查询串无限、缓存无界；526 条量级下纯内存打分耗时可忽略。
+    """
+    qn = (q or "").strip()
+    try:
+        limit = max(1, min(int(limit or 12), 50))
+    except Exception:  # noqa: BLE001
+        limit = 12
+    st = _load_knowledge()
+    data, src = st.get("data"), st.get("src") or "none"
+    if not data or not qn:
+        return _kb_bytes({"q": qn, "total": 0, "results": []}, src)
+    ql = qn.lower()
+    toks = [t for t in ql.split() if t]
+    scored = []
+    for e in (data.get("entities") or []):
+        title = (e.get("title") or "").lower()
+        aliases = [a for a in (e.get("aliases") or []) if isinstance(a, str)]
+        tags = [t for t in (e.get("tags") or []) if isinstance(t, str)]
+        summary = (e.get("summary") or "").lower()
+        body = _strip_html(e.get("body_html") or "").lower()
+        hay = " ".join([title, " ".join(aliases), " ".join(tags), summary, body])
+        if not all(t in hay for t in toks):
+            continue
+        score = 0
+        if ql in title:
+            score += 100
+        score += 60 * sum(1 for a in aliases if ql in a.lower())
+        score += 40 * sum(1 for t in tags if ql in t.lower())
+        if ql in summary:
+            score += 25
+        if ql in body:
+            score += 10
+        if score == 0:
+            score = 5
+        scored.append((score, e))
+    scored.sort(key=lambda x: -x[0])
+    results = [{
+        "id": e.get("id"), "title": e.get("title"), "type": e.get("type"),
+        "level": e.get("level"), "aliases": e.get("aliases") or [],
+        "tags": e.get("tags") or [], "summary": e.get("summary") or "",
+        "snippet": _snippet(e, qn), "score": score,
+    } for score, e in scored[:limit]]
+    return _kb_bytes({"q": qn, "total": len(scored), "results": results}, src)
+
+
+def knowledge_payload(force: bool = False) -> tuple[str, bytes]:
+    """全量知识契约 HTTP 快路径（兼容 / MCP）：返回 (etag, json_bytes)。
+
+    v1.19.0 起前端改为按主题取数，本接口保留以兼容既有调用方与兜底。
+    """
+    st = _load_knowledge(force)
+    if not force and st.get("body") is not None:
+        return st.get("etag", ""), st["body"]
+    data, src = st.get("data"), st.get("src") or "none"
+    if not data:
+        body = _kb_bytes(None, "none")
+        st.update({"etag": "", "body": body})
+        return "", body
+    etag = _etag_of(data)
+    body = _kb_bytes(data, src)
+    st.update({"etag": etag, "body": body})
+    return etag, body
+
+
+def fetch_knowledge() -> dict:
+    """全量知识契约（统一信封版，供 MCP / 内部调用）。"""
+    _, body = knowledge_payload()
+    try:
+        return json.loads(body)
+    except Exception:  # noqa: BLE001
+        return {"content": None, "source": "none", "fetchedAt": _now_iso()}

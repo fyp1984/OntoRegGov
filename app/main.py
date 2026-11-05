@@ -1,18 +1,18 @@
-"""FastAPI 入口：挂静态页与 /api。合规结论只来自 services/assessment。"""
+"""FastAPI 入口：挂静态页与 /api。合规结论只来自 services/inspection。"""
 from __future__ import annotations
 import json, hashlib, datetime
 from pathlib import Path
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Query
+from fastapi import FastAPI, UploadFile, File, HTTPException, Query, Request, Response
 from fastapi.responses import HTMLResponse, PlainTextResponse, JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.gzip import GZipMiddleware
 from .db import db, init_db
-from .config import APP_DATA
 from .ontology import ns, graph_store, graph_backend, shacl_validator, base_import
-from .services import (review, proposal, assessment, provenance, audit,
+from .services import (review, proposal, audit,
                        extractor_rule, extractor_llm, confidence, gate, versioning,
-                       inspection, ledger)
+                       inspection)
 from .models import (EntityCreate, EntityUpdate, ExtractReq, ReviewDecision,
-                     AssessmentReq, ProposalCreate, ProposalDecision, KbIngestReq)
+                     ProposalCreate, ProposalDecision, KbIngestReq)
 from .services import kb_read        # v1.8.0 三态读源路由：db→canonical→SQLite 回落链
 from .services import kb_source      # v1.16.0 取数适配器：实时知识库优先 + 多源降级 + 30s 缓存
 from .services import run_db         # v1.16.0 运行态统一库：影子镜像 + 启动回填
@@ -25,6 +25,8 @@ from . import config as _cfg         # v1.8.0 网关开关 / DB_READ_FROM 调用
 from .scenarios import loader as scenario_loader  # 任务线3：配置驱动可插拔场景组件层
 
 app = FastAPI(title="数据安全工作平台")
+# 全量知识契约（站点 KNOWLEDGE_BASE，约 6MB）经 gzip 后约 1MB，显著改善首屏取数。
+app.add_middleware(GZipMiddleware, minimum_size=1024)
 STATIC = Path(__file__).parent / "web" / "static"
 # P4-4：知识库静态站（8430 site/）挂载到 /kb/，由环境变量 KB10_SITE 指定宿主机路径
 import os as _os
@@ -457,36 +459,6 @@ def graph(root: str = "", depth: int = 2):
     return {"nodes": [{"id": n} for n in nodes], "edges": edges}
 
 
-# ---------------- 评估 ----------------
-@app.post("/api/assessments")
-def create_assessment(body: AssessmentReq):
-    try:
-        return assessment.run_assessment(body.assetId, body.actor)
-    except ValueError as e:
-        return _err("bad_request", str(e), 400)
-
-
-@app.get("/api/assessments/{run_id}")
-def get_assessment(run_id: str):
-    a = assessment.get_assessment(run_id)
-    if not a:
-        return _err("not_found", "评估不存在", 404)
-    return a
-
-
-@app.get("/api/assessments/{run_id}/compare/{other}")
-def compare_assessments(run_id: str, other: str):
-    c = assessment.compare(run_id, other)
-    if not c:
-        return _err("not_found", "评估不存在", 404)
-    return c
-
-
-@app.get("/api/check-items/{cid}/why")
-def check_why(cid: str):
-    return provenance.why(cid)
-
-
 # ---------------- 提案 ----------------
 @app.post("/api/proposals")
 def create_proposal(body: ProposalCreate):
@@ -591,8 +563,7 @@ def control_gaps():
 @app.post("/api/inspection/runs")
 def inspection_run(body: dict):
     return inspection.create_run(body.get("inspectedTarget", "某银行"),
-                                 body.get("inspector", "合规部"), body.get("actor", "reviewer"),
-                                 body.get("planId"), body.get("assignees"))
+                                 body.get("inspector", "合规部"), body.get("actor", "reviewer"))
 
 
 @app.post("/api/inspection/runs/{run_id}/results")
@@ -621,63 +592,22 @@ def inspection_compare(run_id: str, other: str):
     return c
 
 
-# ---------------- 检查台账与周期复查（v1.3.0）----------------
-@app.post("/api/inspection/plans")
-def plan_create(body: dict):
-    if not body.get("name"):
-        return _err("bad_request", "计划名称必填")
-    return ledger.create_plan(body.get("name", ""), body.get("scope", ""),
-                              body.get("cycle", "quarterly"), body.get("startDate", ""),
-                              body.get("endDate", ""), body.get("owner", ""),
-                              body.get("checks"), body.get("actor", "reviewer"))
+@app.get("/api/inspection/runs/{run_id}/report")
+def inspection_report(run_id: str):
+    """合规自查报告（PRD M4.5/O5）：逐条佐证完整性 / 内容完备性 / 合规符合性 + 差距 + 整改建议 + 专家意见。"""
+    rep = inspection.generate_report(run_id)
+    if not rep:
+        return _err("not_found", "运行不存在", 404)
+    return rep
 
 
-@app.get("/api/inspection/plans")
-def plan_list():
-    return {"plans": ledger.list_plans()}
-
-
-@app.get("/api/inspection/plans/{plan_id}")
-def plan_get(plan_id: str):
-    p = ledger.get_plan(plan_id)
-    if not p:
-        return _err("not_found", "计划不存在", 404)
-    return p
-
-
-@app.post("/api/inspection/runs/{run_id}/evidence")
-async def evidence_upload(run_id: str, file: UploadFile = File(...),
-                          checkCode: str = Form(""), note: str = Form(""),
-                          actor: str = Form("reviewer"), uploadedBy: str = Form("")):
-    """证据归档：文件落盘 app/data/evidence_uploads/，元数据入 inspection_evidence。"""
-    content = await file.read()
-    if len(content) > 10 * 1024 * 1024:
-        return _err("too_large", "证据文件超过 10MB", 413)
-    ev_dir = Path(APP_DATA) / "evidence_uploads"
-    ev_dir.mkdir(parents=True, exist_ok=True)
-    orig = Path(file.filename or "evidence.bin").name          # 防目录穿越
-    fname = f"{run_id}_{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}_{orig}"
-    dest = ev_dir / fname
-    dest.write_bytes(content)
-    return ledger.attach_evidence(run_id, checkCode, orig, str(dest),
-                                  uploadedBy or actor, note)
-
-
-@app.get("/api/inspection/runs/{run_id}/evidence")
-def evidence_list(run_id: str):
-    return {"evidence": ledger.list_evidence(run_id)}
-
-
-@app.post("/api/inspection/runs/{run_id}/signoff")
-def run_signoff(run_id: str, body: dict):
-    return ledger.sign_off(run_id, body.get("signer", ""), body.get("role", "复核"),
-                           body.get("decision", "approved"), body.get("comment", ""),
-                           body.get("actor", "reviewer"))
-
-
-@app.get("/api/inspection/ledger")
-def inspection_ledger():
-    return ledger.get_ledger()
+@app.get("/api/inspection/runs/{run_id}/report.md")
+def inspection_report_md(run_id: str):
+    """合规自查报告 Markdown 导出（供下载 / 留痕）。"""
+    rep = inspection.generate_report(run_id)
+    if not rep:
+        return _err("not_found", "运行不存在", 404)
+    return PlainTextResponse(inspection.report_markdown(rep), media_type="text/markdown; charset=utf-8")
 
 
 # ---------------- 图存储后端（v1.4.0：标准 SPARQL 层）----------------
@@ -813,6 +743,56 @@ def kb_wiki_page(page_id: str):
 @app.get("/api/kb/search")
 def kb_search(q: str = "", limit: int = 20):
     return kb_source.fetch_search(q, limit)
+
+
+# v1.18.0（M11.3）：全量知识契约（站点 KNOWLEDGE_BASE 形状）。
+# 运行期从知识库平台原始 Markdown 装配，全量载荷按字节缓存 + ETag（304 命中免重传）。
+def _kb_response(payload: tuple[str, bytes], request: Request) -> Response:
+    """知识取数统一响应：带 ETag，命中 If-None-Match 直接 304（不重传）。"""
+    etag, body = payload
+    if etag and request.headers.get("if-none-match") == etag:
+        return Response(status_code=304, headers={"ETag": etag})
+    headers = {"Cache-Control": "no-cache"}
+    if etag:
+        headers["ETag"] = etag
+    return Response(content=body, media_type="application/json", headers=headers)
+
+
+@app.get("/api/kb/knowledge")
+def kb_knowledge(request: Request):
+    return _kb_response(kb_source.knowledge_payload(), request)
+
+
+# v1.19.0（M11.5）按主题拆分子接口 —— 缩短查询与加载时间（载荷随知识库增长而变重）。
+# 全部由同一份装配结果派生，各自独立 ETag；全量 /api/kb/knowledge 保留供 MCP/兜底。
+@app.get("/api/kb/knowledge/index")
+def kb_knowledge_index(request: Request):
+    """轻量索引：列表/筛选/卡片所需字段（无正文、无边），首屏只取这一份。"""
+    return _kb_response(kb_source.knowledge_index_payload(), request)
+
+
+@app.get("/api/kb/knowledge/graph")
+def kb_knowledge_graph(request: Request):
+    """知识图谱主题：nodes + edges（仅图谱视图按需加载）。"""
+    return _kb_response(kb_source.knowledge_graph_payload(), request)
+
+
+# 必须注册在 /api/kb/knowledge/index、/graph 等字面量路径之后无冲突；此处为路径参数。
+@app.get("/api/kb/knowledge/entity/{entity_id}")
+def kb_knowledge_entity(entity_id: str, request: Request):
+    """单实体详情：正文/来源/出链 + 入链（点开某条目时才取）。"""
+    payload = kb_source.knowledge_entity(entity_id)
+    if not payload[0]:
+        return _err("not_found", "知识条目不存在", 404)
+    return _kb_response(payload, request)
+
+
+@app.get("/api/kb/knowledge/search")
+def kb_knowledge_search(q: str = "", limit: int = 12):
+    """服务端全字段检索（含正文），替代前端首屏建全文索引。"""
+    return Response(content=kb_source.knowledge_search(q, limit),
+                    media_type="application/json",
+                    headers={"Cache-Control": "no-cache"})
 
 
 # v1.17.0（M11.4）：知识加工——投递文档/正文到知识库平台官方 API（仅 /admin 入口使用）。

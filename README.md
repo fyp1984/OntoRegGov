@@ -152,8 +152,8 @@ OntoRegGov/
 - 健康与本体：`GET /api/health`、`/api/ontology/classes`、`/api/vocab`
 - 实体与图谱：`/api/entities`、`/api/entity/{id}`、`/api/search`、`/api/graph`、`/api/graph/sparql`
 - 抽取与审核：`/api/documents/upload`、`/api/extract`、`/api/review/queue`、`/api/ingest/review`
-- 合规评估：`/api/assessments`（+ compare）、`/api/check-items/{id}/why`、`/api/proposals`
-- 监管检查：`/api/checks`（多文号筛选）、`/api/checks/{code}`（六维）、`/api/inspection/runs`（+ results / compare / evidence / signoff）、`/api/control` 缺口 `/api/controls/gaps`
+- 知识缺口与提案：`/api/proposals`
+- 监管检查：`/api/checks`（多文号筛选）、`/api/checks/{code}`（六维）、`/api/inspection/runs`（+ results / compare / report）、`/api/control` 缺口 `/api/controls/gaps`
 - 场景与导出：`/api/scenarios`、`/api/scenarios/{id}/functions/{fid}`、`/api/export/turtle`、`/api/export/shapes`
 
 ---

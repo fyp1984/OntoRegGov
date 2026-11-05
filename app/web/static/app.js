@@ -10,18 +10,22 @@ document.querySelectorAll('#nav a').forEach(a => a.onclick = () => {
   a.classList.add('active');
   document.querySelectorAll('.view').forEach(v => v.classList.add('hidden'));
   document.getElementById(a.dataset.v).classList.remove('hidden');
-  if (a.dataset.v === 'kbdash') kbLoadTree();
+  if (a.dataset.v === 'kbdash') kbSiteShow();
   if (a.dataset.v === 'kbproc') kbProcReset();
   if (a.dataset.v === 'checkslib') loadChecks();
   if (a.dataset.v === 'selfcheck') scInit();
-  if (a.dataset.v === 'ledger') loadLedger();
-  if (a.dataset.v === 'assess') loadAssets();
   if (a.dataset.v === 'llmset') loadLlmset();
 });
+
+// ---------- 左侧菜单折叠（收缩 / 打开）----------
+function navToggle(){
+  document.querySelector('.wrap').classList.toggle('nav-collapsed');
+}
 
 // ---------- 合规自查（InspectionRun/CheckResult）----------
 let scCurrent = null;      // 当前检查项详情
 let scLastRun = {};         // key=target|check -> {runId, result}
+let scLastRunId = null;     // 最近一次提交生成的运行ID（供生成自查报告）
 async function scInit() {
   const [assets, checks] = await Promise.all([
     api('/api/entities?type=DataAsset&status=published'),
@@ -82,6 +86,7 @@ async function scSubmit() {
 }
 function scBadge(r){return `<span class="badge b-${r==='pass'?'ok':r==='partial'?'warn':'bad'}">${r}</span>`;}
 function scRenderResult(res, prev, runId, key) {
+  scLastRunId = runId;
   const w = res.why||{};
   const elRows = (w.elements||[]).map(e=>
     `<tr><td>${e.code}</td><td>${scBadge(e.result)}</td><td>${e.why}</td></tr>`).join('');
@@ -102,7 +107,42 @@ function scRenderResult(res, prev, runId, key) {
       <tr><th>度量</th><th>阈值</th><th>实际</th><th>判定</th></tr>${mtRows||'<tr><td colspan=4>—</td></tr>'}</table></details>
     ${(res.result==='fail'||res.result==='partial')?`<details open><summary>常见问题/根因/整改（FindingPattern）</summary><ul>${fp||'<li>—</li>'}</ul></details>`:''}
     <p><button onclick="scProposal('${runId}')">一键发起知识缺口提案</button>
-       <button class="ghost" onclick="scSubmit()">对同一对象+检查重检</button></p>`;
+       <button class="ghost" onclick="scSubmit()">对同一对象+检查重检</button>
+       <button class="ghost" onclick="scReport()">生成合规自查报告</button></p>`;
+}
+
+// 合规自查报告（PRD M4.5/O5）：差距 + 整改建议 + 专家意见；确定性派生，同输入同输出
+const SC_V = {pass:'符合', partial:'部分符合', fail:'不符合'};
+async function scReport(){
+  if (!scLastRunId) return alert('请先提交一次自查，再生成报告');
+  const rep = await api('/api/inspection/runs/' + scLastRunId + '/report').catch(()=>null);
+  if (!rep || rep.error){ $('#sc_report_out').innerHTML = '<p class="muted">报告生成失败：' + esc((rep&&rep.error&&rep.error.message)||'接口不可达') + '</p>'; return; }
+  const s = rep.summary || {};
+  const vb = r => `<span class="badge b-${r==='pass'?'ok':r==='partial'?'warn':'bad'}">${SC_V[r]||r}</span>`;
+  const items = (rep.items||[]).map(i => `
+    <details${i.result!=='pass'?' open':''}><summary>${esc(i.checkCode)} ${esc(i.title)} ${vb(i.result)}${i.priority?` <span class="pill">${esc(i.priority)}</span>`:''}</summary>
+      <p class="muted">依据：${esc(((i.regulation||'')+' '+(i.articleNo||'')).trim()||'—')}
+        ｜佐证：已提供 ${i.evidence.provided} / 缺失 ${i.evidence.missing} / 无制度 ${i.evidence.absent}
+        ｜佐证${i.evidenceComplete?'完整':'不完整'} / 内容${i.contentAdequate?'完备':'不完备'} / ${i.compliant?'符合监管要求':'未达监管要求'}</p>
+      ${(i.gaps||[]).length?`<p><b>差距</b></p><ul>${i.gaps.map(g=>`<li>[${esc(g.type)}] ${esc(g.code||'—')}：${esc(g.detail)}</li>`).join('')}</ul>`:''}
+      ${(i.remediation||[]).length?`<p><b>整改建议</b></p><ul>${i.remediation.map(r=>`<li>${esc(r.action)}<span class="muted">（依据：${esc(r.basis)}）</span></li>`).join('')}</ul>`:''}
+      <p><b>专家意见</b>：${esc(i.expertOpinion)}</p>
+    </details>`).join('');
+  const gaps = rep.gapSummary||[], experts = rep.expertOpinions||[];
+  $('#sc_report_out').innerHTML = `
+    <p>被查对象：<b>${esc(rep.inspectedTarget||'—')}</b>　检查人：${esc(rep.inspector||'—')}
+      　运行：<code>${esc(rep.runId)}</code>　生成：${esc((rep.generatedAt||'').replace('T',' '))}　总体：${vb(s.overall)}</p>
+    <div>
+      <span class="stat"><b>${s.complianceRate||0}%</b>合规率</span>
+      <span class="stat"><b>${s.evidenceCompleteness||0}%</b>佐证完整性</span>
+      <span class="stat"><b>${s.contentAdequacy||0}%</b>内容完备性</span>
+      <span class="stat"><b>${s.pass||0}/${s.partial||0}/${s.fail||0}</b>符合/部分/不符合</span>
+    </div>
+    <h4>一、逐条自查结论与差距</h4>${items||'<p class="muted">无</p>'}
+    <h4>二、差距汇总</h4>${gaps.length?`<ul>${gaps.map(g=>`<li>${esc(g.checkCode)} [${esc(g.type)}] ${esc(g.code||'—')}：${esc(g.detail)}</li>`).join('')}</ul>`:'<p class="muted">无</p>'}
+    <h4>三、专家意见汇总</h4>${experts.length?`<ul>${experts.map(e=>`<li>[${esc(e.priority||'—')}] ${esc(e.checkCode)}：${esc(e.opinion)}</li>`).join('')}</ul>`:'<p class="muted">无</p>'}`;
+  const dl = $('#sc_report_dl');
+  if (dl){ dl.href = '/api/inspection/runs/' + scLastRunId + '/report.md'; dl.style.display = 'inline'; }
 }
 async function scProposal(runId) {
   const r = await api('/api/proposals', {method:'POST', headers:{'Content-Type':'application/json'},
@@ -112,62 +152,7 @@ async function scProposal(runId) {
   alert('已发起提案 ' + (r.id||JSON.stringify(r)) + '，请到「待审核队列」查看。');
 }
 
-// ---------- 检查台账（多人分工 · 周期复查 · 证据 · 签署）----------
-const lgBadge = r => `<span class="badge b-${r==='pass'?'ok':r==='partial'?'warn':r==='fail'?'bad':'unk'}">${r==='pass'?'符合':r==='partial'?'部分':r==='fail'?'不符合':'未填'}</span>`;
-async function loadLedger() {
-  const d = await api('/api/inspection/ledger');
-  $('#lg_plans').innerHTML = '<b>计划：</b>' + (d.plans||[]).map(p =>
-    `<span class="pill">${p.name}（${p.cycle}·${p.status}）</span>`).join('') || '（暂无计划）';
-  $('#lg_table').innerHTML = '<table><tr><th>运行</th><th>计划</th><th>被查对象</th><th>检查人(多人)</th><th>时间</th><th>结果汇总</th><th>证据</th><th>签署</th><th>下次复查</th></tr>' +
-    (d.entries||[]).map(e=>{
-      const c = e.results||{};
-      const s = e.signoff ? `<span class="badge b-${e.signoff.decision==='approved'?'ok':'warn'}">${e.signoff.decision==='approved'?'已复核':'已退回'}</span> ${e.signoff.signer}(${e.signoff.role})` : '未签署';
-      return `<tr>
-        <td><code>${e.runId}</code></td><td>${e.planName||''}</td><td>${e.inspectedTarget||''}</td>
-        <td>${[(e.inspector||''),...(e.assignees||[])].filter(Boolean).join('、')}</td>
-        <td>${(e.ranAt||'').slice(0,16)}</td>
-        <td>${lgBadge(e.results.fail?'fail':e.results.partial?'partial':e.results.pass?'pass':'unk')}
-            <span class="muted">${c.pass||0}符/${c.partial||0}部/${c.fail||0}不</span></td>
-        <td>${e.evidenceCount||0} 份</td><td>${s}</td>
-        <td>${e.nextRecheck?`<b>${e.nextRecheck}</b>`:'—'}</td></tr>`;
-    }).join('') + '</table>' || '<p class="muted">暂无运行记录。请到「合规自查」提交一次检查。</p>';
-}
-async function planCreate() {
-  const r = await api('/api/inspection/plans', {method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({name: $('#lg_name').value, scope: $('#lg_scope').value, cycle: $('#lg_cycle').value,
-      owner: $('#lg_owner').value,
-      checks: $('#lg_checks').value.split(',').map(s=>s.trim()).filter(Boolean),
-      actor: ACTOR})});
-  if (r.error) return alert(JSON.stringify(r.error));
-  alert('已创建计划 ' + r.planId); loadLedger();
-}
-async function lgUploadEv() {
-  const run = $('#lg_runid').value.trim();
-  const f = $('#lg_evfile').files[0];
-  if (!run || !f) return alert('填运行ID并选择文件');
-  const fd = new FormData();
-  fd.append('file', f); fd.append('checkCode', $('#lg_evck').value.trim());
-  fd.append('uploadedBy', ACTOR);
-  const r = await api(`/api/inspection/runs/${run}/evidence`, {method:'POST', body: fd});
-  if (r.error) return alert(JSON.stringify(r.error));
-  alert('证据已归档 ' + r.evidenceId + '（' + r.fileName + '）'); loadLedger();
-}
-async function lgShowEv() {
-  const run = $('#lg_runid').value.trim();
-  const d = await api(`/api/inspection/runs/${run}/evidence`);
-  $('#lg_evout').innerHTML = '<table><tr><th>证据ID</th><th>检查项</th><th>文件</th><th>上传人</th><th>时间</th></tr>' +
-    (d.evidence||[]).map(x=>`<tr><td><code>${x.id}</code></td><td>${x.checkCode||''}</td><td>${x.fileName}</td><td>${x.uploadedBy||''}</td><td>${(x.uploadedAt||'').slice(0,16)}</td></tr>`).join('') + '</table>';
-}
-async function lgSignoff() {
-  const run = $('#lg_runid2').value.trim();
-  if (!run) return alert('填运行ID');
-  const r = await api(`/api/inspection/runs/${run}/signoff`, {method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({signer: $('#lg_signer').value || ACTOR, role: $('#lg_role').value,
-      decision: $('#lg_decision').value, actor: ACTOR})});
-  if (r.error) return alert(JSON.stringify(r.error));
-  alert('已签署 ' + r.signoffId); loadLedger();
-}
-
+// 检查台账（M5）本版本暂不提供：按需求先移除菜单与页面，后续再行补充。
 
 async function loadChecks() {
   const doc = $('#ck_doc').value, dom = $('#ck_domain').value, pri = $('#ck_pri').value, kw = $('#ck_kw').value.trim();
@@ -237,82 +222,38 @@ function srcBar(env, extra){
     <span class="muted">取数 ${t||'—'}${extra?'｜'+extra:''}</span>`;
 }
 
-// Wiki 目录树（按业务分类聚合）
-let kbTreeEnv = null;
-async function kbLoadTree(force){
-  const box = $('#kw_tree');
-  if (!box) return;
-  if (force) kbTreeEnv = null;
-  if (!kbTreeEnv){
-    box.innerHTML = '<p class="muted">加载中…</p>';
-    kbTreeEnv = await api('/api/kb/wiki/tree?limit=500').catch(()=>null);
-    const sb = $('#kw_src'); if (sb) sb.innerHTML = kbTreeEnv ? srcBar(kbTreeEnv) : '';
-  }
-  kbTreeFilter();
-}
-function kbTreeFilter(){
-  const box = $('#kw_tree');
-  if (!box || !kbTreeEnv) return;
-  const kw = (($('#kw_filter')||{}).value || '').trim().toLowerCase();
-  const tree = (kbTreeEnv.content && kbTreeEnv.content.tree) || [];
-  if (!tree.length){ box.innerHTML = '<p class="muted">知识库暂无可用页面（或知识库不可达，已降级）。</p>'; return; }
-  const hit = (p, cat) => !kw || (p.name||'').toLowerCase().includes(kw)
-    || (p.title||'').toLowerCase().includes(kw) || (cat||'').toLowerCase().includes(kw);
-  const html = tree.map(g=>{
-    const pages = (g.pages||[]).filter(p => hit(p, g.category));
-    if (!pages.length) return '';
-    return `<details open><summary>${esc(g.category)} <span class="muted">${g.count}</span></summary>
-      <ul class="treelist">${pages.map(p=>
-        `<li><a onclick="kbOpenPage('${p.pageId}')">${esc(p.name||p.title)}</a></li>`).join('')}</ul></details>`;
-  }).join('');
-  box.innerHTML = html || '<p class="muted">无匹配页面。</p>';
-}
-async function kbOpenPage(pageId){
-  const box = $('#kw_page');
-  if (!box) return;
-  box.innerHTML = '<p class="muted">加载中…</p>';
-  const env = await api('/api/kb/wiki/'+encodeURIComponent(pageId)).catch(()=>null);
-  if (!env || !env.content){ box.innerHTML = '<p class="muted">页面不可用（或知识库不可达）。</p>'; return; }
-  const p = env.content;
-  const sb = $('#kw_psrc'); if (sb) sb.innerHTML = srcBar(env, '分块 '+(p.chunkCount||0));
-  const paras = String(p.content||'').split(/\n{2,}/).map(x=>x.trim()).filter(Boolean)
-    .map(x=>`<p>${esc(x).replace(/\n/g,'<br>')}</p>`).join('');
-  box.innerHTML = `<h4>${esc(p.title)}</h4>
-    <p class="muted">${esc(p.type||'')}${p.folder?'｜'+esc(p.folder):''}｜更新 ${esc((p.updatedAt||'').replace('T',' '))}</p>
-    ${paras||'<p class="muted">页面无正文内容。</p>'}`;
-}
-
-// 知识检索（融合检索，来源可辨）
-const KBT = {case:'案例', law:'法规', standard:'标准', term:'术语', control:'控制', organization:'组织', solution:'方案', topic:'专题', guide:'指引', check:'检查项'};
-async function kbSearch(){
-  const q = ($('#kb_q').value||'').trim();
-  if (!q){ $('#kb_res').innerHTML = '<p class="muted">请输入关键词</p>'; $('#kb_src').innerHTML = ''; return; }
-  const env = await api('/api/kb/search?q='+encodeURIComponent(q)+'&limit=20').catch(()=>null);
-  if (!env || !env.content){ $('#kb_src').innerHTML=''; $('#kb_res').innerHTML = '<p class="muted">检索不可用。</p>'; return; }
-  const r = env.content;
-  $('#kb_src').innerHTML = srcBar(env);
-  $('#kb_res').innerHTML = r.total
-    ? `<p class="muted">命中 ${r.total} 条（点击查看详情）</p>` + r.results.map(x=>
-        `<div class="row kbhit" onclick="showKbDetail('${x.id}')">
-          <span class="badge">${KBT[x.type]||x.type}</span>
-          <span>${esc(x.label||x.id)}</span><span class="muted">${esc(x.id)}</span></div>`).join('')
-    : '<p class="muted">无命中，换个关键词试试。</p>';
-}
-async function showKbDetail(id) {
-  const d = await api('/api/entity/'+id);
-  if (!d || d.error || !d.id) { $('#kb_detail').innerHTML = '<p class="muted">详情不可用：'+esc((d&&d.error&&d.error.message)||'')+'</p>'; return; }
-  $('#kb_detail').innerHTML = `<div class="card">
-    <div class="row"><span class="badge">${KBT[d.type]||d.type}</span>
-      <span class="muted">${esc(d.id)}</span>
-      <span class="muted" style="margin-left:auto">级别 ${esc(d.level||'-')} · 状态 ${esc(d.status||'-')}</span></div>
-    <h3>${esc(d.title||d.label||d.id)}</h3>
-    ${d.title_en?`<p class="muted">${esc(d.title_en)}</p>`:''}
-    <p>${esc(d.summary||'')}</p>
-    ${(d.aliases||[]).length?`<p class="muted">别名：${d.aliases.map(esc).join(' · ')}</p>`:''}
-    ${(d.tags||[]).length?`<p class="muted">标签：${d.tags.map(t=>'#'+esc(t)).join(' ')}</p>`:''}
-    ${d.official_url?`<p class="muted"><a href="${esc(d.official_url)}" target="_blank">官方来源：${esc(d.official_url)}</a></p>`:''}
-    ${(d.relations||[]).length?`<p class="muted">关系：${d.relations.map(r=>esc(r.p)+'→'+esc(r.slug)).join(' · ')}</p>`:''}
-  </div>`;
+// ---------- 知识库（菜单 1 站点内联）----------
+// 页面样式/呈现逻辑以历史知识站点为准（kb_site.css + kb_site.js），内容数据由
+// /api/kb/knowledge/* 按主题分接口动态提供：首屏只拉轻量索引
+// （/api/kb/knowledge/index，无正文/无边）注入 window.KNOWLEDGE_BASE；知识图谱、
+// 条目详情、检索由 kb_site.js 按需调用 graph/entity/search 子接口。
+// 首次加载即触发（#kbdash 为默认视图）。
+let kbSiteInited = false, kbSiteLoading = null;
+async function kbSiteShow(){
+  if (kbSiteInited) return;
+  if (kbSiteLoading) return kbSiteLoading;
+  const meta = $('#kb_meta');
+  if (meta) meta.innerHTML = '<span class="muted">知识库加载中…</span>';
+  kbSiteLoading = (async () => {
+    const env = await api('/api/kb/knowledge/index').catch(() => null);
+    kbSiteLoading = null;
+    const c = env && env.content;
+    if (!c || !c.entities){
+      if (meta) meta.innerHTML = '<span class="badge b-bad">来源不可用</span> ' +
+        '<span class="muted">知识库暂不可达，请稍后重试。</span>';
+      return;
+    }
+    window.KNOWLEDGE_BASE = c;
+    if (meta) meta.innerHTML = srcBar(env, '条目 ' + (c.entities||[]).length);
+    const ver = $('#kb_ver'); if (ver) ver.textContent = c.version || '—';
+    const ga = $('#kb_genat');
+    if (ga) ga.textContent = String(c.generated_at||'').replace('T',' ') || '—';
+    if (window.KbSite && typeof window.KbSite.init === 'function'){
+      window.KbSite.init();
+      kbSiteInited = true;
+    }
+  })();
+  return kbSiteLoading;
 }
 
 // 知识加工（仅 /admin）：投递 → 轮询加工进度；平台不直写知识库库表
@@ -364,34 +305,6 @@ async function kbPollStatus(){
   if (!s.ready) kbProcTimer = setTimeout(kbPollStatus, 3000);   // 未完成则继续轮询
 }
 
-async function loadAssets() {
-  const a = await api('/api/entities?type=DataAsset&status=published');
-  $('#asset_sel').innerHTML = a.entities.map(x=>`<option value="${x.id}">${x.label}</option>`).join('');
-}
-let lastRuns = {};
-async function runAssess() {
-  const aid = $('#asset_sel').value;
-  const r = await api('/api/assessments', {method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({assetId: aid, actor: ACTOR})});
-  lastRuns[aid] = r.runId;
-  renderAssess(r);
-}
-function badge(res){return `<span class="badge b-${res==='conform'?'ok':res==='partial'?'warn':res==='nonconform'?'bad':'unk'}">${res}</span>`;}
-function renderAssess(r) {
-  $('#assess_out').innerHTML = `<p>总评：<b>${r.overall}</b>　runId=${r.runId}</p>
-    <table><tr><th>义务</th><th>控制</th><th>结果</th><th>说明</th></tr>
-    ${r.checkItems.map(i=>`<tr><td>${i.obligationCode}</td><td>${i.controlCode||'—'}</td><td>${badge(i.result)}</td>
-      <td>${i.why.detail||''}</td></tr>`).join('')}</table>
-    ${r.proposals&&r.proposals.length?`<p class="muted">自动生成缺口提案：${r.proposals.map(p=>p.id).join(', ')}</p>`:''}`;
-}
-async function compareAssess() {
-  const aid = $('#asset_sel').value;
-  const a = await api('/api/entities?type=Assessment&status=published').catch(()=>({entities:[]}));
-  // 取该资产最近两次评估
-  const list = await fetch('/api/export/turtle').then(()=>null).catch(()=>null);
-  alert('请在两次运行评估后对比；最近 runId：'+JSON.stringify(lastRuns));
-}
-
 // ---------- LLM 配置（v1.12.0：前端可配置，UI 优先、env 兜底，免重启生效）----------
 async function loadLlmset() {
   const st = await api('/api/settings/llm').catch(() => null);
@@ -436,5 +349,7 @@ async function llmTest() {
   $('#llm_status').innerHTML = (st && st.ok ? '✓ ' : '✗ ') + (st ? st.detail : '测试失败：API 不可达');
 }
 
-// ---------- 首屏默认视图（知识库目录）----------
-if ($('#kw_tree')) kbLoadTree();
+// ---------- 首屏默认视图（知识库门户）----------
+// #kbdash 为默认可见视图，首屏即引导加载知识库（样式取历史知识站点，数据走 /api/kb/knowledge）。
+if (document.getElementById('kbdash')) kbSiteShow();
+

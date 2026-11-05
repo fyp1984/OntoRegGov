@@ -25,3 +25,7 @@ app/data/site-preview/
 
 # 备份文件与导出产物
 *.bak*
+
+# 本地验收/QA 报告产物（仅本地留存，不入库）
+reports/
+QA_ACCEPTANCE_REPORT_*.md

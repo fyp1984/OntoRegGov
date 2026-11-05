@@ -5,7 +5,6 @@
   - 运行概览 / 逐项判定 / why 溯源 → services.inspection.get_run
   - 复检前后对比                → services.inspection.compare
   - 缺口提案清单               → services.proposal.list_proposals（按 payload.runId 过滤）
-  - 整改与证据记录              → services.ledger.list_evidence
 不硬编码任何检查项标题与判定——标题/判定一律取 get_run 返回的 why.checkTitle / result。
 
 run(params) 入参：
@@ -22,7 +21,6 @@ import html as _html
 
 from ...services import inspection as inspection_svc
 from ...services import proposal as proposal_svc
-from ...services import ledger as ledger_svc
 
 _RESULT_LABEL = {"pass": "符合", "partial": "部分符合", "fail": "不符合"}
 _RESULT_COLOR = {"pass": "#1a9e5c", "partial": "#b97d10", "fail": "#d23b3b"}
@@ -63,14 +61,6 @@ def _proposals_for(run_ids: list[str]) -> list[dict]:
         payload = p.get("payload") or {}
         if payload.get("runId") in wanted:
             out.append(p)
-    return out
-
-
-def _evidence_for(run_ids: list[str]) -> list[dict]:
-    out = []
-    for rid in run_ids:
-        for e in ledger_svc.list_evidence(rid):
-            out.append(e)
     return out
 
 
@@ -116,7 +106,6 @@ def run(params: dict | None = None) -> dict:
 
     rows = _per_item_rows(runs)
     proposals = _proposals_for(run_ids)
-    evidence = _evidence_for(run_ids)
 
     # 复检对比：提供 2 个运行时
     cmp_info = None
@@ -134,9 +123,9 @@ def run(params: dict | None = None) -> dict:
 
     # ---------------- 生成 HTML ----------------
     html = _render_html(title, actor, now, runs, missing, rows, counts, overall,
-                        proposals, evidence, cmp_info, report_type)
+                        proposals, cmp_info, report_type)
     markdown = _render_md(title, actor, now, runs, missing, rows, counts, overall,
-                         proposals, evidence, cmp_info)
+                         proposals, cmp_info)
 
     return {
         "ok": True, "title": title, "reportType": report_type,
@@ -144,14 +133,14 @@ def run(params: dict | None = None) -> dict:
         "stats": {"itemJudged": len(rows), "pass": counts["pass"],
                   "partial": counts["partial"], "fail": counts["fail"],
                   "overall": overall, "proposals": len(proposals),
-                  "evidence": len(evidence), "hasCompare": cmp_info is not None},
+                  "hasCompare": cmp_info is not None},
         "html": html, "markdown": markdown, "fileNameBase": fileNameBase,
     }
 
 
 # --------------------------------------------------------------------------- #
 def _render_html(title, actor, now, runs, missing, rows, counts, overall,
-                 proposals, evidence, cmp_info, report_type) -> str:
+                 proposals, cmp_info, report_type) -> str:
     ov_badge = _badge_html(overall)
     runs_html = "".join(
         f"<tr><td>{_esc(r['runId'])}</td><td>{_esc(r.get('inspectedTarget'))}</td>"
@@ -175,12 +164,6 @@ def _render_html(title, actor, now, runs, missing, rows, counts, overall,
         f"<td>{_esc(p.get('targetKind'))}</td><td>{_esc(p.get('reason'))}</td>"
         f"<td>{_esc(p.get('reviewer',''))}</td></tr>" for p in proposals) or \
         "<tr><td colspan=5>（无缺口提案）</td></tr>"
-
-    ev_html = "".join(
-        f"<tr><td>{_esc(e.get('runId'))}</td><td>{_esc(e.get('checkCode'))}</td>"
-        f"<td>{_esc(e.get('fileName'))}</td><td>{_esc(e.get('uploadedBy'))}</td>"
-        f"<td>{_esc(e.get('uploadedAt'))}</td><td>{_esc(e.get('note',''))}</td></tr>"
-        for e in evidence) or "<tr><td colspan=6>（无证据记录）</td></tr>"
 
     cmp_html = ""
     if cmp_info:
@@ -225,18 +208,16 @@ td{{border-bottom:1px solid #E3EBFA;padding:8px 10px;vertical-align:top}}
 <table><tr><th>运行</th><th>检查项</th><th>标题</th><th>判定</th><th>why 溯源</th></tr>{rows_html}</table>
 <h3>三、缺口提案清单</h3>
 <table><tr><th>提案ID</th><th>状态</th><th>目标</th><th>事由</th><th>处理人</th></tr>{prop_html}</table>
-<h3>四、整改与证据记录</h3>
-<table><tr><th>运行</th><th>检查项</th><th>证据文件</th><th>上传人</th><th>时间</th><th>备注</th></tr>{ev_html}</table>
 {cmp_html}
-<h3>五、结论</h3>
+<h3>四、结论</h3>
 <p>本次检查总体结论 {ov_badge}；符合 {counts['pass']} 项、部分符合 {counts['partial']} 项、不符合 {counts['fail']} 项。
-缺口提案 {len(proposals)} 条、证据归档 {len(evidence)} 份。不符合项应按 why 溯源整改后复跑，复检对比见上。</p>
+缺口提案 {len(proposals)} 条。不符合项应按 why 溯源整改后复跑，复检对比见上。</p>
 <p class="muted">本报告由 OntoRegGov 场景框架 report_export 函数自动生成，全部数据来自本体/平台服务，无人工硬编码判定。</p>
 </div></body></html>"""
 
 
 def _render_md(title, actor, now, runs, missing, rows, counts, overall,
-               proposals, evidence, cmp_info) -> str:
+               proposals, cmp_info) -> str:
     L = [f"# {title}", "",
          f"- 报告人：{actor}　生成时间：{now}",
          f"- 总体结论：{_RESULT_LABEL.get(overall, overall)}",
@@ -261,15 +242,8 @@ def _render_md(title, actor, now, runs, missing, rows, counts, overall,
         L.append(f"| {p['id']} | {p.get('status')} | {p.get('targetKind')} | {p.get('reason')} |")
     if not proposals:
         L.append("|（无）| | | |")
-    L += ["", "## 四、整改与证据记录", "",
-          "| 运行 | 检查项 | 证据文件 | 上传人 | 时间 |", "|---|---|---|---|---|"]
-    for e in evidence:
-        L.append(f"| {e.get('runId')} | {e.get('checkCode')} | {e.get('fileName')} | "
-                 f"{e.get('uploadedBy')} | {e.get('uploadedAt')} |")
-    if not evidence:
-        L.append("|（无）| | | | |")
     if cmp_info:
-        L += ["", f"## 五、复检对比（{cmp_info['runBefore']} → {cmp_info['runAfter']}）", "",
+        L += ["", f"## 四、复检对比（{cmp_info['runBefore']} → {cmp_info['runAfter']}）", "",
               f"总评 {_RESULT_LABEL.get(cmp_info['overallBefore'])} → {_RESULT_LABEL.get(cmp_info['overallAfter'])}", "",
               "| 检查项 | 整改前 | 整改后 |", "|---|---|---|"]
         for c in cmp_info.get("changes", []):

@@ -31,11 +31,6 @@ class ReviewDecision(BaseModel):
     edits: Optional[dict] = None
 
 
-class AssessmentReq(BaseModel):
-    assetId: str
-    actor: str = "system"
-
-
 class ProposalCreate(BaseModel):
     reason: str
     targetKind: str = "Control"

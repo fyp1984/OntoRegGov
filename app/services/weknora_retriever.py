@@ -160,6 +160,26 @@ def health() -> dict:
 _PAGE_COLS = "id::text AS id, title, type, parse_status, enable_status, folder_path, updated_at"
 
 
+def _page_meta(title: str, raw_type: str = "") -> tuple[str, str]:
+    """从知识页标题提取可展示名称与业务 type。
+
+    WeKnora 的 knowledges.type 往往是通用值 `manual`，业务分类实际编码在标题前缀
+    （如 `[law] ...` / `[case] ...`）里。若前缀存在且库内 type 为空或为通用值，则优先
+    使用标题前缀，避免 Wiki 目录全部落到 fallback=其他。
+    """
+    title = (title or "").strip()
+    raw_type = (raw_type or "").strip()
+    ptype = raw_type
+    name = title
+    if title.startswith("[") and "]" in title:
+        head, _, tail = title[1:].partition("]")
+        head = head.strip()
+        if head and raw_type.lower() in ("", "manual"):
+            ptype = head
+        name = tail.strip() or title
+    return ptype, name
+
+
 def wiki_list(limit: int = 500) -> list[dict]:
     """列出知识库页面（Wiki 目录）。按标题排序，返回精简页面清单。"""
     rows = _q(
@@ -171,13 +191,7 @@ def wiki_list(limit: int = 500) -> list[dict]:
     out = []
     for r in rows:
         title = r.get("title") or ""
-        # 标题形如 "[law] 互联网信息服务算法推荐管理规定" → 拆出 type 前缀
-        ptype = r.get("type") or ""
-        name = title
-        if title.startswith("[") and "]" in title:
-            head, _, tail = title[1:].partition("]")
-            ptype = ptype or head.strip()
-            name = tail.strip() or title
+        ptype, name = _page_meta(title, r.get("type") or "")
         out.append({
             "pageId": r["id"], "title": title, "name": name, "type": ptype,
             "folder": r.get("folder_path") or "",
@@ -209,12 +223,32 @@ def wiki_get(page_id: str) -> dict | None:
         (r["id"],),
     )
     content = "\n\n".join((c.get("content") or "").strip() for c in chunks if c.get("content"))
+    ptype, _ = _page_meta(r.get("title") or "", r.get("type") or "")
     return {
         "pageId": r["id"], "title": r.get("title") or "",
-        "type": r.get("type") or "", "folder": r.get("folder_path") or "",
+        "type": ptype, "folder": r.get("folder_path") or "",
         "content": content, "chunkCount": len(chunks),
         "updatedAt": str(r.get("updated_at") or ""),
     }
+
+
+def knowledge_docs(limit: int = 1000) -> list[dict]:
+    """读取知识库全部条目的**原始 Markdown**（含 frontmatter）。
+
+    大白话：knowledges.metadata->>'content' 保存了迁移时的原始 md 全文，
+    是运行期重建站点契约（window.KNOWLEDGE_BASE）的唯一真源，只读、零改造。
+    返回：[{title, content, updatedAt}]。
+    """
+    rows = _q(
+        """SELECT title, metadata->>'content' AS content, updated_at
+           FROM knowledges
+           WHERE knowledge_base_id = %s AND deleted_at IS NULL AND enable_status = 'enabled'
+             AND metadata->>'content' IS NOT NULL AND metadata->>'content' <> ''
+           ORDER BY title LIMIT %s""",
+        (_KB_ID, int(limit)),
+    )
+    return [{"title": r.get("title") or "", "content": r.get("content") or "",
+             "updatedAt": str(r.get("updated_at") or "")} for r in rows]
 
 
 def wiki_find(query: str, limit: int = 5) -> list[dict]:
@@ -229,8 +263,11 @@ def wiki_find(query: str, limit: int = 5) -> list[dict]:
             ORDER BY title LIMIT %s""",
         (_KB_ID, f"%{q}%", int(limit)),
     )
-    return [{"pageId": r["id"], "title": r.get("title") or "",
-             "type": r.get("type") or ""} for r in rows]
+    out = []
+    for r in rows:
+        ptype, _ = _page_meta(r.get("title") or "", r.get("type") or "")
+        out.append({"pageId": r["id"], "title": r.get("title") or "", "type": ptype})
+    return out
 
 
 # ===========================================================================

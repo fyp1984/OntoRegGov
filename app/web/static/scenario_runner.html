@@ -156,17 +156,11 @@ const RENDERERS = {
     });
   },
 
-  // —— 整改：证据上传 + 提案决策 ——
+  // —— 整改：缺口提案决策 ——
   remediate(st){
     $('#step-body').innerHTML = `
       <div class="card"><h3>${st.title}</h3><p class="muted">${st.desc}</p>
-        <h4>① 证据归档上传</h4>
-        <div class="row">运行ID：<input id="rm_run" style="width:150px" value="${S.runIds[0]||''}">
-          检查项：<input id="rm_ck" style="width:90px" value="${S.checkCode}">
-          文件：<input type="file" id="rm_file">
-          <button onclick="rmUpload()">上传证据</button></div>
-        <div id="rm_evout" class="muted"></div>
-        <h4>② 缺口提案决策</h4>
+        <h4>缺口提案决策</h4>
         <div class="row">提案ID：<input id="rm_pid" style="width:150px" value="${S.lastProposalId||''}">
           决策：<select id="rm_dec"><option value="accepted">accepted（接受补全）</option><option value="closed">closed（关闭）</option><option value="rejected">rejected</option></select>
           <button onclick="rmDecide()">提交决策</button></div>
@@ -209,18 +203,6 @@ const RENDERERS = {
         });
         $('#qz_body').innerHTML = html;
       });
-  },
-
-  // —— 检查台账 ——
-  ledger_view(st){
-    $('#step-body').innerHTML = `<div class="card"><h3>${st.title}</h3><div id="lg_body">载入中…</div></div>`;
-    api('/api/inspection/ledger').then(d=>{
-      const ents = d.entries||[];
-      $('#lg_body').innerHTML = `<table><tr><th>运行</th><th>对象</th><th>检查人</th><th>结果汇总</th><th>证据</th><th>签署</th></tr>`+
-        ents.map(e=>`<tr><td>${e.runId}</td><td>${e.inspectedTarget}</td><td>${e.inspector}</td>
-          <td>符合${e.results?.pass||0}/部分${e.results?.partial||0}/不符合${e.results?.fail||0}</td>
-          <td>${e.evidenceCount}</td><td>${e.signoff?e.signoff.decision:'—'}</td></tr>`).join('')+`</table>`;
-    });
   },
 
   // —— 报告导出 ——
@@ -295,14 +277,6 @@ async function vdLoad(){
   $('#vd_body').innerHTML = `<p>运行 ${rid}：${run.inspectedTarget} / ${run.inspector} / ${run.ranAt}</p>`+
     run.results.map(r=>`<p>${badge(r.result)} <b>${r.checkCode}</b> ${r.why?.checkTitle||''}</p>`).join('');
 }
-async function rmUpload(){
-  const fd = new FormData();
-  fd.append('file', $('#rm_file').files[0]);
-  fd.append('checkCode', $('#rm_ck').value); fd.append('actor', actor()); fd.append('note','整改补证');
-  const r = await fetch(`/api/inspection/runs/${$('#rm_run').value}/evidence`,{method:'POST',body:fd});
-  const j = await r.json();
-  $('#rm_evout').textContent = '证据已归档：' + (j.fileName||JSON.stringify(j));
-}
 async function rmDecide(){
   const r = await api(`/api/proposals/${$('#rm_pid').value}/decision`,{method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({actor:'admin', decision:$('#rm_dec').value, note:'整改后专家复核'})});
@@ -348,7 +322,7 @@ async function rpGen(){
   const body = {runIds:runs, reportType:(S.comp.functions.find(f=>f.id==='report_export')?.params||{}).reportType||'selfcheck', title:$('#rp_title').value, actor:actor()};
   const r = await api(`/api/scenarios/${SID}/functions/report_export`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
   if(!r.ok){ $('#rp_meta').innerHTML=`<span class="badge b-bad">${r.error.message}</span>`; return; }
-  $('#rp_meta').innerHTML = `统计：判定 ${r.stats.itemJudged} 项（符合${r.stats.pass}/部分${r.stats.partial}/不符合${r.stats.fail}），提案 ${r.stats.proposals}，证据 ${r.stats.evidence}，复检对比=${r.stats.hasCompare}`;
+  $('#rp_meta').innerHTML = `统计：判定 ${r.stats.itemJudged} 项（符合${r.stats.pass}/部分${r.stats.partial}/不符合${r.stats.fail}），提案 ${r.stats.proposals}，复检对比=${r.stats.hasCompare}`;
   $('#rp_card').classList.remove('hidden');
   $('#rp_frame').srcdoc = r.html;
   const htmlBlob = new Blob([r.html],{type:'text/html'});
