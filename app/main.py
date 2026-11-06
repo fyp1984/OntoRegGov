@@ -143,6 +143,39 @@ def test_llm_settings(payload: dict):
     return {"ok": result.get("ok"), "detail": result.get("detail")}
 
 
+# ---------------- 应用设置：可引用的知识库（多选） ----------------
+# 大白话：默认只引用部署环境变量指定的知识库；在这里勾选后，
+# 知识库页面与检索只引用所选集合（改完即刷新取数缓存，下一次即生效）。
+@app.get("/api/settings/kb")
+def get_kb_settings():
+    from .services import weknora_retriever as _wr
+    try:
+        available = _wr.list_knowledge_bases()
+    except Exception:  # noqa: BLE001 — 知识库不可达时返回空清单，页面降级提示
+        available = []
+    return {"available": available,
+            "selected": settings_store.get_reference_kbs(),
+            "effective": _wr.effective_kb_ids()}
+
+
+@app.put("/api/settings/kb")
+def put_kb_settings(payload: dict):
+    """保存可引用知识库集合（仅接受尚未删除的知识库 ID）；保存后主动失效取数缓存。"""
+    ids = payload.get("ids")
+    if not isinstance(ids, list):
+        return _err("bad_request", "ids 需为数组", 400)
+    from .services import weknora_retriever as _wr
+    try:
+        valid = {kb["id"] for kb in _wr.list_knowledge_bases()}
+        ids = [str(i) for i in ids if str(i) in valid]
+    except Exception:  # noqa: BLE001 — 校验不可用时按原样保存
+        ids = [str(i) for i in ids]
+    selected = settings_store.save_reference_kbs(ids)
+    kb_source.invalidate_env("")
+    audit.log("ui-user", "settings.kb", "reference_kbs", {"count": len(selected)})
+    return {"ok": True, "selected": selected, "effective": _wr.effective_kb_ids()}
+
+
 @app.get("/api/ontology/classes")
 def classes():
     tree = []

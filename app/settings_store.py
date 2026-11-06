@@ -8,6 +8,7 @@
 （与本机 .env 同级信任），不随任何日志/响应输出。
 """
 from __future__ import annotations
+import json
 import os
 import sqlite3
 from contextlib import contextmanager
@@ -92,3 +93,31 @@ def save_llm(payload: dict) -> dict:
     if "model" in payload and not model:
         _db_set("llm_model", "")
     return get_runtime_llm()
+
+
+# ---------------- 可引用的知识库（多选）----------------
+# 大白话：默认只引用部署期环境变量指定的知识库；用户在设置页勾选后，
+# 以勾选集合为准（知识库页面与检索都只引用这些库）。
+def get_reference_kbs() -> list[str]:
+    """已勾选的可引用知识库 ID；空列表=未配置（回落环境变量默认库）。"""
+    raw = _db_get("ref_kb_ids")
+    if not raw:
+        return []
+    try:
+        v = json.loads(raw)
+    except Exception:  # noqa: BLE001
+        return []
+    if not isinstance(v, list):
+        return []
+    return [str(x).strip() for x in v if str(x).strip()]
+
+
+def save_reference_kbs(ids: list[str]) -> list[str]:
+    """保存勾选的知识库 ID（去空、去重、保持顺序）；返回规范化结果。"""
+    clean: list[str] = []
+    for i in (ids or []):
+        s = str(i).strip()
+        if s and s not in clean:
+            clean.append(s)
+    _db_set("ref_kb_ids", json.dumps(clean, ensure_ascii=False))
+    return clean

@@ -52,6 +52,26 @@ main{flex:1;padding:24px 28px;overflow:auto;min-width:0}
 .wrap.nav-collapsed nav{display:none}
 .wrap.nav-collapsed main{padding-left:58px}
 
+/* ---------- 设置入口（左下角齿轮）---------- */
+.settings-gear{position:fixed;left:16px;bottom:16px;z-index:70;width:42px;height:42px;padding:0;
+  display:flex;align-items:center;justify-content:center;border-radius:50%;
+  background:var(--card);color:var(--brand-dark);border:1px solid var(--brand-border);
+  box-shadow:0 4px 14px rgba(32,85,215,.18);transition:transform .2s,background .15s}
+.settings-gear:hover{background:var(--brand-bg);transform:rotate(30deg)}
+.settings-gear.active{background:var(--brand);color:#fff;border-color:var(--brand)}
+.settings-gear svg{width:20px;height:20px;display:block}
+
+/* ---------- 设置页：可引用的知识库（多选） ---------- */
+.form-narrow{max-width:560px}
+.pick-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:8px;margin:6px 0 12px}
+.pick{display:flex;align-items:center;gap:8px;margin:0;padding:9px 12px;cursor:pointer;
+  border:1px solid var(--line-strong);border-radius:10px;background:#fff;
+  font-size:13px;font-weight:400;color:var(--text);transition:border-color .15s,background .15s}
+.pick:hover{border-color:var(--brand-border);background:var(--brand-soft)}
+.pick input{width:auto;flex:none;margin:0}
+.pick-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pick-meta{flex:none;font-size:12px;color:var(--muted)}
+
 /* ---------- 卡片 ---------- */
 .card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
   padding:18px 20px;margin-bottom:18px;box-shadow:var(--shadow)}

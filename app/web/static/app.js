@@ -5,17 +5,26 @@ const api = async (p, opt) => {
   const r = await fetch(p, opt);
   return r.json();
 };
-document.querySelectorAll('#nav a').forEach(a => a.onclick = () => {
-  document.querySelectorAll('#nav a').forEach(x => x.classList.remove('active'));
-  a.classList.add('active');
+// 视图切换（左侧菜单 + 左下角设置齿轮共用）
+function showView(id){
   document.querySelectorAll('.view').forEach(v => v.classList.add('hidden'));
-  document.getElementById(a.dataset.v).classList.remove('hidden');
-  if (a.dataset.v === 'kbdash') kbSiteShow();
-  if (a.dataset.v === 'kbproc') kbProcReset();
-  if (a.dataset.v === 'checkslib') loadChecks();
-  if (a.dataset.v === 'selfcheck') scInit();
-  if (a.dataset.v === 'llmset') loadLlmset();
-});
+  const el = document.getElementById(id);
+  if (el) el.classList.remove('hidden');
+  document.querySelectorAll('#nav a').forEach(x => x.classList.toggle('active', x.dataset.v === id));
+  const gear = $('#settings_gear');
+  if (gear) gear.classList.toggle('active', id === 'settings');
+  if (id === 'kbdash') kbSiteShow();
+  if (id === 'checkslib') loadChecks();
+  if (id === 'selfcheck') scInit();
+  if (id === 'settings') loadSettings();
+}
+document.querySelectorAll('#nav a').forEach(a => a.onclick = () => showView(a.dataset.v));
+
+// 左下角齿轮：开关设置视图
+function openSettings(){
+  const cur = document.getElementById('settings');
+  showView(cur && cur.classList.contains('hidden') ? 'settings' : 'kbdash');
+}
 
 // ---------- 左侧菜单折叠（收缩 / 打开）----------
 function navToggle(){
@@ -347,6 +356,60 @@ async function llmTest() {
   const st = await api('/api/settings/llm/test', {method: 'POST',
     headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)}).catch(() => null);
   $('#llm_status').innerHTML = (st && st.ok ? '✓ ' : '✗ ') + (st ? st.detail : '测试失败：API 不可达');
+}
+
+// ---------- 设置页：可引用的知识库（多选） + 取数来源状态 ----------
+function loadSettings(){ loadKbPick(); loadLlmset(); loadSrcStatus(); }
+
+async function loadKbPick(){
+  const box = $('#kb_pick'); if (!box) return;
+  box.innerHTML = '<span class="muted">加载中…</span>';
+  const d = await api('/api/settings/kb').catch(() => null);
+  if (!d || d.available === undefined){
+    box.innerHTML = '<span class="muted">知识库列表不可达，请检查知识库平台。</span>'; return;
+  }
+  if (!d.available.length){
+    box.innerHTML = '<span class="muted">暂无可用知识库。</span>'; return;
+  }
+  const sel = d.selected || [];
+  box.innerHTML = d.available.map(k => `
+    <label class="pick" title="${esc(k.id)}">
+      <input type="checkbox" value="${esc(k.id)}" ${sel.includes(k.id) ? 'checked' : ''}>
+      <span class="pick-name">${esc(k.name)}</span>
+      <span class="pick-meta">${k.docCount} 篇</span>
+    </label>`).join('');
+  kbPickStatus(sel.length);
+}
+
+function kbPickStatus(n){
+  const el = $('#kb_pick_status'); if (!el) return;
+  el.textContent = n ? `已选 ${n} 个知识库` : '未选择，使用默认知识库';
+}
+
+async function kbPickSave(){
+  const ids = Array.from(document.querySelectorAll('#kb_pick input:checked')).map(x => x.value);
+  const el = $('#kb_pick_status'); if (el) el.textContent = '保存中…';
+  const r = await api('/api/settings/kb', {method: 'PUT',
+    headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ids})}).catch(() => null);
+  if (!r || r.error){ if (el) el.textContent = '保存失败：接口不可达。'; return; }
+  kbSiteInited = false;                       // 使知识库视图下次进入时按新配置重建
+  kbPickStatus((r.selected || []).length);
+  if (el) el.textContent = '✓ 已保存，' + el.textContent;
+}
+
+async function kbPickReset(){
+  document.querySelectorAll('#kb_pick input').forEach(x => x.checked = false);
+  await kbPickSave();
+}
+
+async function loadSrcStatus(){
+  const box = $('#src_status'); if (!box) return;
+  const env = await api('/api/kb/sources').catch(() => null);
+  const c = env && env.content;
+  if (!c || !c.sources){ box.textContent = '来源状态不可达。'; return; }
+  box.innerHTML = c.sources.map(s =>
+    `<span class="badge b-${s.ok ? 'ok' : 'bad'}">${esc(SRC_LABEL[s.name] || s.name)}</span> `).join('') +
+    `<span class="muted">　取数 ${esc((env.fetchedAt || '').replace('T', ' '))}</span>`;
 }
 
 // ---------- 首屏默认视图（知识库门户）----------

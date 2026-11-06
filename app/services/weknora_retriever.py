@@ -27,8 +27,36 @@ _WK_PG_DB = os.getenv("WEKNORA_PG_DB", "weknora")
 _OLLAMA_BASE = os.getenv("OLLAMA_BASE", "http://host.docker.internal:11434")
 _EMBED_MODEL = os.getenv("WEKNORA_EMBED_MODEL", "nomic-embed-text")
 
-# 知识库 ID（数据安全统一知识库）
-_KB_ID = os.getenv("WEKNORA_KB_ID", "59ad56fe-6673-49af-9380-b7d11f194a0d")
+# 默认知识库 ID（数据安全统一知识库）；用户在设置页勾选后以勾选集合为准。
+_DEFAULT_KB_ID = os.getenv("WEKNORA_KB_ID", "59ad56fe-6673-49af-9380-b7d11f194a0d")
+
+
+def effective_kb_ids() -> list[str]:
+    """当前"可引用的知识库"集合：设置页勾选优先，未配置回落环境变量默认库。"""
+    try:
+        from .. import settings_store
+        sel = settings_store.get_reference_kbs()
+        if sel:
+            return sel
+    except Exception:  # noqa: BLE001 — 配置读取失败不阻断取数
+        pass
+    return [_DEFAULT_KB_ID]
+
+
+def list_knowledge_bases() -> list[dict]:
+    """列出知识库平台可用（未删除）知识库及条目数，供设置页多选。"""
+    rows = _q(
+        """SELECT kb.id, kb.name,
+                  (SELECT COUNT(*) FROM knowledges k
+                   WHERE k.knowledge_base_id = kb.id AND k.deleted_at IS NULL) AS doc_count
+           FROM knowledge_bases kb
+           WHERE kb.deleted_at IS NULL
+           ORDER BY kb.created_at""",
+    )
+    return [{"id": str(r["id"]),
+             "name": (r.get("name") or "").strip() or "(未命名)",
+             "docCount": int(r.get("doc_count") or 0)}
+            for r in rows]
 
 
 def _ollama_embed(text: str) -> list[float] | None:
@@ -80,12 +108,12 @@ def search(q: str, limit: int = 8) -> list[dict]:
                           1 - (e.embedding <=> %s::halfvec) AS score
                    FROM embeddings e
                    JOIN knowledges k ON e.knowledge_id = k.id
-                   WHERE e.knowledge_base_id = %s
+                   WHERE e.knowledge_base_id = ANY(%s)
                      AND e.is_enabled = true
                      AND e.dimension = %s
                    ORDER BY e.embedding <=> %s::halfvec
                    LIMIT %s""",
-                (vec_str, _KB_ID, len(qvec), vec_str, int(limit)),
+                (vec_str, effective_kb_ids(), len(qvec), vec_str, int(limit)),
             )
             rows = cur.fetchall()
 
@@ -137,11 +165,12 @@ def health() -> dict:
         conn = _conn()
         try:
             with conn.cursor() as cur:
-                cur.execute("SELECT COUNT(*) FROM embeddings WHERE knowledge_base_id = %s", (_KB_ID,))
+                cur.execute("SELECT COUNT(*) FROM embeddings WHERE knowledge_base_id = ANY(%s)",
+                            (effective_kb_ids(),))
                 emb = cur.fetchone()[0]
                 cur.execute(
-                    "SELECT COUNT(*) FROM knowledges WHERE knowledge_base_id = %s AND deleted_at IS NULL",
-                    (_KB_ID,))
+                    "SELECT COUNT(*) FROM knowledges WHERE knowledge_base_id = ANY(%s) AND deleted_at IS NULL",
+                    (effective_kb_ids(),))
                 pages = cur.fetchone()[0]
         finally:
             conn.close()
@@ -184,9 +213,9 @@ def wiki_list(limit: int = 500) -> list[dict]:
     """列出知识库页面（Wiki 目录）。按标题排序，返回精简页面清单。"""
     rows = _q(
         f"""SELECT {_PAGE_COLS} FROM knowledges
-            WHERE knowledge_base_id = %s AND deleted_at IS NULL AND enable_status = 'enabled'
+            WHERE knowledge_base_id = ANY(%s) AND deleted_at IS NULL AND enable_status = 'enabled'
             ORDER BY title LIMIT %s""",
-        (_KB_ID, int(limit)),
+        (effective_kb_ids(), int(limit)),
     )
     out = []
     for r in rows:
@@ -208,10 +237,10 @@ def wiki_get(page_id: str) -> dict | None:
         return None
     rows = _q(
         f"""SELECT {_PAGE_COLS} FROM knowledges
-            WHERE knowledge_base_id = %s AND deleted_at IS NULL
+            WHERE knowledge_base_id = ANY(%s) AND deleted_at IS NULL
               AND (id::text = %s OR title = %s)
             LIMIT 1""",
-        (_KB_ID, page_id, page_id),
+        (effective_kb_ids(), page_id, page_id),
     )
     if not rows:
         return None
@@ -242,10 +271,10 @@ def knowledge_docs(limit: int = 1000) -> list[dict]:
     rows = _q(
         """SELECT title, metadata->>'content' AS content, updated_at
            FROM knowledges
-           WHERE knowledge_base_id = %s AND deleted_at IS NULL AND enable_status = 'enabled'
+           WHERE knowledge_base_id = ANY(%s) AND deleted_at IS NULL AND enable_status = 'enabled'
              AND metadata->>'content' IS NOT NULL AND metadata->>'content' <> ''
            ORDER BY title LIMIT %s""",
-        (_KB_ID, int(limit)),
+        (effective_kb_ids(), int(limit)),
     )
     return [{"title": r.get("title") or "", "content": r.get("content") or "",
              "updatedAt": str(r.get("updated_at") or "")} for r in rows]
@@ -258,10 +287,10 @@ def wiki_find(query: str, limit: int = 5) -> list[dict]:
         return []
     rows = _q(
         f"""SELECT {_PAGE_COLS} FROM knowledges
-            WHERE knowledge_base_id = %s AND deleted_at IS NULL
+            WHERE knowledge_base_id = ANY(%s) AND deleted_at IS NULL
               AND title ILIKE %s
             ORDER BY title LIMIT %s""",
-        (_KB_ID, f"%{q}%", int(limit)),
+        (effective_kb_ids(), f"%{q}%", int(limit)),
     )
     out = []
     for r in rows:
@@ -298,7 +327,7 @@ def submit_manual(title: str, content: str, timeout: int = 30) -> dict:
     if not api_configured():
         return {"ok": False, "status": "unconfigured",
                 "detail": "WEKNORA_API_BASE / WEKNORA_API_TOKEN 未配置"}
-    url = f"{_API_BASE}/api/v1/knowledge-bases/{_KB_ID}/knowledge/manual"
+    url = f"{_API_BASE}/api/v1/knowledge-bases/{effective_kb_ids()[0]}/knowledge/manual"
     payload = json.dumps({"title": title, "content": content}).encode("utf-8")
     req = urllib.request.Request(
         url, data=payload, method="POST",
@@ -336,9 +365,9 @@ def knowledge_status(knowledge_id: str) -> dict | None:
         return None
     rows = _q(
         f"""SELECT {_PAGE_COLS} FROM knowledges
-            WHERE knowledge_base_id = %s AND id::text = %s
+            WHERE knowledge_base_id = ANY(%s) AND id::text = %s
             LIMIT 1""",
-        (_KB_ID, kid),
+        (effective_kb_ids(), kid),
     )
     if not rows:
         return None
