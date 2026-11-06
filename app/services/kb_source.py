@@ -27,7 +27,7 @@ from pathlib import Path
 
 from .. import config
 from ..config import DB_PATH, APP_DATA
-from . import canonical_kb, db_kb, kb_knowledge, weknora_retriever
+from . import canonical_kb, db_kb, kb_knowledge, weknora_graph, weknora_retriever
 from ..db import db
 
 SOURCES = ("weknora", "canonical", "db", "sqlite")
@@ -38,6 +38,8 @@ _cache: dict[str, tuple[float, dict]] = {}
 # 全量知识契约（站点 KNOWLEDGE_BASE）缓存：
 #   {at, data, src, topics:{name:{etag,body}}, etag?, body?}（v1.19.0 起按主题共享）
 _KB_CACHE: dict = {}
+# Neo4j 图谱（native/ontology）最近一次读取错误；供状态页排障，成功即清除。
+_GRAPH_ERR: dict[str, str] = {}
 
 
 def _now_iso() -> str:
@@ -714,16 +716,57 @@ def knowledge_index_payload() -> tuple[str, bytes]:
     return _kb_topic("index", _project_index)
 
 
-def knowledge_graph_payload() -> tuple[str, bytes]:
-    """图谱主题：nodes + edges（仅知识图谱视图加载）。"""
+def knowledge_graph_payload(source: str = "site") -> tuple[str, bytes]:
+    """图谱主题：nodes + edges（仅知识图谱视图加载）。
+
+    source 切换图谱数据源（v1.20.0，用户「双源可切换」诉求）：
+      - ``site``（默认）：本站知识库装配图（Markdown -> nodes/edges，见 kb_knowledge）。
+      - ``native``      ：底层 WeKnora 抽取图（Neo4j ``:ENTITY*``），直连只读。
+      - ``ontology``    ：平台本体镜像图（Neo4j ``:Entity`` @ dsec.local）。
+
+    Neo4j 来源失败一律回落到 site 图（永不中断），并在信封 source 中标注实际来源。
+    """
+    src = (source or "site").strip().lower()
+    if src in ("native", "ontology"):
+        env = _neo_graph_payload(src)
+        if env is not None:
+            return env[0], env[1]
+        # 回落：Neo4j 不可达时退回站点图，保证图谱视图始终有内容
     def _produce(data):
         return {
             "generated_at": data.get("generated_at"),
             "version": data.get("version"),
+            "graphSource": "site",
+            "counts": data.get("counts") or {},
             "nodes": data.get("nodes") or [],
             "edges": data.get("edges") or [],
         }
     return _kb_topic("graph", _produce)
+
+
+def _neo_graph_payload(src: str) -> tuple[str, bytes] | None:
+    """Neo4j 图谱（native/ontology）载荷，独立 30s TTL 缓存；异常返回 None 供回落。"""
+    now = time.time()
+    key = f"graph:{src}"
+    hit = _cache.get(key)
+    if hit and (now - hit[0]) < _CACHE_TTL_SEC:
+        body = hit[1]["body"]
+        return hit[1]["etag"], body
+    try:
+        content = weknora_graph.read_graph(src)
+    except Exception as e:  # noqa: BLE001 — 任何 Neo4j 异常都回落到站点图
+        _GRAPH_ERR[key] = str(e)[:200]
+        return None
+    if not content or not content.get("nodes"):
+        _GRAPH_ERR[key] = "empty graph"
+        return None
+    _GRAPH_ERR.pop(key, None)
+    env = _env(content, f"weknora-neo4j:{src}")
+    env["graphSource"] = src
+    body = json.dumps(env, ensure_ascii=False, default=_json_default).encode("utf-8")
+    etag = _etag_of(content)
+    _cache[key] = (now, {"etag": etag, "body": body})
+    return etag, body
 
 
 def knowledge_entity(eid: str) -> tuple[str, bytes]:

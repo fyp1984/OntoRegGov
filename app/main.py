@@ -805,9 +805,14 @@ def kb_knowledge_index(request: Request):
 
 
 @app.get("/api/kb/knowledge/graph")
-def kb_knowledge_graph(request: Request):
-    """知识图谱主题：nodes + edges（仅图谱视图按需加载）。"""
-    return _kb_response(kb_source.knowledge_graph_payload(), request)
+def kb_knowledge_graph(request: Request, source: str = "site"):
+    """知识图谱主题：nodes + edges（仅图谱视图按需加载）。
+
+    source 切换数据源（v1.20.0）：
+      site（默认）本站知识库装配图 / native 底层 WeKnora 抽取图 / ontology 平台本体图。
+    Neo4j 来源不可达时自动回落 site，响应信封 source 字段标注实际来源。
+    """
+    return _kb_response(kb_source.knowledge_graph_payload(source), request)
 
 
 # 必须注册在 /api/kb/knowledge/index、/graph 等字面量路径之后无冲突；此处为路径参数。

@@ -33,7 +33,17 @@ window.KbSite = (function () {
    * 首屏仅加载轻量索引（/api/kb/knowledge/index）；图谱、条目详情、检索按
    * 主题分接口在需要时取数，避免知识库增长后把全量载荷压到首屏。 */
   var IN_CACHE = {};        // 入链缓存（随条目详情接口返回）
-  var GRAPH_LOADED = false, GRAPH_PENDING = null;
+  /* 图谱多源（v1.20.0）：每个来源首次访问时各取一次并缓存；切换来源不重取。
+   *   site     —— 本站知识库装配图（Markdown -> nodes/edges）
+   *   native   —— 底层 WeKnora 抽取图（Neo4j :ENTITY*，经后端只读代理）
+   *   ontology —— 平台本体镜像图（Neo4j :Entity @ dsec.local）
+   * 后端在 Neo4j 不可达时自动回落 site，信封 source 字段标注实际来源。 */
+  var GRAPH_SOURCES = [
+    { key: 'site',     label: '知识库图谱',   hint: '本站知识库装配图 · 11 类实体' },
+    { key: 'native',   label: 'WeKnora 抽取图', hint: '底层 WeKnora 实体抽取图（Neo4j）' },
+    { key: 'ontology', label: '平台本体图',   hint: '平台本体镜像图（Neo4j · dsec）' }
+  ];
+  var GRAPH_CACHE = {}, GRAPH_PENDING = {}, GRAPH_SRC = 'site', GRAPH_LOADED = false;
 
   function apiGet(url) {
     return fetch(url, { headers: { 'Accept': 'application/json' } })
@@ -56,16 +66,25 @@ window.KbSite = (function () {
       return c.entity;
     });
   }
-  function loadGraph() {
-    if (GRAPH_LOADED) return Promise.resolve(true);
-    if (GRAPH_PENDING) return GRAPH_PENDING;
-    GRAPH_PENDING = apiGet('/api/kb/knowledge/graph').then(function (env) {
-      var c = env && env.content;
-      if (c && c.nodes) { KB.nodes = c.nodes; KB.edges = c.edges || []; GRAPH_LOADED = true; }
-      GRAPH_PENDING = null;
-      return GRAPH_LOADED;
-    }).catch(function () { GRAPH_PENDING = null; return false; });
-    return GRAPH_PENDING;
+  function loadGraph(source) {
+    source = source || GRAPH_SRC;
+    if (GRAPH_CACHE[source]) return Promise.resolve(true);
+    if (GRAPH_PENDING[source]) return GRAPH_PENDING[source];
+    GRAPH_PENDING[source] = apiGet('/api/kb/knowledge/graph?source=' + encodeURIComponent(source))
+      .then(function (env) {
+        var c = env && env.content;
+        if (c && c.nodes && c.nodes.length) {
+          GRAPH_CACHE[source] = {
+            nodes: c.nodes, edges: c.edges || [],
+            meta: { graphSource: c.graphSource || source, source: env.source || '',
+                    counts: c.counts || {}, generated_at: c.generated_at, version: c.version }
+          };
+          if (source === 'site') { KB.nodes = c.nodes; KB.edges = c.edges || []; GRAPH_LOADED = true; }
+        }
+        GRAPH_PENDING[source] = null;
+        return !!GRAPH_CACHE[source];
+      }).catch(function () { GRAPH_PENDING[source] = null; return false; });
+    return GRAPH_PENDING[source];
   }
   /* 入链：图谱已加载则用全量边反查，否则用条目详情接口带回的 relations_in */
   function incomingRels(id) {
@@ -152,7 +171,25 @@ window.KbSite = (function () {
     d.innerHTML = html || '';
     return d.textContent || d.innerText || '';
   }
-  function typeMeta(t) { return TYPE_META[t] || { label: t, color: '#667085' }; }
+  /* 来源图谱可能含站点未登记的类型（如平台本体图 InspectionMethodStep / CheckElement）。
+   * 对未知类型按名称稳定散列到调色板取色，保证同一类型跨会话同色、可区分。 */
+  var ONTO_TYPE_LABEL = {
+    Entity: '本体实体', InspectionMethodStep: '检查方法步骤', CheckElement: '检查要素',
+    InspectionCheck: '检查项', Metric: '度量指标', FindingPattern: '问题模式',
+    InterviewQuestion: '访谈问题', VerdictRule: '判定规则', entity: '抽取实体'
+  };
+  var EXTRA_PALETTE = ['#2B62F0', '#0A2C9E', '#4A7CFF', '#1240D2', '#1B4FE4', '#7EA6FF',
+    '#667085', '#475467', '#98A2B3', '#344054', '#DC2626', '#D97706', '#0E7490', '#047857'];
+  var TYPE_DYN = {};
+  function dynColor(t) {
+    if (!TYPE_DYN[t]) {
+      var h = 0;
+      for (var i = 0; i < t.length; i++) h = (h * 31 + t.charCodeAt(i)) >>> 0;
+      TYPE_DYN[t] = EXTRA_PALETTE[h % EXTRA_PALETTE.length];
+    }
+    return TYPE_DYN[t];
+  }
+  function typeMeta(t) { return TYPE_META[t] || { label: ONTO_TYPE_LABEL[t] || t, color: dynColor(t) }; }
   function relLabel(rel) { return REL_LABELS[rel] || rel; }
 
   function typeBadge(t) {
@@ -878,11 +915,11 @@ window.KbSite = (function () {
         : '<div class="empty"><h2>暂无符合条件的控制</h2><p>调整筛选试试。</p></div>';
 
       appEl.innerHTML =
-        '<div class="section" style="margin-top:4px"><div class="section-head">' +
-        '<h2>控制体系</h2><span class="sub">' + esc(sub) + list.length + ' 条控制 · ' +
-        '<a href="#/control-mapping">控制↔法规/标准映射 →</a></span></div>' +
+        '<div class="section" style="margin-top:4px">' +
 
         '<div class="layer-grid">' + layerCards + '</div>' +
+        '<div class="ctrl-map-link">' + (f.layer ? esc(sub) : '') + list.length + ' 条控制 · ' +
+        '<a href="#/control-mapping">控制↔法规/标准映射 →</a></div>' +
 
         '<div class="ctrl-filter"><div class="cf-label">生命周期</div><div class="chip-row">' + chips(lcItems, 'lc', f.lc) + '</div></div>' +
         '<div class="ctrl-filter"><div class="cf-label">控制类型</div><div class="chip-row">' + chips(ctItems, 'ct', f.ct) + '</div></div>' +
@@ -1022,8 +1059,7 @@ window.KbSite = (function () {
     }).join('');
 
     appEl.innerHTML =
-      '<div class="section" style="margin-top:4px"><div class="section-head">' +
-      '<h2>法规与标准时间线</h2><span class="sub">按发布日期倒序 · 品牌蓝点为法律，浅蓝点为标准</span></div>' +
+      '<div class="section" style="margin-top:4px">' +
       (html ? '<div class="timeline">' + html + '</div>'
         : '<div class="empty"><h2>暂无法规/标准</h2></div>') + '</div>';
 
@@ -1058,7 +1094,6 @@ window.KbSite = (function () {
       var list = all.filter(function (e) {
         return filter === 'all' || (e.attrs || {}).case_type === filter;
       });
-      var label = filter === 'all' ? '全部' : (CASE_TYPE_LABEL[filter] || filter);
       // 按年份倒序分组（未知年份垫底）
       var groups = {};
       list.forEach(function (e) { var y = yearOf(e); (groups[y] = groups[y] || []).push(e); });
@@ -1078,8 +1113,7 @@ window.KbSite = (function () {
         : '<div class="empty"><h2>暂无此类案例</h2><p>该筛选下还没有案例。</p></div>';
 
       appEl.innerHTML =
-        '<div class="section" style="margin-top:4px"><div class="section-head">' +
-        '<h2>案例与事件</h2><span class="sub">' + esc(label) + ' · ' + list.length + ' 个真实数据安全事件/处罚案例</span></div>' +
+        '<div class="section" style="margin-top:4px">' +
         '<div class="chip-row">' + chips + '</div>' + body + '</div>';
 
       appEl.querySelectorAll('[data-cf]').forEach(function (b) {
@@ -1096,16 +1130,30 @@ window.KbSite = (function () {
       '<p><a class="badge b-type" style="background:var(--brand-50);color:var(--brand-700);padding:8px 16px" href="#/">返回首页</a></p></div>';
   }
 
-  /* ================= 视图：知识图谱（手写 Canvas 力导向） ================= */
+  /* ================= 视图：知识图谱（手写 Canvas 力导向 · 多源 · 总览+下钻） ================= */
+  function graphSourceLabel(key) {
+    var s = GRAPH_SOURCES.filter(function (x) { return x.key === key; })[0];
+    return s ? s.label : key;
+  }
+
+  /* 切换图谱数据源：停旧引擎 -> 序号自增丢弃在途请求 -> 重渲染（命中缓存即瞬时） */
+  function switchGraphSource(key) {
+    if (key === GRAPH_SRC || !GRAPH_SOURCES.some(function (s) { return s.key === key; })) return;
+    GRAPH_SRC = key;
+    stopGraph();
+    RENDER_SEQ++;
+    renderGraphView();
+  }
+
   function renderGraphView() {
     var seq = RENDER_SEQ;
-    appEl.innerHTML = '<div class="section" style="margin-top:4px"><div class="section-head">' +
-      '<h2>知识图谱</h2><span class="sub">图谱数据加载中…</span></div></div>';
-    loadGraph().then(function (ok) {
+    appEl.innerHTML = '<div class="graph-loading">正在从「' + esc(graphSourceLabel(GRAPH_SRC)) + '」取数…</div>';
+    loadGraph(GRAPH_SRC).then(function (ok) {
       if (seq !== RENDER_SEQ) return;
       if (!ok) {
         appEl.innerHTML = '<div class="empty" style="margin-top:24px"><h2>图谱数据暂不可用</h2>' +
-          '<p>知识库平台暂不可达，请稍后重试。</p></div>';
+          '<p>数据源「' + esc(graphSourceLabel(GRAPH_SRC)) + '」取数失败，请稍后重试或切换其他来源。</p>' +
+          '<p><a class="badge b-type" style="background:var(--brand-50);color:var(--brand-700);padding:8px 16px" href="#/">返回首页</a></p></div>';
         return;
       }
       renderGraphViewNow();
@@ -1113,41 +1161,48 @@ window.KbSite = (function () {
   }
 
   function renderGraphViewNow() {
-    var types = Object.keys(TYPE_META).filter(function (t) {
-      return (KB.meta.counts && KB.meta.counts[t]) || KB.nodes.some(function (n) { return n.type === t; });
+    var g = GRAPH_CACHE[GRAPH_SRC];
+    if (!g) return;
+    var typeCounts = {};
+    g.nodes.forEach(function (n) {
+      typeCounts[n.type] = (typeCounts[n.type] || 0) + 1;
     });
-    var levels = ['L1', 'L2', 'L3'];
+    // 类型按出现频次降序（用于统计条「类型 N」）
+    var types = Object.keys(typeCounts).sort(function (a, b) { return typeCounts[b] - typeCounts[a]; });
 
     appEl.innerHTML =
-      '<div class="section" style="margin-top:4px"><div class="section-head">' +
-      '<h2>知识图谱</h2><span class="sub">拖拽节点 / 滚轮缩放 / 悬停高亮一度邻居 / 点击下钻</span></div></div>' +
-      '<div class="graph-layout">' +
-      '  <div class="graph-controls" id="graphControls">' +
-      '    <h4>按类型</h4><div id="gcTypes">' +
-      types.map(function (t) {
-        var m = typeMeta(t);
-        return '<label class="gc-item"><input type="checkbox" checked data-gc-type="' + t + '">' +
-          '<span class="gc-swatch" style="background:' + m.color + '"></span>' + m.label + '</label>';
-      }).join('') + '</div>' +
-      '    <h4>按段位</h4><div id="gcLevels">' +
-      levels.map(function (l) {
-        return '<label class="gc-item"><input type="checkbox" checked data-gc-level="' + l + '"> ' + l + '</label>';
-      }).join('') + '</div>' +
+      '<div class="graph-toolbar">' +
+      '  <div class="gt-group"><span class="gt-lbl">数据源</span><div class="graph-seg" id="graphSeg">' +
+      GRAPH_SOURCES.map(function (s) {
+        return '<button data-src="' + s.key + '" title="' + esc(s.hint) + '"' +
+          (s.key === GRAPH_SRC ? ' class="on"' : '') + '>' + esc(s.label) + '</button>';
+      }).join('') + '</div></div>' +
+      '  <div class="graph-stats">' +
+      '    <span>节点 <b id="gsNodes">' + g.nodes.length + '</b></span>' +
+      '    <span>关系 <b id="gsEdges">' + g.edges.length + '</b></span>' +
+      '    <span>类型 <b id="gsTypes">' + types.length + '</b></span>' +
+      (g.meta.source ? '    <span class="gs-src">' + esc(g.meta.source) + '</span>' : '') +
       '  </div>' +
+      '</div>' +
+      '<div class="graph-layout" id="graphLayout">' +
       '  <div class="graph-canvas-wrap">' +
       '    <canvas id="graphCanvas"></canvas>' +
       '    <div class="graph-tooltip" id="graphTip"></div>' +
-      '    <div class="graph-hint">拖动空白平移 · 滚轮缩放 · 点击节点进入详情</div>' +
+      '    <div class="graph-hint" id="graphHint">总览 · 点击节点下钻查看邻接关系</div>' +
       '  </div>' +
+      '  <aside class="graph-panel" id="graphPanel"></aside>' +
       '</div>';
 
-    initGraphEngine(document.getElementById('graphCanvas'), types, levels);
+    initGraphEngine(document.getElementById('graphCanvas'), types);
   }
 
-  function initGraphEngine(canvas, types, levels) {
+  function initGraphEngine(canvas, types) {
     var ctx = canvas.getContext('2d');
     var wrap = canvas.parentElement;
     var tip = document.getElementById('graphTip');
+    var hintEl = document.getElementById('graphHint');
+    var layoutEl = document.getElementById('graphLayout');
+    var panelEl = document.getElementById('graphPanel');
 
     // 图谱渲染调参集中处（便于后续微调）
     var CFG = {
@@ -1156,14 +1211,21 @@ window.KbSite = (function () {
       edgeHotAlpha: 0.9,       // 悬停高亮边不透明度
       edgeHotWidth: 1.8,
       edgeDimAlpha: 0.03,      // 悬停时非邻边进一步压暗
-      repulsion: 4200,         // 节点间斥力（提高以更透气）
-      springLength: 150,       // 理想边长（加大）
-      springK: 0.04,
-      gravity: 0.008,          // 整体向心（减弱，避免挤中心）
-      clusterK: 0.028,         // 同类型聚类力（让 11 类视觉分区）
-      hubLabelCount: 16,       // 默认总览只显示度数 top-N 枢纽标签
+      focusDimNode: 0.14,      // 下钻时非邻接节点的保留透明度（保持空间语境）
+      repulsion: 2600,         // 节点间斥力
+      springLength: 118,       // 理想边长
+      springK: 0.05,
+      gravity: 0.014,          // 整体向心（收敛，防漂移）
+      clusterK: 0.03,          // 同类型聚类力（视觉分区）
+      hubLabelCount: 16,       // 总览只显示度数 top-N 枢纽标签
       zoomLabelScale: 1.7,     // 放大到该倍率后显示视口内全部标签
-      edgeZoomInScale: 1.3     // 总览(scale<此值)边极淡，超过后随缩放渐显
+      edgeZoomInScale: 1.3,    // 总览(scale<此值)边极淡，超过后随缩放渐显
+      // —— 数值稳定性钳制（v1.20.0 修复「图谱不可见」核心 bug）——
+      soften: 500,             // 斥力柔性：用 d²+soften 替代 d²，避免近距力趋于无穷
+      maxForce: 30,            // 单对节点斥力上限（防止密集区累积爆炸）
+      maxSpeed: 16,            // 单步速度上限（px/step）
+      maxStep: 8,              // 单步位移上限（px/step）
+      maxCoord: 1e5            // 坐标硬边界（NaN/爆炸的最后防线）
     };
 
     // 随节点/边数自适应的动态参数（build 时按实际规模重算，避免大库变毛球）
@@ -1175,12 +1237,12 @@ window.KbSite = (function () {
       alpha: 1,
       nodes: [], edges: [],
       activeTypes: {}, activeLevels: {},
-      dragging: null, panning: null, hover: null,
+      dragging: null, panning: null, hover: null, focus: null,
       downX: 0, downY: 0, moved: false,
       w: 0, h: 0
     };
     types.forEach(function (t) { state.activeTypes[t] = true; });
-    levels.forEach(function (l) { state.activeLevels[l] = true; });
+    ['L1', 'L2', 'L3'].forEach(function (l) { state.activeLevels[l] = true; });
 
     function resize() {
       var r = wrap.getBoundingClientRect();
@@ -1188,6 +1250,8 @@ window.KbSite = (function () {
       state.w = r.width; state.h = r.height;
       canvas.width = r.width * dpr; canvas.height = r.height * dpr;
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      // 改 canvas.width 会清空画布；立即重绘，避免尺寸变化瞬间出现空白帧
+      if (state.nodes.length) draw();
     }
     resize();
     function worldCenter() {
@@ -1195,28 +1259,37 @@ window.KbSite = (function () {
     }
 
     function build() {
+      // 关闭下钻面板并同步画布尺寸（栅格列数变化会改变画布宽度，先量后算）
+      state.focus = null; state.hover = null;
+      updatePanel();
+      resize();
+      var g = GRAPH_CACHE[GRAPH_SRC];
+      var srcNodes = (g && g.nodes) || [], srcEdges = (g && g.edges) || [];
       var keep = {};
-      KB.nodes.forEach(function (n) {
+      srcNodes.forEach(function (n) {
         if (!state.activeTypes[n.type] || !state.activeLevels[n.level]) return;
         keep[n.id] = true;
       });
-      // 初始化节点
-      var list = KB.nodes.filter(function (n) { return keep[n.id]; });
+      var prevById = {};
+      state.nodes.forEach(function (p) { prevById[p.id] = p; });
+      var list = srcNodes.filter(function (n) { return keep[n.id]; });
       var cx = state.w / 2, cy = state.h / 2;
+      // 初始位置：黄金角螺旋铺开（半径 ∝ √i），避免初值近重合导致斥力爆冲；过滤重建时沿用旧坐标
+      var spacing = Math.max(14, Math.min(state.w, state.h) * 0.42 / Math.sqrt(Math.max(1, list.length)));
       state.nodes = list.map(function (n, i) {
-        var ang = (i / list.length) * Math.PI * 2;
-        var prev = state.nodes.find(function (p) { return p.id === n.id; });
+        var prev = prevById[n.id];
+        var r = spacing * Math.sqrt(i + 0.5), ang = i * 2.399963;
         return {
           id: n.id, title: n.title, type: n.type, level: n.level,
-          x: prev ? prev.x : cx + Math.cos(ang) * 120,
-          y: prev ? prev.y : cy + Math.sin(ang) * 120,
+          x: prev ? prev.x : cx + Math.cos(ang) * r,
+          y: prev ? prev.y : cy + Math.sin(ang) * r,
           vx: 0, vy: 0
         };
       });
       var idx = {}; state.nodes.forEach(function (n, i) { idx[n.id] = i; });
-      state.edges = (KB.edges || []).filter(function (e) {
+      state.edges = srcEdges.filter(function (e) {
         return idx[e.source] != null && idx[e.target] != null;
-      }).map(function (e) { return { s: idx[e.source], t: idx[e.target], label: e.label }; });
+      }).map(function (e) { return { s: idx[e.source], t: idx[e.target], label: e.label || e.rel }; });
       // 计算每个节点的度数（用于枢纽标签 LOD）
       state.nodes.forEach(function (p) { p.degree = 0; });
       state.edges.forEach(function (e) { state.nodes[e.s].degree++; state.nodes[e.t].degree++; });
@@ -1228,9 +1301,8 @@ window.KbSite = (function () {
       var nn = state.nodes.length, ne = state.edges.length;
       // 边透明度：保持"视觉墨水量"大致恒定 → alpha ∝ 1/sqrt(边数)，夹在安全区间
       dyn.edgeBaseAlpha = Math.min(0.09, Math.max(0.022, 2.2 / Math.sqrt(Math.max(1, ne))));
-      // 斥力/边长：温和上调即可（默认由 fit-to-view 取景，不必强行拉开）
-      dyn.repulsion = CFG.repulsion * Math.min(1.15, 0.6 + 0.4 * Math.sqrt(nn / 150));
-      dyn.springLength = CFG.springLength * (1 + 0.15 * Math.sqrt(nn / 150));
+      dyn.repulsion = CFG.repulsion * Math.min(1.2, 0.7 + 0.3 * Math.sqrt(nn / 150));
+      dyn.springLength = CFG.springLength * (1 + 0.12 * Math.sqrt(nn / 150));
       dyn.hubLabelCount = Math.min(28, Math.max(12, Math.round(CFG.hubLabelCount * Math.sqrt(nn / 150))));
 
       state.hubs = {};
@@ -1238,18 +1310,33 @@ window.KbSite = (function () {
       // 按类型分配环形锚点：同类节点被轻微拉向同一扇区，形成视觉分区
       var usedTypes = {};
       state.nodes.forEach(function (p) { usedTypes[p.type] = true; });
-      var tList = Object.keys(usedTypes),
-          wc = worldCenter();
-      var R = Math.min(state.w, state.h) * 0.42 / state.scale;
+      var tList = Object.keys(usedTypes), wc = worldCenter();
+      var R = Math.min(state.w, state.h) * 0.4;
       tList.forEach(function (t, k) {
-        var ang = (k / tList.length) * Math.PI * 2 - Math.PI / 2;
+        var ang = (k / Math.max(1, tList.length)) * Math.PI * 2 - Math.PI / 2;
         var ax = wc.x + Math.cos(ang) * R, ay = wc.y + Math.sin(ang) * R;
         state.nodes.forEach(function (p) { if (p.type === t) { p.ax = ax; p.ay = ay; } });
       });
       state.alpha = 1;
-      // 首次进入/过滤重建：先让力学同步收敛到稳定，再按包围盒 fit-to-view，保证默认取景框住全部节点
-      for (var k = 0; k < 800 && state.alpha > 0.005; k++) stepPhysics();
+      // 同步预收敛：迭代次数随规模递减（大图步成本高，控制在可感知范围内）
+      var iters = nn > 1500 ? 140 : (nn > 600 ? 220 : (nn > 300 ? 300 : 420));
+      for (var kk = 0; kk < iters && state.alpha > 0.006; kk++) stepPhysics();
       fitToView();
+      syncStats();
+    }
+
+    /* 统计条联动：过滤后显示「当前 / 总量」，未过滤时仅显示总量 */
+    function syncStats() {
+      var g = GRAPH_CACHE[GRAPH_SRC] || { nodes: [], edges: [] };
+      var tn = (g.nodes || []).length, te = (g.edges || []).length;
+      var cn = state.nodes.length, ce = state.edges.length;
+      var tset = {};
+      state.nodes.forEach(function (p) { tset[p.type] = true; });
+      var nEl = document.getElementById('gsNodes'), eEl = document.getElementById('gsEdges'),
+          tEl = document.getElementById('gsTypes');
+      if (nEl) nEl.textContent = cn === tn ? String(tn) : cn + ' / ' + tn;
+      if (eEl) eEl.textContent = ce === te ? String(te) : ce + ' / ' + te;
+      if (tEl) tEl.textContent = String(Object.keys(tset).length);
     }
     build();
 
@@ -1262,65 +1349,123 @@ window.KbSite = (function () {
       return set;
     }
 
+    /* 斥力用均匀网格做近邻裁剪（替代全量 O(n²)）：每步只与相邻 3×3 单元格内节点算斥力。
+     * 对 3000+ 节点的大图，把每步从 ~5e6 次配对降到 ~1e5 次，避免首屏长时间卡死。
+     * 注意：返回网格对象而非写入外层变量——`build()` 在函数声明处即时调用，
+     *       外层 var 此时尚未赋值（TDZ/undefined），会造成「图谱不可见」。 */
+    function buildGrid() {
+      var cs = Math.max(48, dyn.springLength * 1.4);
+      var map = new Map();
+      for (var i = 0; i < state.nodes.length; i++) {
+        var p = state.nodes[i];
+        var key = Math.floor(p.x / cs) * 100003 + Math.floor(p.y / cs);
+        var arr = map.get(key);
+        if (arr) arr.push(i); else map.set(key, [i]);
+      }
+      return { cs: cs, map: map };
+    }
     function stepPhysics() {
-      var n = state.nodes;
-      if (state.alpha <= 0.005) return;
-      // 斥力（O(n²)，收敛后由 alpha 阈值自动停算）
-      for (var i = 0; i < n.length; i++) {
-        for (var j = i + 1; j < n.length; j++) {
-          var dx = n[i].x - n[j].x, dy = n[i].y - n[j].y;
-          var d2 = dx * dx + dy * dy + 0.01;
-          var d = Math.sqrt(d2);
-          var f = dyn.repulsion * state.alpha / d2;
-          var ux = dx / d, uy = dy / d;
-          n[i].vx += ux * f; n[i].vy += uy * f;
-          n[j].vx -= ux * f; n[j].vy -= uy * f;
+      var n = state.nodes, N = n.length;
+      if (state.alpha <= 0.006 || !N) return;
+      var a = state.alpha;
+      // —— 斥力：柔性化 + 单对上限 + 近邻裁剪，杜绝数值爆炸 ——
+      var soften = CFG.soften, maxF = CFG.maxForce, kRep = dyn.repulsion * 0.5; // ×0.5：每对在双向各算一次
+      var grid = buildGrid();
+      var cs = grid.cs, map = grid.map;
+      for (var i = 0; i < N; i++) {
+        var ni = n[i];
+        var gx0 = Math.floor(ni.x / cs), gy0 = Math.floor(ni.y / cs);
+        for (var ox = -1; ox <= 1; ox++) {
+          for (var oy = -1; oy <= 1; oy++) {
+            var cell = map.get((gx0 + ox) * 100003 + (gy0 + oy));
+            if (!cell) continue;
+            for (var ci = 0; ci < cell.length; ci++) {
+              var j = cell[ci];
+              if (j === i) continue;
+              var nj = n[j];
+              var dx = ni.x - nj.x, dy = ni.y - nj.y;
+              var d2 = dx * dx + dy * dy;
+              var d = Math.sqrt(d2) + 0.01;
+              var f = kRep / (d2 + soften);
+              if (f > maxF) f = maxF;
+              f *= a;
+              var ux = dx / d, uy = dy / d;
+              ni.vx += ux * f; ni.vy += uy * f;
+            }
+          }
         }
       }
       // 弹簧（理想边长）
       state.edges.forEach(function (e) {
-        var a = n[e.s], b = n[e.t];
-        var dx = b.x - a.x, dy = b.y - a.y;
+        var p = n[e.s], q = n[e.t];
+        var dx = q.x - p.x, dy = q.y - p.y;
         var d = Math.sqrt(dx * dx + dy * dy) + 0.01;
-        var f = (d - dyn.springLength) * CFG.springK * state.alpha;
+        var f = (d - dyn.springLength) * CFG.springK * a;
         var ux = dx / d, uy = dy / d;
-        a.vx += ux * f; a.vy += uy * f;
-        b.vx -= ux * f; b.vy -= uy * f;
+        p.vx += ux * f; p.vy += uy * f;
+        q.vx -= ux * f; q.vy -= uy * f;
       });
       // 同类型聚类：把同类节点轻微拉向其类型环形锚点，形成扇区分区
-      n.forEach(function (p) {
-        if (p.ax != null) {
-          p.vx += (p.ax - p.x) * CFG.clusterK * state.alpha;
-          p.vy += (p.ay - p.y) * CFG.clusterK * state.alpha;
+      for (var c2 = 0; c2 < N; c2++) {
+        var pc = n[c2];
+        if (pc.ax != null) {
+          pc.vx += (pc.ax - pc.x) * CFG.clusterK * a;
+          pc.vy += (pc.ay - pc.y) * CFG.clusterK * a;
         }
-      });
-      // 整体向心（减弱）+ 阻尼 + 位移
-      var gx = state.w / 2 - state.tx / state.scale, gy = state.h / 2 - state.ty / state.scale;
-      n.forEach(function (p) {
-        p.vx += (gx - p.x) * CFG.gravity * state.alpha;
-        p.vy += (gy - p.y) * CFG.gravity * state.alpha;
-        p.vx *= 0.82; p.vy *= 0.82;
-        p.x += p.vx; p.y += p.vy;
-      });
+      }
+      // 整体向心 + 阻尼 + 速度/位移钳制 + 越界兜底（v1.20.0 稳定性关键）
+      var gx = (state.w / 2 - state.tx) / state.scale;
+      var gy = (state.h / 2 - state.ty) / state.scale;
+      var damp = 0.82, vmax2 = CFG.maxSpeed * CFG.maxSpeed, mstep = CFG.maxStep, mc = CFG.maxCoord;
+      for (var m = 0; m < N; m++) {
+        var p2 = n[m];
+        p2.vx += (gx - p2.x) * CFG.gravity * a;
+        p2.vy += (gy - p2.y) * CFG.gravity * a;
+        p2.vx *= damp; p2.vy *= damp;
+        var sp2 = p2.vx * p2.vx + p2.vy * p2.vy;
+        if (sp2 > vmax2) { var sc = CFG.maxSpeed / Math.sqrt(sp2); p2.vx *= sc; p2.vy *= sc; }
+        var sx = p2.vx, sy = p2.vy;
+        if (sx > mstep) sx = mstep; else if (sx < -mstep) sx = -mstep;
+        if (sy > mstep) sy = mstep; else if (sy < -mstep) sy = -mstep;
+        p2.x += sx; p2.y += sy;
+        if (!isFinite(p2.x) || !isFinite(p2.y)) { p2.x = gx; p2.y = gy; p2.vx = 0; p2.vy = 0; }
+        if (p2.x > mc) p2.x = mc; else if (p2.x < -mc) p2.x = -mc;
+        if (p2.y > mc) p2.y = mc; else if (p2.y < -mc) p2.y = -mc;
+      }
       state.alpha *= 0.95;
     }
 
-    // fit-to-view：按全部节点包围盒 + 当前画布尺寸，计算初始 scale 与居中 translate（含留白、上下限）
-    // 用百分位裁剪包围盒，避免少数游离/孤立节点把取景缩得过小
-    function fitToView() {
-      if (!state.nodes.length) return;
-      var xs = state.nodes.map(function (p) { return p.x; }).sort(function (a, b) { return a - b; });
-      var ys = state.nodes.map(function (p) { return p.y; }).sort(function (a, b) { return a - b; });
-      var n = xs.length, lo = Math.floor(n * 0.02), hi = Math.ceil(n * 0.98) - 1;
+    /* 相机取景：按给定节点集合的包围盒 + 画布尺寸算 scale/translate（含留白与上下限）。
+     * 用百分位裁剪包围盒，避免少数游离/孤立节点把取景缩得过小；并做有限性兜底。 */
+    function fitToNodes(idxList, pad, maxScale) {
+      if (!idxList.length || !state.w || !state.h) return;
+      var xs = [], ys = [];
+      idxList.forEach(function (i) {
+        var p = state.nodes[i];
+        if (p && isFinite(p.x) && isFinite(p.y)) { xs.push(p.x); ys.push(p.y); }
+      });
+      if (!xs.length) return;
+      xs.sort(function (a, b) { return a - b; });
+      ys.sort(function (a, b) { return a - b; });
+      var n = xs.length, lo = Math.floor(n * 0.02), hi = Math.max(lo, Math.ceil(n * 0.98) - 1);
       var minX = xs[lo], maxX = xs[hi], minY = ys[lo], maxY = ys[hi];
-      var pad = 50;
       var bw = Math.max(1, maxX - minX), bh = Math.max(1, maxY - minY);
-      var s = Math.min((state.w - pad * 2) / bw, (state.h - pad * 2) / bh);
-      s = Math.min(1.2, Math.max(0.08, s));   // 上限 1.2（总览不必放大），下限 0.08（巨库也能装下）
-      state.scale = s;
-      var cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
-      state.tx = state.w / 2 - cx * s;
-      state.ty = state.h / 2 - cy * s;
+      var availW = Math.max(40, state.w - pad * 2), availH = Math.max(40, state.h - pad * 2);
+      var s = Math.min(availW / bw, availH / bh);
+      if (!isFinite(s) || s <= 0) s = 1;
+      state.scale = Math.min(maxScale, Math.max(0.05, s));
+      state.tx = state.w / 2 - ((minX + maxX) / 2) * state.scale;
+      state.ty = state.h / 2 - ((minY + maxY) / 2) * state.scale;
+    }
+    function allIndices() {
+      var a = [], i;
+      for (i = 0; i < state.nodes.length; i++) a.push(i);
+      return a;
+    }
+    function fitToView() { fitToNodes(allIndices(), 46, 1.2); }
+    /* 下钻：聚焦节点 + 其一跳邻居取景（允许适度放大） */
+    function fitToFocus(i) {
+      fitToNodes(Object.keys(neighborsOf(i)).map(Number), 92, 1.5);
     }
 
     function tick() {
@@ -1335,21 +1480,26 @@ window.KbSite = (function () {
     function draw() {
       ctx.clearRect(0, 0, state.w, state.h);
       var hoverSet = state.hover != null ? neighborsOf(state.hover) : null;
+      var focusSet = state.focus != null ? neighborsOf(state.focus) : null;
+      var hiSet = focusSet || hoverSet;    // 当前高亮集合（下钻优先于悬停）
+      var hasHi = !!hiSet;
       var zoomed = state.scale >= CFG.zoomLabelScale;
 
-      // 边：默认极淡细线；悬停时邻边高亮、其余进一步压暗
+      // 边：默认极淡细线；下钻时聚焦节点的边高亮、其余压暗；悬停时邻边高亮
       // 总览(scale<edgeZoomInScale)下边进一步压到 ~25%，放大后渐显，避免大库灰网压过节点
       var zoomFade = Math.min(1, Math.max(0,
         (state.scale - CFG.edgeZoomInScale) / (CFG.zoomLabelScale - CFG.edgeZoomInScale)));
       var baseA = dyn.edgeBaseAlpha * (0.25 + 0.75 * zoomFade);
       state.edges.forEach(function (e) {
         var a = state.nodes[e.s], b = state.nodes[e.t];
-        var hot = hoverSet && (hoverSet[e.s] && hoverSet[e.t]);
-        ctx.strokeStyle = hot
+        var onFocus = focusSet && (e.s === state.focus || e.t === state.focus);
+        var near = hasHi && hiSet[e.s] && hiSet[e.t];
+        ctx.strokeStyle = onFocus
           ? 'rgba(27,79,228,' + CFG.edgeHotAlpha + ')'
-          : (hoverSet ? 'rgba(102,112,133,' + CFG.edgeDimAlpha + ')'
-                      : 'rgba(102,112,133,' + baseA + ')');
-        ctx.lineWidth = hot ? CFG.edgeHotWidth : CFG.edgeWidth;
+          : (near ? 'rgba(27,79,228,0.30)'
+                  : (hasHi ? 'rgba(102,112,133,' + CFG.edgeDimAlpha + ')'
+                           : 'rgba(102,112,133,' + baseA + ')'));
+        ctx.lineWidth = onFocus ? CFG.edgeHotWidth : CFG.edgeWidth;
         ctx.beginPath();
         ctx.moveTo(screenX(a), screenY(a));
         ctx.lineTo(screenX(b), screenY(b));
@@ -1357,11 +1507,12 @@ window.KbSite = (function () {
       });
 
       // 标签是否该画：
-      //  - 悬停时：只画 hovered 及其一度邻居
+      //  - 下钻：聚焦节点 + 一跳邻居；悬停：hovered + 一度邻居
       //  - 未放大总览：只画度数 top-N 枢纽
       //  - 放大到 zoomLabelScale：画视口内全部节点
       function shouldLabel(i, p, sx, sy) {
-        if (hoverSet) return hoverSet[i];
+        if (focusSet) return !!focusSet[i];
+        if (hoverSet) return !!hoverSet[i];
         if (zoomed) return sx > -60 && sx < state.w + 60 && sy > -30 && sy < state.h + 30;
         return !!state.hubs[i];
       }
@@ -1369,14 +1520,15 @@ window.KbSite = (function () {
       // 节点圆
       state.nodes.forEach(function (p, i) {
         var sx = screenX(p), sy = screenY(p), r = radiusOf(p);
-        var color = typeMeta(p.type).color;
-        var dim = hoverSet && !hoverSet[i];
-        ctx.globalAlpha = dim ? 0.22 : 1;
+        var dim = hasHi && !hiSet[i];
+        ctx.globalAlpha = dim ? (focusSet ? CFG.focusDimNode : 0.22) : 1;
         ctx.beginPath();
-        ctx.arc(sx, sy, r, 0, Math.PI * 2);
-        ctx.fillStyle = color;
+        ctx.arc(sx, sy, i === state.focus ? r + 2 : r, 0, Math.PI * 2);
+        ctx.fillStyle = typeMeta(p.type).color;
         ctx.fill();
-        ctx.lineWidth = 2; ctx.strokeStyle = '#fff'; ctx.stroke();
+        ctx.lineWidth = i === state.focus ? 3 : 2;
+        ctx.strokeStyle = i === state.focus ? '#1B4FE4' : '#fff';
+        ctx.stroke();
         ctx.globalAlpha = 1;
       });
 
@@ -1390,14 +1542,15 @@ window.KbSite = (function () {
         if (!shouldLabel(i, p, sx, sy)) return;
         var ly = sy + r + 14;
         // 总览非放大时：跳过与已画标签屏幕距离过近者
-        if (!zoomed && !hoverSet) {
+        if (!zoomed && !hoverSet && !focusSet) {
           var tooClose = drawn.some(function (d) {
             var dx = d.x - sx, dy = d.y - ly; return dx * dx + dy * dy < 56 * 56;
           });
           if (tooClose) return;
         }
-        ctx.font = (state.hubs[i] && !zoomed ? '600 ' : '') + '12px -apple-system, "PingFang SC", sans-serif';
-        ctx.fillStyle = hoverSet && !hoverSet[i] ? '#98A2B3' : '#1D2939';
+        var strong = i === state.focus || (state.hubs[i] && !zoomed);
+        ctx.font = (strong ? '600 ' : '') + '12px -apple-system, "PingFang SC", sans-serif';
+        ctx.fillStyle = hasHi && !hiSet[i] ? '#98A2B3' : '#1D2939';
         ctx.textAlign = 'center';
         ctx.fillText(p.title, sx, ly);
         drawn.push({ x: sx, y: ly });
@@ -1417,6 +1570,65 @@ window.KbSite = (function () {
       return -1;
     }
 
+    /* ---------------- 总览 / 下钻 交互 ---------------- */
+    function setFocus(i) {
+      if (i != null && (i < 0 || i >= state.nodes.length)) i = null;
+      state.focus = i;
+      if (hintEl) {
+        hintEl.textContent = i == null
+          ? '总览 · 点击节点下钻查看邻接关系'
+          : '聚焦「' + state.nodes[i].title + '」 · 点击空白或 Esc 返回总览';
+      }
+      updatePanel();
+      if (i != null) fitToFocus(i); else fitToView();
+    }
+    function openEntity(i) {
+      var p = state.nodes[i];
+      if (p && ENT.get(p.id)) location.hash = '#/entity/' + encodeURIComponent(p.id);
+    }
+    /* 右侧详情面板：节点信息 + 关联关系清单（点击某条关系即聚焦到该邻居） */
+    function updatePanel() {
+      if (!layoutEl || !panelEl) return;
+      if (state.focus == null) {
+        layoutEl.classList.remove('has-panel');
+        panelEl.innerHTML = '';
+        return;
+      }
+      var i = state.focus, p = state.nodes[i];
+      var rels = [];
+      state.edges.forEach(function (e) {
+        if (e.s === i) rels.push({ other: e.t, rel: e.label || '关联', out: true });
+        else if (e.t === i) rels.push({ other: e.s, rel: e.label || '关联', out: false });
+      });
+      rels.sort(function (a, b) {
+        return (state.nodes[b.other].degree || 0) - (state.nodes[a.other].degree || 0);
+      });
+      var MAX = 60;
+      var hasEntity = !!ENT.get(p.id);
+      panelEl.innerHTML =
+        '<div class="gp-head"><h3 class="gp-title">' + esc(p.title) + '</h3>' +
+        '<button class="gp-close" id="gpClose" title="返回总览">×</button></div>' +
+        '<div class="gp-meta">' + typeBadge(p.type) + levelBadge(p.level) + '</div>' +
+        '<div class="gp-metrics">' +
+        '  <div class="gp-metric"><div class="m-v">' + (p.degree || 0) + '</div><div class="m-k">连接关系</div></div>' +
+        '  <div class="gp-metric"><div class="m-v">' + rels.length + '</div><div class="m-k">关联实体</div></div>' +
+        '</div>' +
+        '<div class="gp-rel-h">关联关系（' + rels.length + '）</div>' +
+        (rels.length
+          ? rels.slice(0, MAX).map(function (r) {
+              var q = state.nodes[r.other];
+              return '<button class="gp-rel" data-goto="' + r.other + '">' +
+                '<span class="r-rel">' + esc(relLabel(r.rel)) + (r.out ? ' →' : ' ←') + '</span>' +
+                '<span class="r-t">' + esc(q ? q.title : '') + '</span></button>';
+            }).join('') + (rels.length > MAX ? '<div class="gc-empty">仅显示前 ' + MAX + ' 条</div>' : '')
+          : '<div class="gc-empty">该实体暂无关联关系</div>') +
+        '<div class="gp-actions">' +
+        '  <button class="gp-btn" id="gpCenter">居中显示</button>' +
+        (hasEntity ? '<a class="gp-btn primary" href="#/entity/' + encodeURIComponent(p.id) + '">查看详情</a>' : '') +
+        '</div>';
+      layoutEl.classList.add('has-panel');
+    }
+
     canvas.addEventListener('mousedown', function (ev) {
       var r = canvas.getBoundingClientRect();
       var px = ev.clientX - r.left, py = ev.clientY - r.top;
@@ -1426,7 +1638,12 @@ window.KbSite = (function () {
       if (i >= 0) { state.dragging = i; }
       else { state.panning = { x: px - state.tx, y: py - state.ty }; canvas.classList.add('dragging'); }
     });
-    window.addEventListener('mousemove', function (ev) {
+    canvas.addEventListener('dblclick', function (ev) {
+      var r = canvas.getBoundingClientRect();
+      var i = hitNode(ev.clientX - r.left, ev.clientY - r.top);
+      if (i >= 0) openEntity(i);
+    });
+    function onMove(ev) {
       if (!document.body.contains(canvas)) return;
       var r = canvas.getBoundingClientRect();
       var px = ev.clientX - r.left, py = ev.clientY - r.top;
@@ -1436,16 +1653,18 @@ window.KbSite = (function () {
         state.nodes[state.dragging].x = w.x;
         state.nodes[state.dragging].y = w.y;
         state.nodes[state.dragging].vx = 0; state.nodes[state.dragging].vy = 0;
+        tip.classList.remove('show');
       } else if (state.panning) {
         state.tx = px - state.panning.x;
         state.ty = py - state.panning.y;
+        tip.classList.remove('show');
       } else {
         var i = hitNode(px, py);
         state.hover = i >= 0 ? i : null;
         if (i >= 0) {
           var p = state.nodes[i];
           tip.innerHTML = '<div class="gt-t">' + esc(p.title) + '</div>' +
-            '<div class="gt-s">' + typeMeta(p.type).label + ' · ' + p.level + '</div>';
+            '<div class="gt-s">' + typeMeta(p.type).label + ' · ' + p.level + ' · 点击下钻</div>';
           tip.style.left = (px + 14) + 'px';
           tip.style.top = (py + 10) + 'px';
           tip.classList.add('show');
@@ -1455,15 +1674,22 @@ window.KbSite = (function () {
           canvas.style.cursor = 'grab';
         }
       }
-    });
-    window.addEventListener('mouseup', function () {
+    }
+    function onUp() {
+      if (!document.body.contains(canvas)) return;
       if (state.dragging != null && !state.moved) {
-        var p = state.nodes[state.dragging];
-        if (p) location.hash = '#/entity/' + encodeURIComponent(p.id);
+        setFocus(state.dragging);               // 点击节点 -> 下钻
+      } else if (state.panning && !state.moved && state.focus != null) {
+        setFocus(null);                          // 点击空白 -> 返回总览
       }
       state.dragging = null; state.panning = null;
       canvas.classList.remove('dragging');
-    });
+    }
+    function onKey(ev) { if (ev.key === 'Escape' && state.focus != null) setFocus(null); }
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    window.addEventListener('keydown', onKey);
+
     canvas.addEventListener('wheel', function (ev) {
       ev.preventDefault();
       var r = canvas.getBoundingClientRect();
@@ -1476,14 +1702,20 @@ window.KbSite = (function () {
       state.ty = py - w.y * ns;
     }, { passive: false });
 
-    // 过滤
-    document.getElementById('gcTypes').addEventListener('change', function (ev) {
-      state.activeTypes[ev.target.getAttribute('data-gc-type')] = ev.target.checked;
-      build();
+    // 数据源切换
+    var segEl = document.getElementById('graphSeg');
+    if (segEl) segEl.addEventListener('click', function (ev) {
+      var b = ev.target.closest && ev.target.closest('button[data-src]');
+      if (b) switchGraphSource(b.getAttribute('data-src'));
     });
-    document.getElementById('gcLevels').addEventListener('change', function (ev) {
-      state.activeLevels[ev.target.getAttribute('data-gc-level')] = ev.target.checked;
-      build();
+    // 详情面板：关闭 / 居中 / 跳转邻居
+    if (panelEl) panelEl.addEventListener('click', function (ev) {
+      var t = ev.target;
+      if (!t.closest) return;
+      if (t.closest('#gpClose')) { setFocus(null); return; }
+      if (t.closest('#gpCenter')) { if (state.focus != null) fitToFocus(state.focus); return; }
+      var rel = t.closest('[data-goto]');
+      if (rel) setFocus(parseInt(rel.getAttribute('data-goto'), 10));
     });
 
     function loop() {
@@ -1496,7 +1728,11 @@ window.KbSite = (function () {
     rs.observe(wrap);
     graphCleanup = function () {
       rs.disconnect();
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      window.removeEventListener('keydown', onKey);
       tip && tip.classList.remove('show');
+      if (layoutEl) layoutEl.classList.remove('has-panel');
     };
   }
 
