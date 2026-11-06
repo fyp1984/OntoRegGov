@@ -12,9 +12,9 @@ import urllib.error
 from pathlib import Path
 
 # 配置
-WEKNORA_API = "http://127.0.0.1:18180"
-TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJlbWFpbCI6InAycHJvYmVAZWtvcy5sb2NhbCIsImV4cCI6MTgyNTIzMTM2MywiaWF0IjoxNzkzNjk1MzYzLCJ0ZW5hbnRfaWQiOjEwMDAwLCJ0eXBlIjoiYWNjZXNzIiwidXNlcl9pZCI6IjZlZWZhMzA2LTE4NjUtNGUwZS05ZWZhLTRhYzFjYWIxMWRlYSJ9.z5SOWrfgm5AVILh89CpgRKUhg-w8CWVgXAceK9gyp7E"
-KB_ID = "71fbeecd-fada-46b7-8643-a86793a73a9b"
+WEKNORA_API = os.environ.get("WEKNORA_API_BASE", "http://127.0.0.1:18180").rstrip("/")
+TOKEN = os.environ.get("WEKNORA_TOKEN", "")  # 需为目标知识库所属租户的访问令牌
+KB_ID = os.environ.get("WEKNORA_KB_ID", "59ad56fe-6673-49af-9380-b7d11f194a0d")
 CONTENT_DIR = Path("/Users/FYP/Documents/@西北人的成长/20-Areas/信息安全/数据安全/10_知识库工程/content")
 
 CATEGORY_PREFIX = {

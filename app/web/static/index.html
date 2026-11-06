@@ -6,7 +6,7 @@
 <meta name="theme-color" content="#2055D7">
 <title>本体驱动的数据安全管理平台</title>
 <link rel="icon" href="/favicon.png">
-<link rel="stylesheet" href="/styles.css?v=20261105b">
+<link rel="stylesheet" href="/styles.css?v=20261105c">
 <link rel="stylesheet" href="/kb_site.css?v=2">
 </head>
 <body>
@@ -24,9 +24,14 @@
   <a data-v="kbdash" class="active">知识库</a>
   <a data-v="checkslib">监管检查库</a>
   <a data-v="selfcheck">合规自查</a>
-  <a data-v="llmset">LLM 配置</a>
 </nav>
 <button class="nav-open" id="nav_open" onclick="navToggle()" title="展开左侧菜单">»</button>
+<button class="settings-gear" id="settings_gear" onclick="openSettings()" title="设置" aria-label="设置">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="12" cy="12" r="3"></circle>
+    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+  </svg>
+</button>
 <main>
   <section id="kbdash" class="view">
     <div class="kbsite">
@@ -98,31 +103,41 @@
     </div>
   </section>
 
-  <section id="llmset" class="view hidden">
+  <section id="settings" class="view hidden">
+    <div class="card"><h3>可引用的知识库（多选）</h3>
+      <p class="muted">勾选后，知识库页面与检索仅引用所选知识库；不勾选则使用默认知识库。</p>
+      <div id="kb_pick" class="pick-list"></div>
+      <div class="row">
+        <button onclick="kbPickSave()">保存</button>
+        <button class="ghost" onclick="kbPickReset()">恢复默认</button>
+        <span id="kb_pick_status" class="muted"></span>
+      </div>
+    </div>
+
     <div class="card"><h3>LLM 配置（OpenAI 兼容）</h3>
-      <p class="muted">配置保存后立即生效（六维生成 / 法规问答 / 自然语言查库共用），无需重启；
-      未配置 API Key 时自动降级为确定性规则抽取，不阻断流程。</p>
-      <div style="max-width:640px">
+      <p class="muted">保存后立即生效，无需重启；未配置 API Key 时自动降级为规则抽取。</p>
+      <div class="form-narrow">
         <label>Base URL</label>
-        <input id="llm_base" placeholder="如 https://api.openai.com/v1（本地网关亦可）"
-          style="width:100%;box-sizing:border-box;padding:9px 12px;border:1px solid #dfe1e5;border-radius:8px;margin:4px 0 12px">
+        <input id="llm_base" placeholder="如 https://api.openai.com/v1（本地网关亦可）">
         <label>API Key</label>
-        <input id="llm_key" type="password" placeholder="已设置的 Key 不回显；留空=保留当前 Key"
-          autocomplete="off" style="width:100%;box-sizing:border-box;padding:9px 12px;border:1px solid #dfe1e5;border-radius:8px;margin:4px 0 12px">
+        <input id="llm_key" type="password" placeholder="已设置的 Key 不回显；留空=保留当前 Key" autocomplete="off">
         <label>Model</label>
-        <input id="llm_model" placeholder="如 gpt-4o-mini"
-          style="width:100%;box-sizing:border-box;padding:9px 12px;border:1px solid #dfe1e5;border-radius:8px;margin:4px 0 12px">
-        <div class="row">
+        <input id="llm_model" placeholder="如 gpt-4o-mini">
+        <div class="row" style="margin-top:12px">
           <button onclick="llmTest()">测试连通</button>
           <button class="ghost" onclick="llmSave()">保存配置</button>
         </div>
         <div id="llm_status" class="muted" style="margin-top:10px"></div>
       </div>
     </div>
+
+    <div class="card"><h3>运行状态</h3>
+      <div id="src_status" class="muted">加载中…</div>
+    </div>
   </section>
 </main>
 </div>
 <script src="/kb_site.js?v=2"></script>
-<script src="/app.js?v=20261105e"></script>
+<script src="/app.js?v=20261105f"></script>
 </body>
 </html>

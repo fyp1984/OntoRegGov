@@ -23,8 +23,8 @@
 
 环境变量：
   WEKNORA_API_BASE  默认 http://127.0.0.1:18180
-  WEKNORA_TOKEN     默认沿用 scripts/upload_kb_to_weknora.py 的演示 token
-  WEKNORA_KB_ID     默认 71fbeecd-fada-46b7-8643-a86793a73a9b
+  WEKNORA_TOKEN     默认取环境变量 WEKNORA_TOKEN（需为知识库所属租户令牌）
+  WEKNORA_KB_ID     默认 59ad56fe-6673-49af-9380-b7d11f194a0d
 """
 from __future__ import annotations
 
