@@ -288,6 +288,19 @@ def normalize_control_fields(fm: dict) -> dict:
 # ---------------------------------------------------------------------------
 # 装配主函数
 # ---------------------------------------------------------------------------
+# 文件型标题常见扩展名（仅用于原始文档展示时去掉后缀）
+_FILE_EXT_RE = re.compile(
+    r"\.(?:docx?|pdf|pptx?|xlsx?|csv|txt|md|markdown|rtf|wps|html?|ofd)$",
+    re.IGNORECASE,
+)
+
+
+def _strip_file_ext(name) -> str:
+    """去掉文件型标题的扩展名（.docx/.pdf…），仅用于原始文档（doc）展示。"""
+    s = _s(name)
+    return _FILE_EXT_RE.sub("", s).strip() or s
+
+
 def _first_paragraph(body: str, limit: int = 120) -> str:
     """取正文首个非标题段落作为摘要（文件型文档无 frontmatter.summary 时用）。"""
     for block in re.split(r"\n{2,}", body or ""):
@@ -336,7 +349,7 @@ def build(docs) -> dict:
                 continue
             body = content
             fm = {"id": eid, "type": "doc",
-                  "title": _s(d.get("title")) or eid,
+                  "title": _strip_file_ext(d.get("title")) or eid,
                   "summary": _first_paragraph(body)}
         seen_ids.add(eid)
         parsed.append((fm, body))
