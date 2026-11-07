@@ -402,6 +402,19 @@ async function kbPickReset(){
   await kbPickSave();
 }
 
+// 主动刷新：失效后端取数缓存 → 立即重取知识库首屏索引并回显条目数/取数时间。
+// 对应「知识库内容更新后，前端如何拿到最新」的机制（30s TTL 之外的手动即时刷新）。
+async function kbRefreshData(){
+  const el = $('#kb_refresh_status'); if (el) el.textContent = '刷新中…';
+  const env = await api('/api/kb/cache/invalidate', {method: 'POST'}).catch(() => null);
+  if (!env){ if (el) el.textContent = '刷新失败：接口不可达。'; return; }
+  kbSiteInited = false;                       // 使知识库视图按最新数据重建
+  await kbSiteShow();
+  const n = (window.KNOWLEDGE_BASE && (window.KNOWLEDGE_BASE.entities || []).length) || 0;
+  if (el) el.textContent = '✓ 已刷新，条目 ' + n +
+    '　取数 ' + String(env.fetchedAt || '').replace('T', ' ');
+}
+
 async function loadSrcStatus(){
   const box = $('#src_status'); if (!box) return;
   const env = await api('/api/kb/sources').catch(() => null);

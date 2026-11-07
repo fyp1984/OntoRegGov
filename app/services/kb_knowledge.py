@@ -35,6 +35,7 @@ TYPE_DIR = {
     "term": "terms", "law": "laws", "standard": "standards", "control": "controls",
     "case": "cases", "solution": "solutions", "organization": "organizations",
     "scenario": "scenarios", "topic": "topics", "guide": "paths", "role": "roles",
+    "doc": "docs",
 }
 
 # 关系类型（有向）—— 编译自 10_知识库工程/ontology/ontology.yaml 的 relation_types
@@ -287,11 +288,26 @@ def normalize_control_fields(fm: dict) -> dict:
 # ---------------------------------------------------------------------------
 # 装配主函数
 # ---------------------------------------------------------------------------
+def _first_paragraph(body: str, limit: int = 120) -> str:
+    """取正文首个非标题段落作为摘要（文件型文档无 frontmatter.summary 时用）。"""
+    for block in re.split(r"\n{2,}", body or ""):
+        b = block.strip()
+        if not b or b.lstrip().startswith("#"):
+            continue
+        b = re.sub(r"^[>\-*+]\s*", "", b)
+        return b[:limit]
+    return ""
+
+
 def build(docs) -> dict:
     """把原始 Markdown 列表装配成与 build.py 同形状的 KNOWLEDGE_BASE。
 
-    docs: [{content: <原始 md（含 frontmatter）>, title?: str, updatedAt?: str}]
+    docs: [{id?: <知识页 UUID>, content: <原始 md（含 frontmatter）>, title?: str, updatedAt?: str}]
     返回：{generated_at, version, counts, entities, nodes, edges}
+
+    v1.21.0：内容形态无关。带 frontmatter 的以 frontmatter.id 为实体 id；文件上传型
+    （Word/PDF，正文由 chunks 拼接、无 frontmatter）用知识页 UUID 合成最小实体，type=doc，
+    避免文件型条目被漏掉（与取数层 knowledge_docs 的形态无关口径对齐）。
     """
     rel_labels = rel_label_map()
 
@@ -304,13 +320,24 @@ def build(docs) -> dict:
         content = (d.get("content") or "").strip()
         if not content:
             continue
-        try:
-            fm, body = split_frontmatter(content)
-        except Exception:  # noqa: BLE001 — 单条坏数据不阻断整库
-            continue
-        eid = fm.get("id")
-        if not isinstance(eid, str) or not eid or eid in seen_ids:
-            continue
+        if content.startswith("---"):
+            # Markdown 投递型：正文带 YAML frontmatter，以 frontmatter.id 为实体 id
+            try:
+                fm, body = split_frontmatter(content)
+            except Exception:  # noqa: BLE001 — 单条坏数据不阻断整库
+                continue
+            eid = fm.get("id")
+            if not isinstance(eid, str) or not eid or eid in seen_ids:
+                continue
+        else:
+            # 文件上传型（Word/PDF）：正文无 frontmatter，用知识页 UUID 合成最小实体
+            eid = _s(d.get("id"))
+            if not eid or eid in seen_ids:
+                continue
+            body = content
+            fm = {"id": eid, "type": "doc",
+                  "title": _s(d.get("title")) or eid,
+                  "summary": _first_paragraph(body)}
         seen_ids.add(eid)
         parsed.append((fm, body))
         title_map[eid] = _s(fm.get("title")) or eid

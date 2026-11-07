@@ -262,21 +262,34 @@ def wiki_get(page_id: str) -> dict | None:
 
 
 def knowledge_docs(limit: int = 1000) -> list[dict]:
-    """读取知识库全部条目的**原始 Markdown**（含 frontmatter）。
+    """读取知识库全部条目的**原始正文**（内容形态无关）。
 
-    大白话：knowledges.metadata->>'content' 保存了迁移时的原始 md 全文，
-    是运行期重建站点契约（window.KNOWLEDGE_BASE）的唯一真源，只读、零改造。
-    返回：[{title, content, updatedAt}]。
+    大白话：优先用 `knowledges.metadata->>'content'`（迁移时的原始 Markdown 全文）；
+    该字段为空时（如上传的 Word/PDF，正文只落在 chunks 表）按 chunk_index 拼接
+    chunks 兜底。这样无论知识以 Markdown 投递还是文件上传入库，都能取回可装配的
+    正文 —— 与 wiki_list/wiki_get 的"形态无关"口径一致，避免文件型条目被漏掉。
+
+    返回：[{id, title, content, updatedAt}]（id 为知识页 UUID，供无 frontmatter
+    的文档在装配层合成稳定实体 id）。
     """
     rows = _q(
-        """SELECT title, metadata->>'content' AS content, updated_at
-           FROM knowledges
-           WHERE knowledge_base_id = ANY(%s) AND deleted_at IS NULL AND enable_status = 'enabled'
-             AND metadata->>'content' IS NOT NULL AND metadata->>'content' <> ''
-           ORDER BY title LIMIT %s""",
+        """SELECT k.id::text AS id, k.title,
+                  COALESCE(NULLIF(k.metadata->>'content', ''), agg.content) AS content,
+                  k.updated_at
+           FROM knowledges k
+           LEFT JOIN LATERAL (
+               SELECT string_agg(c.content, E'\n\n' ORDER BY c.chunk_index) AS content
+               FROM chunks c
+               WHERE c.knowledge_id = k.id AND c.is_enabled = true AND c.deleted_at IS NULL
+           ) agg ON true
+           WHERE k.knowledge_base_id = ANY(%s) AND k.deleted_at IS NULL AND k.enable_status = 'enabled'
+             AND COALESCE(NULLIF(k.metadata->>'content', ''), agg.content) IS NOT NULL
+             AND COALESCE(NULLIF(k.metadata->>'content', ''), agg.content) <> ''
+           ORDER BY k.title LIMIT %s""",
         (effective_kb_ids(), int(limit)),
     )
-    return [{"title": r.get("title") or "", "content": r.get("content") or "",
+    return [{"id": r.get("id") or "", "title": r.get("title") or "",
+             "content": r.get("content") or "",
              "updatedAt": str(r.get("updated_at") or "")} for r in rows]
 
 
