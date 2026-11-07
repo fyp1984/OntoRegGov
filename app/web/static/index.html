@@ -134,10 +134,18 @@
     <div class="card"><h3>运行状态</h3>
       <div id="src_status" class="muted">加载中…</div>
     </div>
+
+    <div class="card"><h3>数据刷新</h3>
+      <p class="muted">知识库内容更新后，前端默认 30 秒内自动生效；如需立即拉取最新，请点击刷新。</p>
+      <div class="row">
+        <button onclick="kbRefreshData()">刷新数据</button>
+        <span id="kb_refresh_status" class="muted"></span>
+      </div>
+    </div>
   </section>
 </main>
 </div>
-<script src="/kb_site.js?v=20261106d"></script>
-<script src="/app.js?v=20261105f"></script>
+<script src="/kb_site.js?v=20261107a"></script>
+<script src="/app.js?v=20261107a"></script>
 </body>
 </html>

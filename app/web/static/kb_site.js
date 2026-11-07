@@ -13,6 +13,9 @@
  * ========================================================== */
 window.KbSite = (function () {
   'use strict';
+  /* 一次性事件绑定标记：init() 支持重复调用（设置页「刷新数据」重取后重建站点），
+   * 避免每次重建都叠加一份 hashchange 监听。 */
+  var _wired = false;
 
   function init() {
 
@@ -110,7 +113,8 @@ window.KbSite = (function () {
     solution:     { label: '方案产品',    color: '#1240D2' },  /* brand-700 */
     scenario:     { label: '行业场景',    color: '#7EA6FF' },  /* brand-300 */
     guide:        { label: '学习路径',    color: '#1B4FE4' },  /* brand-600 */
-    topic:        { label: '专题',        color: '#D97706' }   /* warning-600 */
+    topic:        { label: '专题',        color: '#D97706' },  /* warning-600 */
+    doc:          { label: '原始文档',    color: '#0E7490' }   /* teal-700：文件型（Word/PDF） */
   };
   var LEVEL_RADIUS = { L1: 9, L2: 12, L3: 15 };
   var STATUS_LABEL = { reviewed: '已核对', draft: '草稿', stale: '待更新' };
@@ -1737,7 +1741,7 @@ window.KbSite = (function () {
   }
 
     /* ---------------- 启动 ---------------- */
-    window.addEventListener('hashchange', render);
+    if (!_wired) { window.addEventListener('hashchange', render); _wired = true; }
     if (!location.hash) location.hash = '#/';
     render();
   }
