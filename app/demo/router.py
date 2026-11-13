@@ -2027,8 +2027,60 @@ def plugin_invocations(limit: int = 50):
 # 与运行台账。返回直接业务 JSON（与 /demo/*、/scenario-packs 等一致）。
 # ===========================================================================
 _RESULT_LABEL = {"aligned": "已对上", "partial": "部分对上", "missing": "未对上"}
+_LEDGER_RESULTS = ["aligned", "partial", "missing"]
+_LEDGER_LEVELS = ["敏感", "重要", "内部"]
+_ASSET_CATEGORIES = ["台账", "自查报告", "方法与模板", "已确认结果"]
+_ASSET_ACTIVE, _ASSET_ARCHIVED = "在册", "已归档"
+_ISSUE_FLOW = ["open", "assigned", "in_progress", "recheck", "closed"]
+_ISSUE_LABEL = {"open": "待处理", "assigned": "已指派", "in_progress": "整改中",
+                "recheck": "待复检", "closed": "已关闭"}
+_NEG_HINTS = ("未", "尚未", "缺", "暂无", "没有", "不足", "不完整")
 
 
+def _actor(body: dict) -> str:
+    return (body or {}).get("actor") or _current_account()
+
+
+def _ledger_inconsistent(result: str, actual: str) -> bool:
+    """结论与实际描述一致性校验：结论为「已对上」时，实际描述不得含否定表述。"""
+    return result == "aligned" and any(w in (actual or "") for w in _NEG_HINTS)
+
+
+def _ledger_rec(r: dict) -> dict:
+    return {"rowId": r["row_id"], "scene": r["scene"], "level": r["level"],
+            "should": r["should"], "actual": r["actual"], "result": r["result"],
+            "resultLabel": _RESULT_LABEL.get(r["result"], r["result"]),
+            "owner": r["owner"], "updatedAt": r["updated_at"]}
+
+
+def _diag_answer(r: dict) -> dict:
+    return {"answerId": r["answer_id"], "dimNo": r["dim_no"], "dimName": r["dim_name"],
+            "q": r["q"], "state": r["state"] or "", "note": r["note"] or "",
+            "evidence": r["evidence"] or "", "updatedAt": r["updated_at"]}
+
+
+def _assessment(a: dict, answers: list) -> dict:
+    answered = sum(1 for x in answers if (x.get("state") or "").strip())
+    ev_ready = sum(1 for x in answers if (x.get("evidence") or "").strip())
+    total = len(answers) or 1
+    return {"assessmentId": a["assessment_id"], "title": a["title"], "status": a["status"],
+            "owner": a["owner"], "createdAt": a["created_at"], "submittedAt": a["submitted_at"],
+            "counts": {"total": len(answers), "answered": answered, "evidenceReady": ev_ready},
+            "completion": round(ev_ready / total * 100),
+            "answers": answers}
+
+
+def _disposal_rec(r: dict) -> dict:
+    return {"disposalId": r["disposal_id"], "issueNo": r["issue_no"],
+            "issueName": r["issue_name"], "layer": r["layer"], "status": r["status"],
+            "statusLabel": _ISSUE_LABEL.get(r["status"], r["status"]),
+            "org": r["org_name"] or "", "position": r["position"] or "",
+            "plan": r["plan"] or "", "evidence": r["evidence"] or "",
+            "owner": r["owner"], "createdAt": r["created_at"], "updatedAt": r["updated_at"],
+            "closedAt": r["closed_at"]}
+
+
+# ---------------------------------------------------------------- 现状诊断
 @router.get("/diagnosis/dimensions")
 def diagnosis_dimensions():
     dims = seed.DIAG_DIMENSIONS
@@ -2036,96 +2088,763 @@ def diagnosis_dimensions():
     for d in dims:
         for a in d.get("answers", []):
             stat[a.get("state")] = stat.get(a.get("state"), 0) + 1
+    rows = store.q("SELECT * FROM diag_assessment ORDER BY created_at DESC")
+    assessments = []
+    for a in rows:
+        ans = store.q("SELECT * FROM diag_answer WHERE assessment_id=? ORDER BY dim_no, answer_id",
+                      (a["assessment_id"],))
+        assessments.append(_assessment(a, [_diag_answer(x) for x in ans]))
     return {"questions": seed.DIAG_QUESTIONS, "dimensions": dims,
+            "assessments": assessments,
             "summary": {"dimensions": len(dims), "questions": len(seed.DIAG_QUESTIONS),
-                        "answers": stat},
+                        "perAssessment": len(dims) * len(seed.DIAG_QUESTIONS),
+                        "assessments": len(assessments), "answers": stat},
             "fetchedAt": _now()}
 
 
+@router.post("/diagnosis/assessments")
+def diag_assessment_create(body: dict = Body(default=None)):
+    body = body or {}
+    title = (body.get("title") or "").strip()
+    if not title:
+        return _err("VALIDATION_FAILED", "诊断批次名称必填", 422)
+    actor = _actor(body)
+    aid = "da-" + uuid.uuid4().hex[:8]
+    store.insert("diag_assessment", {
+        "assessment_id": aid, "title": title, "status": "draft", "owner": actor,
+        "created_by": actor, "created_at": _now(), "updated_at": _now(), "submitted_at": None})
+    for d in seed.DIAG_DIMENSIONS:
+        for k, a in enumerate(d["answers"], start=1):
+            store.insert("diag_answer", {
+                "answer_id": f"ans-{aid}-{d['no']}-{k}", "assessment_id": aid,
+                "dim_no": d["no"], "dim_name": d["name"], "q": a["q"],
+                "state": "", "note": d.get("note", ""), "evidence": "", "updated_at": _now()})
+    _audit(actor, "diag.assessment.create", aid, {"title": title})
+    return {"ok": True, "assessmentId": aid}
+
+
+@router.put("/diagnosis/assessments/{assessment_id}/answers")
+def diag_answers_save(assessment_id: str, body: dict = Body(default=None)):
+    body = body or {}
+    a = store.q1("SELECT * FROM diag_assessment WHERE assessment_id=?", (assessment_id,))
+    if not a:
+        return _err("NOT_FOUND", "诊断批次不存在", 404)
+    if a["status"] == "submitted":
+        return _err("VALIDATION_FAILED", "该诊断已提交，不可修改；请新建一次诊断", 422)
+    answers = body.get("answers")
+    if not isinstance(answers, list) or not answers:
+        return _err("VALIDATION_FAILED", "作答内容为空", 422)
+    actor = _actor(body)
+    saved = 0
+    for it in answers:
+        dim_no, q = it.get("dimNo"), it.get("q")
+        if dim_no is None or not q:
+            return _err("VALIDATION_FAILED", "作答缺少维度或问题标识", 422)
+        state = (it.get("state") or "").strip()
+        if state and state not in ("yes", "partial", "no"):
+            return _err("VALIDATION_FAILED", "三问判定取值非法（应为 有 / 部分 / 缺）", 422)
+        rows = store.q("SELECT answer_id FROM diag_answer WHERE assessment_id=? AND dim_no=? AND q=?",
+                       (assessment_id, dim_no, q))
+        if not rows:
+            return _err("VALIDATION_FAILED", "作答项与诊断维度不匹配", 422)
+        store.insert("diag_answer", {
+            "answer_id": rows[0]["answer_id"], "assessment_id": assessment_id,
+            "dim_no": dim_no, "dim_name": it.get("dimName") or "",
+            "q": q, "state": state, "note": (it.get("note") or "").strip(),
+            "evidence": (it.get("evidence") or "").strip(), "updated_at": _now()})
+        saved += 1
+    store.x("UPDATE diag_assessment SET updated_at=? WHERE assessment_id=?", (_now(), assessment_id))
+    _audit(actor, "diag.answer.save", assessment_id, {"count": saved})
+    return {"ok": True, "saved": saved}
+
+
+@router.post("/diagnosis/assessments/{assessment_id}/submit")
+def diag_assessment_submit(assessment_id: str, body: dict = Body(default=None)):
+    body = body or {}
+    a = store.q1("SELECT * FROM diag_assessment WHERE assessment_id=?", (assessment_id,))
+    if not a:
+        return _err("NOT_FOUND", "诊断批次不存在", 404)
+    if a["status"] == "submitted":
+        return _err("VALIDATION_FAILED", "该诊断已提交", 422)
+    rows = store.q("SELECT * FROM diag_answer WHERE assessment_id=? ORDER BY dim_no, answer_id",
+                   (assessment_id,))
+    missing = [f"{r['dim_no']}·{r['q']}" for r in rows if not (r["state"] or "").strip()]
+    no_evidence = [f"{r['dim_no']}·{r['q']}" for r in rows if not (r["evidence"] or "").strip()]
+    if missing:
+        return _err("VALIDATION_FAILED", f"三问判定未答完：还有 {len(missing)} 项未作答", 422,
+                    {"missing": missing[:8]})
+    if no_evidence:
+        return _err("VALIDATION_FAILED", f"证据说明未填完：还有 {len(no_evidence)} 项缺少说明", 422,
+                    {"missing": no_evidence[:8]})
+    actor = _actor(body)
+    store.x("UPDATE diag_assessment SET status='submitted', submitted_at=?, updated_at=? "
+            "WHERE assessment_id=?", (_now(), _now(), assessment_id))
+    _audit(actor, "diag.assessment.submit", assessment_id, {"answers": len(rows)})
+    return {"ok": True, "assessmentId": assessment_id, "status": "submitted"}
+
+
+# ---------------------------------------------------- 应用与业务层台账
 @router.get("/ledger/rows")
 def ledger_rows():
-    rows = seed.LEDGER_ROWS
+    rows = [_ledger_rec(r) for r in store.q("SELECT * FROM ledger_row ORDER BY created_at, row_id")]
     summary = {"total": len(rows), "aligned": 0, "partial": 0, "missing": 0}
     for r in rows:
         summary[r["result"]] = summary.get(r["result"], 0) + 1
-    return {"rows": rows, "summary": summary, "fetchedAt": _now()}
+    return {"rows": rows, "summary": summary, "levels": _LEDGER_LEVELS,
+            "results": _LEDGER_RESULTS, "fetchedAt": _now()}
 
 
+def _ledger_validate(body: dict) -> str | None:
+    """返回错误消息（校验不通过）或 None。"""
+    for k, label in (("scene", "使用场景"), ("level", "分级"), ("should", "应做到"),
+                     ("actual", "实际（对账发现）"), ("result", "对账结论")):
+        if not (body.get(k) or "").strip():
+            return f"「{label}」必填"
+    if body["level"] not in _LEDGER_LEVELS:
+        return "分级取值非法"
+    if body["result"] not in _LEDGER_RESULTS:
+        return "对账结论取值非法"
+    if _ledger_inconsistent(body["result"], body["actual"]):
+        return "结论「已对上」与「实际」描述不一致：描述中含否定表述，请核对结论"
+    return None
+
+
+@router.post("/ledger/rows")
+def ledger_row_create(body: dict = Body(default=None)):
+    body = body or {}
+    err = _ledger_validate(body)
+    if err:
+        return _err("VALIDATION_FAILED", err, 422)
+    scene = body["scene"].strip()
+    if store.q1("SELECT row_id FROM ledger_row WHERE scene=?", (scene,)):
+        return _err("VALIDATION_FAILED", f"已存在同名使用场景「{scene}」", 422)
+    actor = _actor(body)
+    rid = "lr-" + uuid.uuid4().hex[:8]
+    store.insert("ledger_row", {
+        "row_id": rid, "scene": scene, "level": body["level"].strip(),
+        "should": body["should"].strip(), "actual": body["actual"].strip(),
+        "result": body["result"], "owner": actor, "created_by": actor,
+        "created_at": _now(), "updated_at": _now()})
+    _audit(actor, "ledger.row.create", rid, {"result": body["result"]})
+    return {"ok": True, "rowId": rid}
+
+
+@router.put("/ledger/rows/{row_id}")
+def ledger_row_update(row_id: str, body: dict = Body(default=None)):
+    body = body or {}
+    r = store.q1("SELECT * FROM ledger_row WHERE row_id=?", (row_id,))
+    if not r:
+        return _err("NOT_FOUND", "对账台账记录不存在", 404)
+    merged = {"scene": body.get("scene", r["scene"]), "level": body.get("level", r["level"]),
+              "should": body.get("should", r["should"]), "actual": body.get("actual", r["actual"]),
+              "result": body.get("result", r["result"])}
+    err = _ledger_validate(merged)
+    if err:
+        return _err("VALIDATION_FAILED", err, 422)
+    dup = store.q1("SELECT row_id FROM ledger_row WHERE scene=? AND row_id<>?",
+                   (merged["scene"].strip(), row_id))
+    if dup:
+        return _err("VALIDATION_FAILED", f"已存在同名使用场景「{merged['scene'].strip()}」", 422)
+    actor = _actor(body)
+    store.insert("ledger_row", {
+        "row_id": row_id, "scene": merged["scene"].strip(), "level": merged["level"].strip(),
+        "should": merged["should"].strip(), "actual": merged["actual"].strip(),
+        "result": merged["result"], "owner": r["owner"] or actor,
+        "created_by": r["created_by"], "created_at": r["created_at"], "updated_at": _now()})
+    _audit(actor, "ledger.row.update", row_id, {"result": merged["result"]})
+    return {"ok": True, "rowId": row_id}
+
+
+@router.delete("/ledger/rows/{row_id}")
+def ledger_row_delete(row_id: str):
+    r = store.q1("SELECT row_id FROM ledger_row WHERE row_id=?", (row_id,))
+    if not r:
+        return _err("NOT_FOUND", "对账台账记录不存在", 404)
+    store.x("DELETE FROM ledger_row WHERE row_id=?", (row_id,))
+    _audit(_current_account(), "ledger.row.delete", row_id, {})
+    return {"ok": True, "rowId": row_id}
+
+
+# -------------------------------------------------------- 逐类问题处置
 @router.get("/issues/classes")
 def issues_classes():
     classes = seed.ISSUE_CLASSES
     layers: dict = {}
     for c in classes:
         layers[c["layer"]] = layers.get(c["layer"], 0) + 1
-    return {"classes": classes, "summary": {"total": len(classes), "layers": layers},
+    disposals = [_disposal_rec(r) for r in
+                 store.q("SELECT * FROM issue_disposal ORDER BY created_at, disposal_id")]
+    stat = {k: 0 for k in _ISSUE_FLOW}
+    for d in disposals:
+        stat[d["status"]] = stat.get(d["status"], 0) + 1
+    return {"classes": classes, "disposals": disposals,
+            "flow": [{"status": s, "label": _ISSUE_LABEL[s]} for s in _ISSUE_FLOW],
+            "summary": {"total": len(classes), "layers": layers, "disposals": len(disposals),
+                        "byStatus": stat},
             "fetchedAt": _now()}
 
 
+@router.post("/issues/disposals")
+def issue_disposal_create(body: dict = Body(default=None)):
+    body = body or {}
+    no = (body.get("issueNo") or "").strip()
+    c = next((x for x in seed.ISSUE_CLASSES if x["no"] == no), None)
+    if not c:
+        return _err("VALIDATION_FAILED", "请选择一类已识别的问题", 422)
+    if store.q1("SELECT disposal_id FROM issue_disposal WHERE issue_no=? AND status<>'closed'", (no,)):
+        return _err("VALIDATION_FAILED", f"「{no} {c['name']}」已有在办处置工单", 422)
+    actor = _actor(body)
+    did = "disp-" + uuid.uuid4().hex[:8]
+    mgmt = c.get("mgmt") or {}
+    store.insert("issue_disposal", {
+        "disposal_id": did, "issue_no": no, "issue_name": c["name"], "layer": c["layer"],
+        "status": "open", "org_name": "", "position": "",
+        "plan": mgmt.get("流程规范", ""), "evidence": "", "owner": actor,
+        "created_by": actor, "created_at": _now(), "updated_at": _now(), "closed_at": None})
+    _audit(actor, "issue.disposal.create", did, {"issueNo": no})
+    return {"ok": True, "disposalId": did}
+
+
+@router.patch("/issues/disposals/{disposal_id}")
+def issue_disposal_assign(disposal_id: str, body: dict = Body(default=None)):
+    body = body or {}
+    r = store.q1("SELECT * FROM issue_disposal WHERE disposal_id=?", (disposal_id,))
+    if not r:
+        return _err("NOT_FOUND", "处置工单不存在", 404)
+    if r["status"] == "closed":
+        return _err("VALIDATION_FAILED", "已关闭的工单不可再指派", 422)
+    org = (body.get("org") or "").strip()
+    pos = (body.get("position") or "").strip()
+    if not org or not pos:
+        return _err("VALIDATION_FAILED", "指派须同时填写责任组织与责任岗位", 422)
+    actor = _actor(body)
+    store.x("UPDATE issue_disposal SET org_name=?, position=?, plan=?, status='assigned', "
+            "updated_at=? WHERE disposal_id=?",
+            (org, pos, (body.get("plan") or r["plan"] or "").strip(), _now(), disposal_id))
+    _audit(actor, "issue.disposal.assign", disposal_id, {"org": org, "position": pos})
+    return {"ok": True, "disposalId": disposal_id, "status": "assigned"}
+
+
+@router.post("/issues/disposals/{disposal_id}/advance")
+def issue_disposal_advance(disposal_id: str, body: dict = Body(default=None)):
+    r = store.q1("SELECT * FROM issue_disposal WHERE disposal_id=?", (disposal_id,))
+    if not r:
+        return _err("NOT_FOUND", "处置工单不存在", 404)
+    idx = _ISSUE_FLOW.index(r["status"]) if r["status"] in _ISSUE_FLOW else -1
+    nxt = _ISSUE_FLOW[idx + 1] if 0 <= idx < len(_ISSUE_FLOW) - 1 else None
+    if nxt is None:
+        return _err("VALIDATION_FAILED", "工单已到终态，无法再推进", 422)
+    if nxt == "closed":
+        return _err("VALIDATION_FAILED", "关闭工单须登记处置证据", 422)
+    actor = _actor(body or {})
+    store.x("UPDATE issue_disposal SET status=?, updated_at=? WHERE disposal_id=?",
+            (nxt, _now(), disposal_id))
+    _audit(actor, "issue.disposal.advance", disposal_id, {"from": r["status"], "to": nxt})
+    return {"ok": True, "disposalId": disposal_id, "status": nxt, "statusLabel": _ISSUE_LABEL[nxt]}
+
+
+@router.post("/issues/disposals/{disposal_id}/close")
+def issue_disposal_close(disposal_id: str, body: dict = Body(default=None)):
+    body = body or {}
+    r = store.q1("SELECT * FROM issue_disposal WHERE disposal_id=?", (disposal_id,))
+    if not r:
+        return _err("NOT_FOUND", "处置工单不存在", 404)
+    if r["status"] == "closed":
+        return _err("VALIDATION_FAILED", "工单已关闭", 422)
+    if r["status"] != "recheck":
+        return _err("VALIDATION_FAILED", "仅「待复检」工单可关闭：请先推进至待复检并完成复检", 422)
+    evidence = (body.get("evidence") or "").strip()
+    if not evidence:
+        return _err("VALIDATION_FAILED", "关闭工单须登记处置证据（复检与验收记录）", 422)
+    actor = _actor(body)
+    store.x("UPDATE issue_disposal SET status='closed', evidence=?, closed_at=?, updated_at=? "
+            "WHERE disposal_id=?", (evidence, _now(), _now(), disposal_id))
+    _audit(actor, "issue.disposal.close", disposal_id, {"evidence": evidence[:40]})
+    return {"ok": True, "disposalId": disposal_id, "status": "closed"}
+
+
+@router.delete("/issues/disposals/{disposal_id}")
+def issue_disposal_delete(disposal_id: str):
+    r = store.q1("SELECT disposal_id FROM issue_disposal WHERE disposal_id=?", (disposal_id,))
+    if not r:
+        return _err("NOT_FOUND", "处置工单不存在", 404)
+    store.x("DELETE FROM issue_disposal WHERE disposal_id=?", (disposal_id,))
+    _audit(_current_account(), "issue.disposal.delete", disposal_id, {})
+    return {"ok": True, "disposalId": disposal_id}
+
+
 # ===========================================================================
-# 5.13 三层治理框架 / 知识底座五层架构
+# 5.13 三层治理框架（闭合链）/ 知识底座五层架构（层模块接入登记）
 # ---------------------------------------------------------------------------
-# 第四轮原型扩展（里程碑 M1-1 治理与架构）：静态只读演示数据，来自 seed 常量。
-# 口径：合成脱敏、全代号化；无机构真名、无绝对路径、无条目数承诺、无厂商与产品
-# 名称；不改动底座与运行台账。返回直接业务 JSON。
+# 第八轮扩展（差距对照表 §8 附十）：由静态只读升级为可写作业。
+# 读来自 DB（frame_chain_case / frame_ring_record / arch_module），写落库并留审计；
+# 校验失败统一返回 VALIDATION_FAILED。口径：合成脱敏、全代号化；无机构真名、
+# 无绝对路径、无条目数承诺、无厂商与产品名称。
 # ===========================================================================
+_ARCH_ACCESS_MODES = list(seed.CAPABILITY_ACCESS_MODES)
+_ARCH_STATUS_LABEL = {"active": "已接入", "suspended": "已停用"}
+_CASE_STATUS_LABEL = {"in_progress": "推进中", "closed": "已闭环"}
+
+
+def _frame_case(c: dict, rings: list) -> dict:
+    recs = [{"ringNo": r["ring_no"], "ringName": r["ring_name"], "output": r["output"] or "",
+             "evidence": r["evidence"] or "", "operator": r["operator"],
+             "createdAt": r["created_at"]} for r in rings]
+    done = sorted({r["ringNo"] for r in recs})
+    return {"caseId": c["case_id"], "title": c["title"], "issueNo": c["issue_no"],
+            "status": c["status"], "statusLabel": _CASE_STATUS_LABEL.get(c["status"], c["status"]),
+            "currentRing": c["current_ring"], "owner": _owner_name(c["owner"]),
+            "createdAt": c["created_at"], "updatedAt": c["updated_at"],
+            "records": recs, "doneRings": done}
+
+
+def _owner_name(acc: str) -> str:
+    """账号 → 展示名（缺失回退账号）。"""
+    row = store.q1("SELECT display_name FROM user_account WHERE account=?", (acc,))
+    return row["display_name"] if row else (acc or "")
+
+
+def _arch_module(r: dict) -> dict:
+    return {"moduleId": r["module_id"], "layerNo": r["layer_no"], "layerName": r["layer_name"],
+            "name": r["name"], "accessMode": r["access_mode"],
+            "boundCapability": r["bound_capability"] or "", "status": r["status"],
+            "statusLabel": _ARCH_STATUS_LABEL.get(r["status"], r["status"]),
+            "owner": _owner_name(r["owner"]), "createdAt": r["created_at"]}
+
+
 @router.get("/governance/frame")
 def governance_frame():
     domains = seed.GOV_FRAME_DOMAINS
     chain = seed.GOV_FRAME_CHAIN
-    return {"domains": domains, "chain": chain,
-            "summary": {"domains": len(domains), "chain": len(chain)},
+    rows = store.q("SELECT * FROM frame_chain_case ORDER BY created_at DESC")
+    cases = []
+    for c in rows:
+        rings = store.q("SELECT * FROM frame_ring_record WHERE case_id=? ORDER BY ring_no",
+                        (c["case_id"],))
+        cases.append(_frame_case(c, rings))
+    return {"domains": domains, "chain": chain, "cases": cases,
+            "summary": {"domains": len(domains), "chain": len(chain), "cases": len(cases),
+                        "progressing": len([x for x in cases if x["status"] == "in_progress"])},
             "fetchedAt": _now()}
+
+
+@router.post("/governance/frame/cases")
+def frame_case_create(body: dict = Body(default=None)):
+    body = body or {}
+    issue_no = (body.get("issueNo") or "").strip()
+    by_no = {c["no"]: c for c in seed.ISSUE_CLASSES}
+    if not issue_no:
+        return _err("VALIDATION_FAILED", "请选择要推进的问题类别", 422)
+    if issue_no not in by_no:
+        return _err("VALIDATION_FAILED", "问题类别须取自逐类问题清单", 422)
+    running = store.q1("SELECT case_id FROM frame_chain_case WHERE issue_no=? "
+                       "AND status='in_progress'", (issue_no,))
+    if running:
+        return _err("VALIDATION_FAILED", f"「{issue_no}」已有在办闭合链，请先闭环再新建", 422)
+    actor = _actor(body)
+    cid = "fc-" + uuid.uuid4().hex[:8]
+    title = (body.get("title") or "").strip() or f"{by_no[issue_no].get('name', '')} —— 闭合链推进"
+    store.insert("frame_chain_case", {
+        "case_id": cid, "title": title, "issue_no": issue_no, "status": "in_progress",
+        "current_ring": 1, "owner": actor, "created_by": actor,
+        "created_at": _now(), "updated_at": _now()})
+    _audit(actor, "frame.case.create", cid, {"issueNo": issue_no})
+    return {"ok": True, "caseId": cid, "currentRing": 1}
+
+
+@router.post("/governance/frame/cases/{case_id}/rings")
+def frame_ring_record(case_id: str, body: dict = Body(default=None)):
+    body = body or {}
+    c = store.q1("SELECT * FROM frame_chain_case WHERE case_id=?", (case_id,))
+    if not c:
+        return _err("NOT_FOUND", "闭合链案件不存在", 404)
+    if c["status"] != "in_progress":
+        return _err("VALIDATION_FAILED", "该案件已闭环，不能再登记环节", 422)
+    output = (body.get("output") or "").strip()
+    evidence = (body.get("evidence") or "").strip()
+    if not output:
+        return _err("VALIDATION_FAILED", "本环结论 / 输出必填", 422)
+    chain = seed.GOV_FRAME_CHAIN
+    ring_no = c["current_ring"]
+    if ring_no > len(chain):
+        return _err("VALIDATION_FAILED", "闭合链已走完", 422)
+    ring_name = chain[ring_no - 1]["name"]
+    if ring_name in ("证据", "整改验收") and not evidence:
+        return _err("VALIDATION_FAILED", f"「{ring_name}」环须归集证据材料", 422)
+    actor = _actor(body)
+    store.insert("frame_ring_record", {
+        "record_id": "fr-" + uuid.uuid4().hex[:10], "case_id": case_id, "ring_no": ring_no,
+        "ring_name": ring_name, "output": output, "evidence": evidence,
+        "operator": actor, "created_at": _now()})
+    if ring_no >= len(chain):
+        store.x("UPDATE frame_chain_case SET status='closed', current_ring=?, updated_at=? "
+                "WHERE case_id=?", (ring_no + 1, _now(), case_id))
+    else:
+        store.x("UPDATE frame_chain_case SET current_ring=?, updated_at=? WHERE case_id=?",
+                (ring_no + 1, _now(), case_id))
+    _audit(actor, "frame.ring.record", case_id, {"ringNo": ring_no})
+    return {"ok": True, "caseId": case_id, "ringNo": ring_no,
+            "closed": ring_no >= len(chain)}
 
 
 @router.get("/architecture/layers")
 def architecture_layers():
     layers = seed.ARCH_LAYERS
-    return {"layers": layers, "summary": {"layers": len(layers)},
+    rows = store.q("SELECT * FROM arch_module ORDER BY layer_no, module_id")
+    modules = [_arch_module(r) for r in rows]
+    bound = len([m for m in modules if m["boundCapability"]])
+    return {"layers": layers, "modules": modules, "accessModes": _ARCH_ACCESS_MODES,
+            "summary": {"layers": len(layers), "modules": len(modules), "bound": bound},
             "fetchedAt": _now()}
 
 
+@router.post("/architecture/modules")
+def arch_module_create(body: dict = Body(default=None)):
+    body = body or {}
+    layer_no = body.get("layerNo")
+    name = (body.get("name") or "").strip()
+    access_mode = (body.get("accessMode") or "").strip()
+    layer = next((L for L in seed.ARCH_LAYERS if L["no"] == layer_no), None)
+    if layer is None:
+        return _err("VALIDATION_FAILED", "所属层级不存在", 422)
+    if not name:
+        return _err("VALIDATION_FAILED", "模块名称必填", 422)
+    if access_mode not in _ARCH_ACCESS_MODES:
+        return _err("VALIDATION_FAILED",
+                    "接入方式须为：" + " / ".join(_ARCH_ACCESS_MODES), 422)
+    dup = store.q1("SELECT module_id FROM arch_module WHERE layer_no=? AND name=?",
+                   (layer_no, name))
+    if dup:
+        return _err("VALIDATION_FAILED", f"「{layer['name']}」下已存在同名模块", 422)
+    actor = _actor(body)
+    mid = "am-" + uuid.uuid4().hex[:8]
+    store.insert("arch_module", {
+        "module_id": mid, "layer_no": layer_no, "layer_name": layer["name"], "name": name,
+        "access_mode": access_mode, "bound_capability": (body.get("boundCapability") or "").strip(),
+        "status": "active", "owner": actor, "created_by": actor,
+        "created_at": _now(), "updated_at": _now()})
+    _audit(actor, "arch.module.create", mid, {"layerNo": layer_no, "accessMode": access_mode})
+    return {"ok": True, "moduleId": mid}
+
+
+@router.patch("/architecture/modules/{module_id}")
+def arch_module_update(module_id: str, body: dict = Body(default=None)):
+    body = body or {}
+    r = store.q1("SELECT * FROM arch_module WHERE module_id=?", (module_id,))
+    if not r:
+        return _err("NOT_FOUND", "模块不存在", 404)
+    sets, args = [], []
+    if "accessMode" in body:
+        am = (body.get("accessMode") or "").strip()
+        if am not in _ARCH_ACCESS_MODES:
+            return _err("VALIDATION_FAILED",
+                        "接入方式须为：" + " / ".join(_ARCH_ACCESS_MODES), 422)
+        sets.append("access_mode=?"); args.append(am)
+    if "boundCapability" in body:
+        sets.append("bound_capability=?"); args.append((body.get("boundCapability") or "").strip())
+    if "status" in body:
+        st = body.get("status")
+        if st not in _ARCH_STATUS_LABEL:
+            return _err("VALIDATION_FAILED", "状态取值非法", 422)
+        sets.append("status=?"); args.append(st)
+    if not sets:
+        return _err("VALIDATION_FAILED", "未提供可更新字段", 422)
+    sets.append("updated_at=?"); args.append(_now()); args.append(module_id)
+    store.x(f"UPDATE arch_module SET {', '.join(sets)} WHERE module_id=?", tuple(args))
+    _audit(_actor(body), "arch.module.update", module_id, {k: body[k] for k in body if k != "actor"})
+    return {"ok": True, "moduleId": module_id}
+
+
+@router.delete("/architecture/modules/{module_id}")
+def arch_module_delete(module_id: str):
+    r = store.q1("SELECT module_id FROM arch_module WHERE module_id=?", (module_id,))
+    if not r:
+        return _err("NOT_FOUND", "模块不存在", 404)
+    store.x("DELETE FROM arch_module WHERE module_id=?", (module_id,))
+    _audit(_current_account(), "arch.module.delete", module_id, {})
+    return {"ok": True, "moduleId": module_id}
+
+
 # ===========================================================================
-# 5.14 十四能力域目录
+# 5.14 十四能力域目录（能力接入登记）
 # ---------------------------------------------------------------------------
-# 第五轮原型扩展（里程碑 M1-2 能力域与场景）：静态只读演示数据，来自 seed 常量。
-# 口径：合成脱敏、全代号化；无机构真名、无绝对路径、无条目数承诺、无厂商与产品
-# 名称；不改动底座与运行台账。返回直接业务 JSON。
+# 第八轮扩展：能力域目录读自 seed（方法论口径），能力实例读自 DB 并可登记 /
+# 停用 / 移除；写落库并留审计，校验失败返回 VALIDATION_FAILED。
 # ===========================================================================
+_CAP_KINDS = ["分类分级", "敏感数据识别", "脱敏", "水印溯源", "接口与日志监测",
+              "加密与密钥", "导出管控", "防泄漏"]
+_CAP_STATUS_LABEL = {"active": "已接入", "suspended": "已停用"}
+
+
+def _cap_instance(r: dict) -> dict:
+    return {"instanceId": r["instance_id"], "domainNo": r["domain_no"],
+            "domainName": r["domain_name"], "name": r["name"], "kind": r["kind"],
+            "input": r["input_desc"], "output": r["output_desc"], "status": r["status"],
+            "statusLabel": _CAP_STATUS_LABEL.get(r["status"], r["status"]),
+            "owner": _owner_name(r["owner"]), "createdAt": r["created_at"]}
+
+
 @router.get("/capabilities")
 def capabilities_domains():
-    items = seed.CAPABILITY_DOMAINS
-    ready = len([x for x in items if x.get("status") == "ready"])
-    return {"capabilities": items,
-            "summary": {"total": len(items), "ready": ready, "planned": len(items) - ready},
+    rows = store.q("SELECT * FROM capability_instance ORDER BY domain_no, instance_id")
+    insts = [_cap_instance(r) for r in rows]
+    by_dom: dict = {}
+    for it in insts:
+        by_dom.setdefault(it["domainNo"], []).append(it)
+    items = []
+    for d in seed.CAPABILITY_DOMAINS:
+        mine = by_dom.get(d["no"], [])
+        active = [x for x in mine if x["status"] == "active"]
+        items.append({**d, "instances": mine,
+                      "status": "ready" if active else "planned",
+                      "instanceCount": len(mine), "activeCount": len(active)})
+    ready = len([x for x in items if x["status"] == "ready"])
+    return {"capabilities": items, "kinds": _CAP_KINDS, "accessModes": _ARCH_ACCESS_MODES,
+            "summary": {"total": len(items), "ready": ready, "planned": len(items) - ready,
+                        "instances": len(insts),
+                        "active": len([x for x in insts if x["status"] == "active"])},
             "fetchedAt": _now()}
 
 
+@router.post("/capabilities/instances")
+def capability_instance_create(body: dict = Body(default=None)):
+    body = body or {}
+    dom = next((d for d in seed.CAPABILITY_DOMAINS if d["no"] == body.get("domainNo")), None)
+    if dom is None:
+        return _err("VALIDATION_FAILED", "所属能力域不存在", 422)
+    name = (body.get("name") or "").strip()
+    kind = (body.get("kind") or "").strip()
+    input_desc = (body.get("input") or "").strip()
+    output_desc = (body.get("output") or "").strip()
+    if not name:
+        return _err("VALIDATION_FAILED", "能力实例名称必填", 422)
+    if kind not in _CAP_KINDS:
+        return _err("VALIDATION_FAILED", "能力类别须为：" + " / ".join(_CAP_KINDS), 422)
+    if not input_desc:
+        return _err("VALIDATION_FAILED", "输入项（调用入参）必填", 422)
+    if not output_desc:
+        return _err("VALIDATION_FAILED", "输出项（返回结果）必填", 422)
+    dup = store.q1("SELECT instance_id FROM capability_instance WHERE domain_no=? AND name=?",
+                   (dom["no"], name))
+    if dup:
+        return _err("VALIDATION_FAILED", f"「{dom['name']}」下已存在同名能力实例", 422)
+    actor = _actor(body)
+    iid = "cap-" + uuid.uuid4().hex[:8]
+    store.insert("capability_instance", {
+        "instance_id": iid, "domain_no": dom["no"], "domain_name": dom["name"], "name": name,
+        "kind": kind, "input_desc": input_desc, "output_desc": output_desc,
+        "status": "active", "owner": actor, "created_by": actor,
+        "created_at": _now(), "updated_at": _now()})
+    _audit(actor, "capability.instance.create", iid, {"domainNo": dom["no"], "kind": kind})
+    return {"ok": True, "instanceId": iid}
+
+
+@router.patch("/capabilities/instances/{instance_id}")
+def capability_instance_update(instance_id: str, body: dict = Body(default=None)):
+    body = body or {}
+    r = store.q1("SELECT * FROM capability_instance WHERE instance_id=?", (instance_id,))
+    if not r:
+        return _err("NOT_FOUND", "能力实例不存在", 404)
+    sets, args = [], []
+    if "status" in body:
+        st = body.get("status")
+        if st not in _CAP_STATUS_LABEL:
+            return _err("VALIDATION_FAILED", "状态取值非法", 422)
+        sets.append("status=?"); args.append(st)
+    if "input" in body:
+        v = (body.get("input") or "").strip()
+        if not v:
+            return _err("VALIDATION_FAILED", "输入项（调用入参）必填", 422)
+        sets.append("input_desc=?"); args.append(v)
+    if "output" in body:
+        v = (body.get("output") or "").strip()
+        if not v:
+            return _err("VALIDATION_FAILED", "输出项（返回结果）必填", 422)
+        sets.append("output_desc=?"); args.append(v)
+    if not sets:
+        return _err("VALIDATION_FAILED", "未提供可更新字段", 422)
+    sets.append("updated_at=?"); args.append(_now()); args.append(instance_id)
+    store.x(f"UPDATE capability_instance SET {', '.join(sets)} WHERE instance_id=?", tuple(args))
+    _audit(_actor(body), "capability.instance.update", instance_id,
+           {k: body[k] for k in body if k != "actor"})
+    return {"ok": True, "instanceId": instance_id}
+
+
+@router.delete("/capabilities/instances/{instance_id}")
+def capability_instance_delete(instance_id: str):
+    r = store.q1("SELECT instance_id FROM capability_instance WHERE instance_id=?", (instance_id,))
+    if not r:
+        return _err("NOT_FOUND", "能力实例不存在", 404)
+    store.x("DELETE FROM capability_instance WHERE instance_id=?", (instance_id,))
+    _audit(_current_account(), "capability.instance.delete", instance_id, {})
+    return {"ok": True, "instanceId": instance_id}
+
+
 # ===========================================================================
-# 5.15 实施路径（四阶段 × 六列）
+# 5.15 实施路径（四阶段 × 六列 · 转段判定）
 # ---------------------------------------------------------------------------
-# 第六轮原型扩展（里程碑 M1-3 实施路径）：静态只读演示数据，来自 seed 常量。
-# 口径：合成脱敏、全代号化；首轮起点主题不预设；无机构真名、无绝对路径、无
-# 条目数承诺、无厂商与产品名称；不改动底座与运行台账。返回直接业务 JSON。
+# 第八轮扩展：阶段状态与转段判据读自 DB（path_stage_state / path_gate_item），
+# 支持「勾选判据」与「转段」；转段前置为当前阶段判据全部判定通过。
 # ===========================================================================
+_STAGE_ORDER = [s["stage"] for s in seed.IMPLEMENTATION_PATH]
+_STAGE_STATUS_LABEL = {"pending": "未开始", "in_progress": "进行中", "done": "已完成"}
+
+
+def _gate_rec(r: dict) -> dict:
+    return {"itemId": r["item_id"], "stage": r["stage"], "seq": r["seq"], "text": r["text"],
+            "checked": bool(r["checked"]), "checkedBy": _owner_name(r["checked_by"]) if r["checked_by"] else "",
+            "checkedAt": r["checked_at"]}
+
+
 @router.get("/implementation/path")
 def implementation_path():
-    stages = seed.IMPLEMENTATION_PATH
-    return {"stages": stages, "summary": {"stages": len(stages)},
+    states = {s["stage"]: s for s in store.q("SELECT * FROM path_stage_state")}
+    gates = store.q("SELECT * FROM path_gate_item ORDER BY stage, seq")
+    g_by_stage: dict = {}
+    for g in gates:
+        g_by_stage.setdefault(g["stage"], []).append(_gate_rec(g))
+    stages = []
+    for s in seed.IMPLEMENTATION_PATH:
+        st = s["stage"]
+        row = states.get(st, {})
+        items = g_by_stage.get(st, [])
+        done_n = len([x for x in items if x["checked"]])
+        status = row.get("status", "pending")
+        stages.append({**s, "status": status,
+                       "statusLabel": _STAGE_STATUS_LABEL.get(status, status),
+                       "startedAt": row.get("started_at"), "finishedAt": row.get("finished_at"),
+                       "gateItems": items, "gateTotal": len(items), "gateDone": done_n,
+                       "canAdvance": status == "in_progress" and len(items) > 0 and done_n == len(items)})
+    statuses = [{"stage": s["stage"], "status": s["status"], "statusLabel": s["statusLabel"]}
+                for s in stages]
+    return {"stages": stages, "stageStatus": statuses,
+            "summary": {"stages": len(stages),
+                        "done": len([x for x in stages if x["status"] == "done"]),
+                        "inProgress": len([x for x in stages if x["status"] == "in_progress"]),
+                        "gates": len(gates),
+                        "gatesChecked": len([x for x in gates if x["checked"]])},
             "fetchedAt": _now()}
 
 
+@router.post("/implementation/path/gates/{item_id}/check")
+def path_gate_check(item_id: str, body: dict = Body(default=None)):
+    body = body or {}
+    r = store.q1("SELECT * FROM path_gate_item WHERE item_id=?", (item_id,))
+    if not r:
+        return _err("NOT_FOUND", "转段判据不存在", 404)
+    st = store.q1("SELECT status FROM path_stage_state WHERE stage=?", (r["stage"],))
+    if not st or st["status"] != "in_progress":
+        return _err("VALIDATION_FAILED", "仅「进行中」阶段可判定转段判据", 422)
+    checked = 1 if body.get("checked", True) else 0
+    actor = _actor(body)
+    store.x("UPDATE path_gate_item SET checked=?, checked_by=?, checked_at=? WHERE item_id=?",
+            (checked, actor if checked else None, _now() if checked else None, item_id))
+    _audit(actor, "path.gate.check", item_id, {"stage": r["stage"], "checked": bool(checked)})
+    return {"ok": True, "itemId": item_id, "checked": bool(checked)}
+
+
+@router.post("/implementation/path/stages/{stage}/advance")
+def path_stage_advance(stage: str, body: dict = Body(default=None)):
+    if stage not in _STAGE_ORDER:
+        return _err("VALIDATION_FAILED", "阶段不存在", 422)
+    cur = store.q1("SELECT * FROM path_stage_state WHERE stage=?", (stage,))
+    if not cur:
+        return _err("NOT_FOUND", "阶段状态不存在", 404)
+    if cur["status"] != "in_progress":
+        return _err("VALIDATION_FAILED", "仅「进行中」阶段可转段", 422)
+    items = store.q("SELECT * FROM path_gate_item WHERE stage=? ORDER BY seq", (stage,))
+    un = [x["text"] for x in items if not x["checked"]]
+    if un:
+        return _err("VALIDATION_FAILED", f"转段判据未全部通过，还剩 {len(un)} 项未判定", 422,
+                    {"missing": un[:6]})
+    actor = _actor(body)
+    store.x("UPDATE path_stage_state SET status='done', finished_at=?, updated_by=?, "
+            "updated_at=? WHERE stage=?", (_now(), actor, _now(), stage))
+    idx = _STAGE_ORDER.index(stage)
+    nxt = _STAGE_ORDER[idx + 1] if idx + 1 < len(_STAGE_ORDER) else None
+    if nxt:
+        store.x("UPDATE path_stage_state SET status='in_progress', started_at=?, updated_by=?, "
+                "updated_at=? WHERE stage=? AND status='pending'",
+                (_now(), actor, _now(), nxt))
+    _audit(actor, "path.stage.advance", stage, {"next": nxt or ""})
+    return {"ok": True, "stage": stage, "nextStage": nxt, "allDone": nxt is None}
+
+
 # ===========================================================================
-# 5.16 留存资产与报告脱敏样例
+# 5.16 留存资产（登记 / 归档）与报告脱敏样例（只读）
 # ---------------------------------------------------------------------------
-# 第七轮原型扩展（里程碑 M1-4 资产与样例）：静态只读演示数据，来自 seed 常量。
-# 口径：合成脱敏、全代号化；无机构真名、无绝对路径、无条目数承诺、无厂商与产品
-# 名称；不改动底座与运行台账。返回直接业务 JSON。
+# 第八轮扩展：留存资产读自 DB（retained_asset_record），支持登记、归档与移除；
+# 报告样例保持只读。写落库并留审计，校验失败返回 VALIDATION_FAILED。
 # ===========================================================================
+_ASSET_STATUS_LABEL = {"在册": "在册", "已归档": "已归档"}
+
+
+def _asset_rec(r: dict) -> dict:
+    return {"assetId": r["asset_id"], "name": r["name"], "category": r["category"],
+            "sourceStage": r["source_stage"], "ref": r["ref"] or "", "status": r["status"],
+            "statusLabel": _ASSET_STATUS_LABEL.get(r["status"], r["status"]),
+            "owner": _owner_name(r["owner"]), "createdAt": r["created_at"],
+            "archivedAt": r["archived_at"]}
+
+
 @router.get("/assets")
 def retained_assets():
-    items = seed.RETAINED_ASSETS
-    return {"assets": items, "summary": {"total": len(items)},
+    rows = store.q("SELECT * FROM retained_asset_record ORDER BY created_at, asset_id")
+    items = [_asset_rec(r) for r in rows]
+    stage_names = ["现状诊断", "首轮自查", "逐轮交付", "每轮复核后"]
+    return {"assets": items, "categories": _ASSET_CATEGORIES, "sourceStages": stage_names,
+            "summary": {"total": len(items),
+                        "active": len([x for x in items if x["status"] == _ASSET_ACTIVE]),
+                        "archived": len([x for x in items if x["status"] == _ASSET_ARCHIVED])},
             "fetchedAt": _now()}
+
+
+@router.post("/assets")
+def asset_create(body: dict = Body(default=None)):
+    body = body or {}
+    name = (body.get("name") or "").strip()
+    category = (body.get("category") or "").strip()
+    if not name:
+        return _err("VALIDATION_FAILED", "资产名称必填", 422)
+    if category not in _ASSET_CATEGORIES:
+        return _err("VALIDATION_FAILED", "资产类别须为：" + " / ".join(_ASSET_CATEGORIES), 422)
+    dup = store.q1("SELECT asset_id FROM retained_asset_record WHERE name=? AND status=?",
+                   (name, _ASSET_ACTIVE))
+    if dup:
+        return _err("VALIDATION_FAILED", f"在册资产中已存在同名「{name}」", 422)
+    actor = _actor(body)
+    aid = "asset-" + uuid.uuid4().hex[:8]
+    store.insert("retained_asset_record", {
+        "asset_id": aid, "name": name, "category": category,
+        "source_stage": (body.get("sourceStage") or "").strip(),
+        "ref": (body.get("ref") or "").strip(), "status": _ASSET_ACTIVE, "owner": actor,
+        "created_by": actor, "created_at": _now(), "archived_at": None, "updated_at": _now()})
+    _audit(actor, "asset.create", aid, {"category": category})
+    return {"ok": True, "assetId": aid}
+
+
+@router.post("/assets/{asset_id}/archive")
+def asset_archive(asset_id: str, body: dict = Body(default=None)):
+    r = store.q1("SELECT * FROM retained_asset_record WHERE asset_id=?", (asset_id,))
+    if not r:
+        return _err("NOT_FOUND", "留存资产不存在", 404)
+    if r["status"] == _ASSET_ARCHIVED:
+        return _err("VALIDATION_FAILED", "该资产已归档", 422)
+    actor = _actor(body or {})
+    store.x("UPDATE retained_asset_record SET status=?, archived_at=?, updated_at=? "
+            "WHERE asset_id=?", (_ASSET_ARCHIVED, _now(), _now(), asset_id))
+    _audit(actor, "asset.archive", asset_id, {"status": _ASSET_ARCHIVED})
+    return {"ok": True, "assetId": asset_id, "status": _ASSET_ARCHIVED}
+
+
+@router.delete("/assets/{asset_id}")
+def asset_delete(asset_id: str):
+    r = store.q1("SELECT asset_id FROM retained_asset_record WHERE asset_id=?", (asset_id,))
+    if not r:
+        return _err("NOT_FOUND", "留存资产不存在", 404)
+    store.x("DELETE FROM retained_asset_record WHERE asset_id=?", (asset_id,))
+    _audit(_current_account(), "asset.delete", asset_id, {})
+    return {"ok": True, "assetId": asset_id}
 
 
 @router.get("/report/sample")

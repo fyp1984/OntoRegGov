@@ -44,6 +44,7 @@
   DZ.post  = function(path, body){ return DZ.api(path, Object.assign({method:'POST',  body:JSON.stringify(body||{})}, _json)); };
   DZ.patch = function(path, body){ return DZ.api(path, Object.assign({method:'PATCH', body:JSON.stringify(body||{})}, _json)); };
   DZ.put   = function(path, body){ return DZ.api(path, Object.assign({method:'PUT',   body:JSON.stringify(body||{})}, _json)); };
+  DZ.del   = function(path){ return DZ.api(path, Object.assign({method:'DELETE'}, _json)); };
 
   // ---------- 徽章 / 标签 ----------
   const BADGE = {ok:'b-ok', warn:'b-warn', bad:'b-bad', unk:'b-unk', p0:'b-p0', p1:'b-p1', p2:'b-p2'};
@@ -168,7 +169,11 @@
     '发现':['bad','发现'], '已分派':['warn','已分派'], '整改中':['warn','整改中'],
     '待复检':['warn','待复检'], '通过':['ok','通过'], '关闭':['ok','关闭'],
     '待处理':['warn','待处理'], '待审核':['warn','待审核'], '已通过':['ok','已通过'],
-    '已驳回':['bad','已驳回'], '部分符合':['warn','部分符合'], '需补充':['unk','需补充']
+    '已驳回':['bad','已驳回'], '部分符合':['warn','部分符合'], '需补充':['unk','需补充'],
+    '在册':['ok','在册'], '已归档':['unk','已归档'], '已接入':['ok','已接入'], '已停用':['unk','已停用'],
+    '推进中':['warn','推进中'], '已闭环':['ok','已闭环'], '未开始':['unk','未开始'], '已完成':['ok','已完成'],
+    '已对上':['ok','已对上'], '部分对上':['warn','部分对上'], '未对上':['bad','未对上'],
+    '已指派':['ok','已指派']
   };
   DZ.statusBadge = function(status){
     const k = String(status==null?'':status);
@@ -196,7 +201,16 @@
     'admin.doc.register':'登记文号','admin.doc.confirm':'确认文号结构','admin.user.status':'启用/停用账号',
     'admin.org.create':'新增组织节点','admin.rule.update':'更新分配规则','admin.audit.export':'导出审计记录',
     'settings.retention.update':'更新数据保存策略','settings.retention.reset':'恢复默认数据保存策略',
-    'scenario.create':'创建场景包','scenario.launch':'启动场景包','plugin.invoke':'插件调用'
+    'scenario.create':'创建场景包','scenario.launch':'启动场景包','plugin.invoke':'插件调用',
+    'diag.assessment.create':'创建诊断批次','diag.answer.save':'保存诊断作答','diag.assessment.submit':'提交现状诊断',
+    'ledger.row.create':'登记对账行','ledger.row.update':'更新对账行','ledger.row.delete':'移除对账行',
+    'issue.disposal.create':'创建处置工单','issue.disposal.assign':'指派处置责任','issue.disposal.advance':'推进处置工单',
+    'issue.disposal.close':'关闭处置工单','issue.disposal.delete':'移除处置工单',
+    'frame.case.create':'新建闭合链案件','frame.ring.record':'登记闭合链环节',
+    'arch.module.create':'登记层模块','arch.module.update':'更新层模块','arch.module.delete':'移除层模块',
+    'capability.instance.create':'登记能力实例','capability.instance.update':'更新能力实例','capability.instance.delete':'移除能力实例',
+    'path.gate.check':'判定转段判据','path.stage.advance':'实施阶段转段',
+    'asset.create':'登记留存资产','asset.archive':'归档留存资产','asset.delete':'移除留存资产'
   };
   DZ.actionLabel = function(code){ return ACTION_LABEL[code] || code || '—'; };
   // 反向查：把界面上的中文动作名还原为后端动作码（用于审计筛选）
