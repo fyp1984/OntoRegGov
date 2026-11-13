@@ -2082,3 +2082,19 @@ def architecture_layers():
     layers = seed.ARCH_LAYERS
     return {"layers": layers, "summary": {"layers": len(layers)},
             "fetchedAt": _now()}
+
+
+# ===========================================================================
+# 5.14 十四能力域目录
+# ---------------------------------------------------------------------------
+# 第五轮原型扩展（里程碑 M1-2 能力域与场景）：静态只读演示数据，来自 seed 常量。
+# 口径：合成脱敏、全代号化；无机构真名、无绝对路径、无条目数承诺、无厂商与产品
+# 名称；不改动底座与运行台账。返回直接业务 JSON。
+# ===========================================================================
+@router.get("/capabilities")
+def capabilities_domains():
+    items = seed.CAPABILITY_DOMAINS
+    ready = len([x for x in items if x.get("status") == "ready"])
+    return {"capabilities": items,
+            "summary": {"total": len(items), "ready": ready, "planned": len(items) - ready},
+            "fetchedAt": _now()}
