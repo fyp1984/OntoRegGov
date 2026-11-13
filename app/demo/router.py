@@ -2112,3 +2112,24 @@ def implementation_path():
     stages = seed.IMPLEMENTATION_PATH
     return {"stages": stages, "summary": {"stages": len(stages)},
             "fetchedAt": _now()}
+
+
+# ===========================================================================
+# 5.16 留存资产与报告脱敏样例
+# ---------------------------------------------------------------------------
+# 第七轮原型扩展（里程碑 M1-4 资产与样例）：静态只读演示数据，来自 seed 常量。
+# 口径：合成脱敏、全代号化；无机构真名、无绝对路径、无条目数承诺、无厂商与产品
+# 名称；不改动底座与运行台账。返回直接业务 JSON。
+# ===========================================================================
+@router.get("/assets")
+def retained_assets():
+    items = seed.RETAINED_ASSETS
+    return {"assets": items, "summary": {"total": len(items)},
+            "fetchedAt": _now()}
+
+
+@router.get("/report/sample")
+def report_sample():
+    sample = seed.REPORT_SAMPLE
+    return {"header": sample.get("header", {}), "five": sample.get("five", {}),
+            "fetchedAt": _now()}

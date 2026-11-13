@@ -26,7 +26,7 @@ const ARGS = process.argv.slice(2);
 // 视图清单（与 app/web/static/index.html 的 nav + section 对齐）
 // 说明：checkslib（监管检查库）已并入知识库上方标签 #kb_nav（data-nav="checks"）；
 //       kbqa（知识检索问答）、selfcheck（合规自查）已按需求下线。
-const MAIN_VIEWS = ['kbdash', 'dsk', 'pipeline', 'dsc', 'rem', 'rep', 'diag', 'ledger', 'issues', 'gov', 'ext', 'frame', 'arch', 'capability', 'path'];
+const MAIN_VIEWS = ['kbdash', 'dsk', 'pipeline', 'dsc', 'rem', 'rep', 'diag', 'ledger', 'issues', 'gov', 'ext', 'frame', 'arch', 'capability', 'path', 'assets'];
 const KB_ROUTES = ['home', 'graph', 'path', 'timeline', 'cases', 'controls', 'checks'];
 
 // 降级/异常"状态"短语（判定必须是状态化，见 detectInPage）
@@ -320,6 +320,39 @@ async function main(chromium) {
     }
   }
 
+  /* [3.6] 交互冒烟：报告与看板 · 报告样例页签（只验入口不足，必须真点一次） */
+  hr('[3.6] 交互冒烟 · 报告与看板（切「报告样例」页签 → 五项结构）');
+  {
+    await page.locator('#nav a[data-v="rep"]').first().click();
+    await page.waitForTimeout(1200);
+    const tab = page.locator('#rep_tabs button.dz-tab[data-key="sample"]');
+    if (!(await tab.count())) {
+      problems.push('报告样例页签缺失（#rep_tabs .dz-tab[data-key="sample"]）');
+      log('FAIL  报告样例页签缺失');
+    } else {
+      await tab.first().click();
+      await page.waitForTimeout(2000);
+      const r = await page.evaluate(() => {
+        const box = document.getElementById('rep_sample');
+        return {
+          len: (box?.innerText || '').replace(/\s+/g, ' ').trim().length,
+          heads: box?.querySelectorAll('h3').length || 0,
+          tables: box?.querySelectorAll('table').length || 0,
+          hasBad: !!(box?.querySelector('.badge.b-bad, .dz-banner.bad')),
+        };
+      });
+      const ok = r.len > 300 && r.heads >= 5 && r.tables >= 2 && !r.hasBad;
+      if (!ok) problems.push('报告样例未正常渲染：len=' + r.len + ' heads=' + r.heads +
+                             ' tables=' + r.tables + ' bad=' + r.hasBad);
+      log((ok ? 'PASS' : 'FAIL').padEnd(5), '报告样例五项结构',
+          '字符=' + String(r.len).padStart(5),
+          '分块=' + String(r.heads).padStart(3),
+          '表格=' + String(r.tables).padStart(3),
+          ok ? '' : '→ 未正常渲染');
+      checked++;
+    }
+  }
+
   /* [4] JS 异常与失败请求 */
   hr('[4] JS 异常 / 网络失败');
   log('pageerror + console.error :', jsErrs.length ? '\n  ' + jsErrs.slice(0, 8).join('\n  ') : '(none)');
@@ -332,7 +365,7 @@ async function main(chromium) {
   /* 汇总 */
   hr('汇总');
   log('核验项数：' + checked +
-      '（主视图 ' + MAIN_VIEWS.length + ' + 知识子路由 ' + KB_ROUTES.length + ' + 交互冒烟 1）');
+      '（主视图 ' + MAIN_VIEWS.length + ' + 知识子路由 ' + KB_ROUTES.length + ' + 交互冒烟 2）');
   if (problems.length === 0) {
     log('结论：PASS —— 全部视图渲染正常，无降级状态、无 JS 异常、无失败请求');
     return 0;

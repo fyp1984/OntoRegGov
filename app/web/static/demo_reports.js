@@ -17,16 +17,18 @@
   const API = {
     progress: '/api/selfcheck/progress',
     report: function(id){ return '/api/selfcheck/tasks/' + encodeURIComponent(id) + '/report?fmt=json'; },
-    reportMd: function(id){ return '/api/selfcheck/tasks/' + encodeURIComponent(id) + '/report/md'; }
+    reportMd: function(id){ return '/api/selfcheck/tasks/' + encodeURIComponent(id) + '/report/md'; },
+    sample: '/api/report/sample'
   };
 
-  // 视图状态（跨重入保留当前选中任务与当前页签）
-  const state = { tasks: [], selectedTaskId: null, tab: 'overview' };
+  // 视图状态（跨重入保留当前选中任务、当前页签与样例缓存）
+  const state = { tasks: [], selectedTaskId: null, tab: 'overview', sample: null };
 
-  // 页签定义：把原先纵向堆叠的 6 个板块按"看态势 / 看任务报告"两类互斥呈现，避免单页拥挤。
+  // 页签定义：把原先纵向堆叠的 6 个板块按"看态势 / 看任务报告 / 看样例"三类互斥呈现，避免单页拥挤。
   const TABS = [
     { key: 'overview', label: '态势总览' },
-    { key: 'tasks',    label: '任务与报告' }
+    { key: 'tasks',    label: '任务与报告' },
+    { key: 'sample',   label: '报告样例' }
   ];
 
   // ---------- 小工具 ----------
@@ -83,6 +85,12 @@
       '<div class="dz-pane" data-pane="tasks" hidden>' +
         '<div class="card"><h3>自查任务</h3><div id="rep_tasks" class="dz-table-wrap">' + DZ.skeleton(3) + '</div></div>' +
         '<div class="card"><h3>行业版报告</h3><div id="rep_report">' + DZ.skeleton(4) + '</div></div>' +
+      '</div>' +
+      // 页签三：报告样例（脱敏示例，展示自查报告的五项结构与填写方式）
+      '<div class="dz-pane" data-pane="sample" hidden>' +
+        '<div class="card"><h3>报告脱敏样例</h3>' +
+          '<div id="rep_sample">' + DZ.skeleton(4) + '</div>' +
+        '</div>' +
       '</div>';
   }
 
@@ -106,6 +114,8 @@
     if (key === 'tasks' && !state.selectedTaskId && state.tasks.length){
       selectTask(state.tasks[0].taskId, true);
     }
+    // 切到"报告样例"时按需加载（已缓存则直接复用）
+    if (key === 'sample') loadSample();
   }
 
   // ---------- 挂载 ----------
@@ -437,6 +447,32 @@
     '</div>';
 
     return html;
+  }
+
+  // ---------- 报告脱敏样例（附录 B 形态，复用五项结构渲染） ----------
+  function renderSample(d){
+    if (!d || d.error){
+      const msg = errMsg(d);
+      DZ.render('#rep_sample', DZ.banner('bad', '样例加载失败：' + msg, function(){ loadSample(true); }));
+      return;
+    }
+    const h = d.header || {};
+    let html = '<div class="dz-toolbar">' +
+      '<span class="pill" title="样例机构">' + DZ.esc(h.org || '—') + '</span>' +
+      '<span class="muted" title="样例主题">' + DZ.esc(h.topic || '') +
+        (h.cycle ? ' · ' + DZ.esc(h.cycle) : '') + '</span></div>' +
+      (h.review ? '<div class="muted" style="margin-bottom:8px">' + DZ.esc(h.review) + '</div>' : '') +
+      '<div class="muted" style="margin-bottom:8px">样例为脱敏示例，机构、系统、岗位、主题、字段与数据均为示例化、代号化内容。</div>';
+    html += renderFive(d.five);
+    DZ.render('#rep_sample', html);
+  }
+
+  async function loadSample(force){
+    if (state.sample && !force){ renderSample(state.sample); return; }
+    if (force) DZ.render('#rep_sample', DZ.skeleton(4));
+    const d = await DZ.get(API.sample);
+    state.sample = d;
+    renderSample(d);
   }
 
   // 单条检查项：checkCode / title / result / priority / 佐证完整性 / 内容完备性 / 是否合规 / 差距 / 整改建议 / 专家意见

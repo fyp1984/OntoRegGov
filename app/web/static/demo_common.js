@@ -278,7 +278,8 @@
     dsk:      {group:'平台与治理', title:'运行驾驶舱'},
     frame:    {group:'平台与治理', title:'治理框架'},
     arch:     {group:'平台与治理', title:'平台架构'},
-    path:     {group:'实施与资产', title:'实施路径'}
+    path:     {group:'实施与资产', title:'实施路径'},
+    assets:   {group:'实施与资产', title:'留存资产'}
   };
   DZ.VIEW_META = VIEW_META;
 
