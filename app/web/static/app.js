@@ -31,134 +31,115 @@ function navToggle(){
   document.querySelector('.wrap').classList.toggle('nav-collapsed');
 }
 
-// ---------- 合规自查（InspectionRun/CheckResult）----------
-let scCurrent = null;      // 当前检查项详情
-let scLastRun = {};         // key=target|check -> {runId, result}
-let scLastRunId = null;     // 最近一次提交生成的运行ID（供生成自查报告）
-async function scInit() {
-  const [assets, checks] = await Promise.all([
-    api('/api/entities?type=DataAsset&status=published'),
-    api('/api/checks?priority=P0'),
-  ]);
-  $('#sc_target').innerHTML = assets.entities.map(x=>`<option value="${x.id}">${x.label}</option>`).join('');
-  $('#sc_check').innerHTML = checks.checks.map(c=>`<option value="${c.checkCode}">${c.checkCode} ${c.title}</option>`).join('');
-  await scLoadCheck();
-}
-async function scLoadCheck() {
-  const code = $('#sc_check').value || '1.1';
-  scCurrent = await api('/api/checks/' + code);
-  const lvColor = {L1:'#1B4FE4',L2:'#3a6bf0',L3:'#6d90f5',L4:'#e08a00',L5:'#2a9d5c'};
-  const el = (scCurrent.elements||[]).map((e,i)=>{
-    const lvs = (e.focusLevels||'').split(',').filter(Boolean);
-    return `<tr><td>${e.code}</td><td>${e.text}<br><span class="muted">口径：${e.criteria||''}</span></td>
-      <td>${lvs.map(l=>`<span style="color:${lvColor[l]}" class="pill">${l}</span>`).join(' ')}</td>
-      <td><label><input type="checkbox" id="el_l1_${i}" ${lvs.includes('L4')?'':'checked'}> 制度具备</label>
-          <br><select id="el_l4_${i}"><option value="provided">证据已提供</option><option value="missing">证据缺失</option></select></td></tr>`;
-  }).join('');
-  const ev = (scCurrent.methodSteps||[]).filter(s=>s.stepKind==='evidence')
-    .map(s=>`<li>[证据${s.stepNo}] ${s.action} — <span class="muted">${s.focus||''}</span></li>`).join('');
-  const mt = (scCurrent.metrics||[]).map((m,i)=>
-    `<tr><td>${m.name}</td><td><span class="muted">${m.dataSource||''}</span></td><td>${m.threshold}</td>
-      <td><input id="mt_${i}" placeholder="实际值" style="width:90px"></td></tr>`).join('');
-  $('#sc_form').innerHTML = `
-    <h4>${scCurrent.checkCode} ${scCurrent.title} <span class="pill">${scCurrent.priority}</span></h4>
-    <details open><summary>逐要素录入（L1制度 / L4证据）</summary><table>
-      <tr><th>要素</th><th>检查内容·口径</th><th>关注层级</th><th>录入</th></tr>${el}</table></details>
-    <details><summary>对照证据要求（method.evidence_steps）</summary><ul>${ev||'<li>—</li>'}</ul></details>
-    <details><summary>L5 效果·度量实际值（后端阈值判定）</summary><table>
-      <tr><th>度量</th><th>数据来源</th><th>阈值</th><th>实际值</th></tr>${mt||'<tr><td colspan=4>本检查无度量</td></tr>'}</table></details>`;
-}
-async function scSubmit() {
-  if (!scCurrent) return alert('先载入检查项');
-  const els = scCurrent.elements||[];
-  const elements = els.map((e,i)=>({
-    code: e.code,
-    l1_ok: $(`#el_l1_${i}`).checked,
-    l4_evidence: $(`#el_l4_${i}`).value,
-    note: e.text,
-  }));
-  const metrics = (scCurrent.metrics||[]).map((m,i)=>({
-    metricId: m.name, threshold: m.threshold,
-    actual: $(`#mt_${i}`).value.trim(),
-  }));
-  const target = $('#sc_target').value;
-  const actor = ACTOR;
-  const run = await api('/api/inspection/runs', {method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({inspectedTarget: target, inspector: actor, actor})});
-  const res = await api(`/api/inspection/runs/${run.runId}/results`, {method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({checkCode: scCurrent.checkCode, elements, metrics, actor})});
-  const key = target + '|' + scCurrent.checkCode;
-  const prev = scLastRun[key];
-  scLastRun[key] = {runId: run.runId, result: res.result};
-  scRenderResult(res, prev, run.runId, key);
-}
-function scBadge(r){return `<span class="badge b-${r==='pass'?'ok':r==='partial'?'warn':'bad'}">${r}</span>`;}
-function scRenderResult(res, prev, runId, key) {
-  scLastRunId = runId;
-  const w = res.why||{};
-  const elRows = (w.elements||[]).map(e=>
-    `<tr><td>${e.code}</td><td>${scBadge(e.result)}</td><td>${e.why}</td></tr>`).join('');
-  const mtRows = (w.metrics||[]).map(m=>
-    `<tr><td>${m.metricId||''}</td><td>${m.threshold||''}</td><td>${m.actual??'—'}</td>
-      <td>${scBadge(m.status==='pass'?'pass':m.status==='fail'?'fail':m.status)}</td></tr>`).join('');
-  const fp = (scCurrent.findings||[]).map(f=>
-    `<li><b>问题</b>${f.problem}<br><span class="muted">根因：${f.rootCause}；整改：${f.remediation}</span></li>`).join('');
-  let cmp = '';
-  if (prev && prev.result !== res.result)
-    cmp = `<p class="muted">重检对比：${prev.result} → <b>${res.result}</b>（run ${prev.runId} → ${runId}）</p>`;
-  else if (prev)
-    cmp = `<p class="muted">本对象+该检查已跑过 ${prev.result}（run ${prev.runId}）；本次仍 ${res.result}。</p>`;
-  $('#sc_result').innerHTML = `
-    <p>结论：${scBadge(res.result)}　runId=${runId}　提案=${res.proposalId||'（无）'}</p>${cmp}
-    <table><tr><th>要素</th><th>判定</th><th>why</th></tr>${elRows||'<tr><td colspan=3>—</td></tr>'}</table>
-    <details open><summary>L5 度量判定（阈值对照）</summary><table>
-      <tr><th>度量</th><th>阈值</th><th>实际</th><th>判定</th></tr>${mtRows||'<tr><td colspan=4>—</td></tr>'}</table></details>
-    ${(res.result==='fail'||res.result==='partial')?`<details open><summary>常见问题/根因/整改（FindingPattern）</summary><ul>${fp||'<li>—</li>'}</ul></details>`:''}
-    <p><button onclick="scProposal('${runId}')">一键发起知识缺口提案</button>
-       <button class="ghost" onclick="scSubmit()">对同一对象+检查重检</button>
-       <button class="ghost" onclick="scReport()">生成合规自查报告</button></p>`;
-}
+// ---------- 合规自查（v1.18.0：OpenClaw 智能体版）----------
+// 前端只负责输入（合规文件 + 被检查目录）与输出（逐检查项结果 + PDF 报告），
+// 全部检查逻辑由后端 openclaw 智能体完成；每注册用户在同一 gateway 内
+// 拥有专属 agent（轻隔离），访客共用 guest agent。
+const SC_R = {pass:'符合', partial:'部分符合', fail:'不符合', missing:'证据缺失', manual:'需人工'};
+const SC_V = SC_R;
+function scBadge(r){return `<span class="badge b-${r==='pass'?'ok':r==='partial'?'warn':r==='missing'?'unk':'bad'}">${SC_R[r]||r||'—'}</span>`;}
+let scPollTimer = null, scLastRunId = null;
 
-// 合规自查报告（PRD M4.5/O5）：差距 + 整改建议 + 专家意见；确定性派生，同输入同输出
-const SC_V = {pass:'符合', partial:'部分符合', fail:'不符合'};
-async function scReport(){
-  if (!scLastRunId) return alert('请先提交一次自查，再生成报告');
-  const rep = await api('/api/inspection/runs/' + scLastRunId + '/report').catch(()=>null);
-  if (!rep || rep.error){ $('#sc_report_out').innerHTML = '<p class="muted">报告生成失败：' + esc((rep&&rep.error&&rep.error.message)||'接口不可达') + '</p>'; return; }
-  const s = rep.summary || {};
-  const vb = r => `<span class="badge b-${r==='pass'?'ok':r==='partial'?'warn':'bad'}">${SC_V[r]||r}</span>`;
-  const items = (rep.items||[]).map(i => `
-    <details${i.result!=='pass'?' open':''}><summary>${esc(i.checkCode)} ${esc(i.title)} ${vb(i.result)}${i.priority?` <span class="pill">${esc(i.priority)}</span>`:''}</summary>
-      <p class="muted">依据：${esc(((i.regulation||'')+' '+(i.articleNo||'')).trim()||'—')}
-        ｜佐证：已提供 ${i.evidence.provided} / 缺失 ${i.evidence.missing} / 无制度 ${i.evidence.absent}
-        ｜佐证${i.evidenceComplete?'完整':'不完整'} / 内容${i.contentAdequate?'完备':'不完备'} / ${i.compliant?'符合监管要求':'未达监管要求'}</p>
-      ${(i.gaps||[]).length?`<p><b>差距</b></p><ul>${i.gaps.map(g=>`<li>[${esc(g.type)}] ${esc(g.code||'—')}：${esc(g.detail)}</li>`).join('')}</ul>`:''}
-      ${(i.remediation||[]).length?`<p><b>整改建议</b></p><ul>${i.remediation.map(r=>`<li>${esc(r.action)}<span class="muted">（依据：${esc(r.basis)}）</span></li>`).join('')}</ul>`:''}
-      <p><b>专家意见</b>：${esc(i.expertOpinion)}</p>
-    </details>`).join('');
-  const gaps = rep.gapSummary||[], experts = rep.expertOpinions||[];
-  $('#sc_report_out').innerHTML = `
-    <p>被查对象：<b>${esc(rep.inspectedTarget||'—')}</b>　检查人：${esc(rep.inspector||'—')}
-      　运行：<code>${esc(rep.runId)}</code>　生成：${esc((rep.generatedAt||'').replace('T',' '))}　总体：${vb(s.overall)}</p>
-    <div>
-      <span class="stat"><b>${s.complianceRate||0}%</b>合规率</span>
-      <span class="stat"><b>${s.evidenceCompleteness||0}%</b>佐证完整性</span>
-      <span class="stat"><b>${s.contentAdequacy||0}%</b>内容完备性</span>
-      <span class="stat"><b>${s.pass||0}/${s.partial||0}/${s.fail||0}</b>符合/部分/不符合</span>
-    </div>
-    <h4>一、逐条自查结论与差距</h4>${items||'<p class="muted">无</p>'}
-    <h4>二、差距汇总</h4>${gaps.length?`<ul>${gaps.map(g=>`<li>${esc(g.checkCode)} [${esc(g.type)}] ${esc(g.code||'—')}：${esc(g.detail)}</li>`).join('')}</ul>`:'<p class="muted">无</p>'}
-    <h4>三、专家意见汇总</h4>${experts.length?`<ul>${experts.map(e=>`<li>[${esc(e.priority||'—')}] ${esc(e.checkCode)}：${esc(e.opinion)}</li>`).join('')}</ul>`:'<p class="muted">无</p>'}`;
-  const dl = $('#sc_report_dl');
-  if (dl){ dl.href = '/api/inspection/runs/' + scLastRunId + '/report.md'; dl.style.display = 'inline'; }
+function scUserKey(){ const u=($('#sc_user').value||'').trim(); return u? 'u:'+u : 'default'; }
+
+async function scInit(){
+  scLoadTitles();
+  scLoadAgentStatus();
+  // 记住上次输入
+  try{
+    const d=localStorage.getItem('sc_dir'); if(d) $('#sc_dir').value=d;
+    const u=localStorage.getItem('sc_user'); if(u) $('#sc_user').value=u;
+  }catch(e){}
+  // 默认展示最近一次执行结果记录（服务端查最新，跨浏览器一致；执行中则继续轮询）
+  const lst=await api('/api/selfcheck/runs?limit=1').catch(()=>null);
+  const latest=lst&&lst.runs&&lst.runs[0];
+  if(latest){ scLastRunId=latest.runId; scPoll(latest.runId); }
 }
-async function scProposal(runId) {
-  const r = await api('/api/proposals', {method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({reason: `检查项 ${scCurrent.checkCode}（${scCurrent.title}）自查存在知识缺口，需专家补全证据要求/判定规则/阈值`,
-      targetKind: 'EvidenceRequirement', raisedFrom: runId,
-      payload: {checkCode: scCurrent.checkCode, runId}, actor: ACTOR})});
-  alert('已发起提案 ' + (r.id||JSON.stringify(r)) + '，请到「待审核队列」查看。');
+async function scLoadTitles(){
+  const doc=$('#sc_doc').value, pri=$('#sc_pri').value;
+  const d=await api('/api/checks?doc='+doc+(pri?'&priority='+pri:''));
+  $('#sc_doc_meta').textContent=`共 ${d.filtered} 个检查项`;
+}
+async function scRegister(){
+  const u=($('#sc_user').value||'').trim();
+  if(!u){ $('#sc_agent_hint').textContent='请先输入用户名。'; return; }
+  $('#sc_agent_hint').textContent='注册中（在智能体服务内创建专属智能体）…';
+  const r=await api('/api/users/register',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({username:u})}).catch(()=>null);
+  if(!r||r.error){ $('#sc_agent_hint').textContent = r&&r.error? (r.error.message||'注册失败') : '接口不可达'; return; }
+  $('#sc_agent_hint').textContent=`✓ 专属智能体 ${r.agentId}${r.agentCreated?'（已新建）':'（已存在）'}`;
+  try{localStorage.setItem('sc_user',u);}catch(e){}
+  scLoadAgentStatus();
+}
+async function scStart(){
+  const dir=($('#sc_dir').value||'').trim();
+  if(!dir) return alert('请输入被检查文件目录（本地路径或共享盘 UNC 路径）。');
+  const body={doc:$('#sc_doc').value, dir, priority:$('#sc_pri').value,
+              limit:parseInt($('#sc_limit').value||'0',10), userKey:scUserKey()};
+  $('#sc_start_btn').disabled=true;
+  const r=await api('/api/selfcheck/runs',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify(body)}).catch(e=>({error:{message:'接口不可达：'+e}}));
+  $('#sc_start_btn').disabled=false;
+  if(!r||r.error){ $('#sc_progress').innerHTML='<span class="badge b-bad">启动失败</span> '+esc((r&&r.error&&(r.error.message||r.error.code))||''); return; }
+  scLastRunId=r.runId;
+  try{localStorage.setItem('sc_dir',dir);localStorage.setItem('sc_last_run',r.runId);}catch(e){}
+  $('#sc_results').innerHTML='<p class="muted">已提交智能体（agent: '+esc(r.agentId||'')+'），执行中…</p>';
+  scPoll(r.runId);
+}
+function scResume(runId){ scPoll(runId); }
+async function scPoll(runId){
+  clearTimeout(scPollTimer);
+  const d=await api('/api/selfcheck/runs/'+runId).catch(()=>null);
+  if(!d||d.error){ $('#sc_progress').innerHTML='<span class="muted">运行记录读取失败。</span>'; return; }
+  const s=d.summary||{};
+  $('#sc_progress').innerHTML=
+    `<span class="badge b-${d.status==='done'?'ok':d.status==='error'?'bad':'warn'}">${d.status==='running'?'智能体执行中':d.status==='done'?'已完成':d.status==='error'?'出错':d.status}</span>`+
+    ` 进度 ${d.done||0}/${d.total||0}　文件 ${d.fileCount||0} 个　agent <code>${esc(d.agentId||'')}</code>`+
+    `　依据 ${esc(d.docNo||d.doc||'')}　目录 <code>${esc(d.dir||'')}</code>`+
+    (d.error?`　<span class="muted">${esc(d.error)}</span>`:'')+
+    (d.status==='done'?`　<a href="/api/selfcheck/runs/${runId}/report.pdf" class="ghost-link">导出合规自查报告（PDF）</a>`:'');
+  scRenderResults(d);
+  if(d.status==='running') scPollTimer=setTimeout(()=>scPoll(runId), 4000);
+}
+function scRenderResults(d){
+  const items=d.items||[];
+  if(!items.length && d.status==='running'){ return; }
+  if(!items.length){ $('#sc_results').innerHTML='<p class="muted">暂无结果。</p>'; return; }
+  const s=d.summary||{};
+  const stats=`<div>
+    <span class="stat"><b>${s.complianceRate||0}%</b>检查项合规率</span>
+    <span class="stat"><b>${s.pass||0}</b>符合</span>
+    <span class="stat"><b>${s.partial||0}</b>部分符合</span>
+    <span class="stat"><b>${s.fail||0}</b>不符合</span>
+    <span class="stat"><b>${s.missing||0}</b>证据缺失</span>
+    <span class="stat"><b>${s.manual||0}</b>需人工</span></div>`;
+  $('#sc_results').innerHTML=stats+items.map(it=>{
+    const els=(it.elements||[]).map(e=>
+      `<tr><td>${esc(e.code||'')}</td><td>${scBadge(e.verdict)}</td>
+       <td>${esc((e.evidenceFiles||[]).join('、')||'—')}</td><td class="muted">${esc(e.reason||'')}</td></tr>`).join('');
+    const gaps=(it.gaps||[]).map(g=>`<li>${esc(g)}</li>`).join('');
+    const rem=(it.remediation||[]).map(g=>`<li>${esc(g)}</li>`).join('');
+    const miss=(it.missingEvidence||[]).map(g=>`<li>${esc(g)}</li>`).join('');
+    const rf=(it.readFiles||[]);
+    return `<details${it.result!=='pass'?' open':''}><summary>${esc(it.checkCode)} ${esc(it.title)}
+      ${scBadge(it.result)}${it.priority?` <span class="pill">${esc(it.priority)}</span>`:''}
+      ${it.confidence!=null?`<span class="muted">置信 ${Math.round(it.confidence*100)}%</span>`:''}</summary>
+      <p class="muted">${esc(it.summary||'')}${it.error?`　<span class="badge b-bad">智能体失败</span> ${esc(it.error)}`:''}</p>
+      ${rf.length?`<p class="muted" style="font-size:12px">智能体自主取证 ${rf.length} 份文件：${esc(rf.join('、'))}</p>`:''}
+      ${els?`<table><tr><th>要素</th><th>判定</th><th>证据文件</th><th>智能体理由</th></tr>${els}</table>`:''}
+      ${miss?`<p><b>缺失证据</b></p><ul>${miss}</ul>`:''}
+      ${gaps?`<p><b>差距</b></p><ul>${gaps}</ul>`:''}
+      ${rem?`<p><b>整改建议</b></p><ul>${rem}</ul>`:''}
+    </details>`;
+  }).join('');
+}
+async function scLoadAgentStatus(){
+  const box=$('#sc_oc_status'); if(!box) return;
+  const d=await api('/api/selfcheck/agent/status').catch(()=>null);
+  if(!d){ box.innerHTML='<span class="badge b-bad">状态接口不可达</span>'; return; }
+  const g=d.gateway||{};
+  box.innerHTML=`<span class="badge b-${g.ok?'ok':'bad'}">${g.ok?'OpenClaw 智能体服务在线':'智能体服务离线（启动自查时自动拉起）'}</span>`+
+    ` <span class="muted">端点 ${esc(g.base||'—')}　整合目录 <code>${esc(d.home||'')}</code></span>`;
 }
 
 // 检查台账（M5）本版本暂不提供：按需求先移除菜单与页面，后续再行补充。

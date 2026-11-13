@@ -6,7 +6,7 @@
 <meta name="theme-color" content="#2055D7">
 <title>本体驱动的数据安全管理平台</title>
 <link rel="icon" href="/favicon.png">
-<link rel="stylesheet" href="/styles.css?v=20261105c">
+<link rel="stylesheet" href="/styles.css?v=20261107a">
 <link rel="stylesheet" href="/kb_site.css?v=20261106e">
 </head>
 <body>
@@ -79,27 +79,49 @@
   </section>
 
   <section id="selfcheck" class="view hidden">
-    <div class="card"><h3>合规自查 · 检查运行（InspectionRun → CheckResult）</h3>
+    <div class="card"><h3>合规自查 · 智能体检查（OpenClaw Agent）</h3>
+      <p class="muted">选择一份监管合规文件作为检查依据，指定被检查文件目录（本地或共享盘），
+        由后端 OpenClaw 智能体依据该文件全部检查项的检查清单、检查方法与三档判定要点逐项智能研判。</p>
       <div class="row">
-        被查对象：<select id="sc_target"></select>
-        检查项：<select id="sc_check" onchange="scLoadCheck()"></select>
-        <button onclick="scLoadCheck()">载入检查项要素</button>
+        <select id="sc_doc" onchange="scLoadTitles()" style="min-width:340px">
+          <option value="jg24">金规〔2024〕24号（银行保险数据安全办法）</option>
+          <option value="jg93">金办发〔2025〕93号（专项行动自查表）</option>
+          <option value="pboc3">人行令〔2025〕第3号（业务领域数据安全办法）</option>
+          <option value="jf8">金发〔2026〕8号（AI安全开发应用指导意见）</option>
+        </select>
+        <select id="sc_pri" onchange="scLoadTitles()">
+          <option value="">全部优先级</option>
+          <option value="P0">仅 P0</option>
+          <option value="P1">仅 P1</option>
+          <option value="P2">仅 P2</option>
+        </select>
+        <span id="sc_doc_meta" class="muted"></span>
       </div>
-      <div id="sc_form"></div>
-      <p><button onclick="scSubmit()">提交自查（创建 InspectionRun/CheckResult）</button></p>
-      <p class="muted">逐要素录 L1-L3 制度 / L4 证据 / L5 实际值；阈值判定由后端符号引擎完成，无法判定者标 manual 并提示缺口。</p>
-    </div>
-    <div class="card"><h3>结论与 why 溯源</h3>
-      <div id="sc_result">提交后此处展示三色结论、逐条 why 与常见问题。</div>
-    </div>
-    <div class="card"><h3>合规自查报告（差距 · 整改建议 · 专家意见）</h3>
-      <p class="muted">按本次运行生成自查报告：逐条给出佐证是否完整 / 内容是否完备 / 是否符合监管合规要求，
-        并派生<b>差距</b>、<b>整改建议</b>与<b>专家意见</b>；报告为确定性派生，同输入同输出。</p>
-      <div class="row">
-        <button onclick="scReport()">生成合规自查报告</button>
-        <a id="sc_report_dl" class="muted" style="display:none" download>下载 Markdown</a>
+      <div class="row" style="margin-top:10px">
+        <input id="sc_dir" placeholder="被检查文件目录：如 D:\公司文档\数据安全 或 \\server\share\证据库" style="flex:1;min-width:320px">
+        <span class="muted" id="sc_dir_hint"></span>
       </div>
-      <div id="sc_report_out" class="muted">提交自查后可生成报告。</div>
+      <div class="row" style="margin-top:8px">
+        <input id="sc_user" placeholder="用户名（留空=访客，共用默认智能体）" style="width:260px">
+        <button class="ghost" onclick="scRegister()">注册/绑定智能体</button>
+        <select id="sc_limit" title="检查范围">
+          <option value="0">全部检查项</option>
+          <option value="2">快速试跑（前2个检查项）</option>
+        </select>
+        <span class="muted" id="sc_agent_hint"></span>
+      </div>
+      <p style="margin-top:12px">
+        <button id="sc_start_btn" onclick="scStart()">开始合规自查（提交智能体）</button>
+      </p>
+      <div id="sc_progress" class="muted"></div>
+    </div>
+
+    <div class="card"><h3>自查结果（逐检查项合规情况）</h3>
+      <div id="sc_results" class="muted">提交自查后，此处展示每个检查项的符合 / 部分符合 / 不符合 / 证据缺失情况。</div>
+    </div>
+
+    <div class="card"><h3>智能体服务状态</h3>
+      <div id="sc_oc_status" class="muted">检测中…</div>
     </div>
   </section>
 
@@ -138,6 +160,6 @@
 </main>
 </div>
 <script src="/kb_site.js?v=20261106d"></script>
-<script src="/app.js?v=20261105f"></script>
+<script src="/app.js?v=20261107a"></script>
 </body>
 </html>

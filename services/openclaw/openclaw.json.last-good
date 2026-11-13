@@ -1,0 +1,98 @@
+{
+  "agents": {
+    "defaults": {
+      "workspace": "D:\\WorkBuddy\\Workspace\\OntoRegGov\\services\\openclaw\\workspace",
+      "model": "qwen/qwen3.8-flash",
+      "systemAgent": {
+        "agentId": "default"
+      },
+      "authInheritance": {
+        "agentId": "default"
+      },
+      "heartbeat": {
+        "agentId": "default"
+      }
+    },
+    "ownership": "explicit",
+    "entries": {
+      "default": {
+        "name": "default",
+        "workspace": "D:\\WorkBuddy\\Workspace\\OntoRegGov\\services\\openclaw\\workspace-default",
+        "agentDir": "D:\\WorkBuddy\\Workspace\\OntoRegGov\\services\\openclaw\\state\\agents\\default\\agent",
+        "identity": {
+          "name": "合规自查智能体（默认）"
+        }
+      },
+      "u-tester": {
+        "name": "u-tester",
+        "workspace": "D:\\WorkBuddy\\Workspace\\OntoRegGov\\services\\openclaw\\workspace-u-tester",
+        "agentDir": "D:\\WorkBuddy\\Workspace\\OntoRegGov\\services\\openclaw\\state\\agents\\u-tester\\agent",
+        "identity": {
+          "name": "u-tester"
+        }
+      },
+      "guest": {
+        "name": "guest",
+        "workspace": "D:\\WorkBuddy\\Workspace\\OntoRegGov\\services\\openclaw\\workspace-guest",
+        "agentDir": "D:\\WorkBuddy\\Workspace\\OntoRegGov\\services\\openclaw\\state\\agents\\guest\\agent",
+        "identity": {
+          "name": "guest"
+        }
+      },
+      "u-lisi": {
+        "name": "u-lisi",
+        "workspace": "D:\\WorkBuddy\\Workspace\\OntoRegGov\\services\\openclaw\\workspace-u-lisi",
+        "agentDir": "D:\\WorkBuddy\\Workspace\\OntoRegGov\\services\\openclaw\\state\\agents\\u-lisi\\agent",
+        "identity": {
+          "name": "u-lisi"
+        }
+      }
+    }
+  },
+  "models": {
+    "providers": {
+      "qwen": {
+        "baseUrl": "https://llm-x2b28e85g4rs2bw0.cn-beijing.maas.aliyuncs.com/compatible-mode/v1",
+        "api": "openai-completions",
+        "apiKey": "sk-34ed3e6fe9284409b9e484ce58a24c28",
+        "models": [
+          {
+            "id": "qwen3.8-flash",
+            "name": "Qwen3.8 Flash",
+            "input": [
+              "text",
+              "image"
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "gateway": {
+    "mode": "local",
+    "auth": {
+      "mode": "token",
+      "token": "b339111ab8c5adcfe6f359d50b30c5a61fa2d1f45a736f24"
+    },
+    "http": {
+      "endpoints": {
+        "chatCompletions": {
+          "enabled": true
+        }
+      }
+    }
+  },
+  "logging": {
+    "level": "info"
+  },
+  "talk": {
+    "agentId": "default"
+  },
+  "meta": {
+    "migrations": {
+      "modelPolicyAllowlist": true,
+      "utilityModelSeparation": true
+    },
+    "lastTouchedVersion": "2026.10.9"
+  }
+}

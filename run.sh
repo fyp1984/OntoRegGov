@@ -14,8 +14,14 @@ if [ ! -d "$VENV" ]; then
   echo "[run] 创建虚拟环境 $VENV ..."
   "$PY" -m venv "$VENV"
 fi
-# shellcheck disable=SC1091
-source "$VENV/bin/activate"
+# 兼容 Windows（Git Bash 下 venv 为 Scripts/ 布局）与 POSIX（bin/ 布局）
+if [ -f "$VENV/Scripts/activate" ]; then
+  # shellcheck disable=SC1091
+  source "$VENV/Scripts/activate"
+else
+  # shellcheck disable=SC1091
+  source "$VENV/bin/activate"
+fi
 
 # 2. 依赖（已装则 pip 快速跳过）
 echo "[run] 安装依赖 ..."

@@ -100,6 +100,10 @@ bash run.sh
 - 业务台：`http://127.0.0.1:8420/`
 - API 前缀：`/api`（健康检查 `/api/health`）
 - 智能体网关：`:8422`（`streamable-http`）
+- **OpenClaw 智能体服务（v1.18.0 合规自查引擎）**：`http://127.0.0.1:18789`（loopback + Bearer token），
+  整合于 `services/openclaw/`（构建产物 + 专属 `openclaw.json` + 专属 `state/` 状态目录），随平台启动自动拉起，
+  也可手工 `services/openclaw/start-gateway.bat`。合规自查全部判定逻辑由该智能体完成；
+  每注册用户在同一 gateway 进程内自动获得专属 agent（轻隔离），未注册访客共用 `default` agent。
 
 ```bash
 # 容器方式（推荐，复用本机既有中间件，不新造）

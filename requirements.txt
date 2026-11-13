@@ -29,3 +29,12 @@ psycopg2-binary==2.9.13  # 向量路 pgvector + PG 图谱兜底 + doc93_selfchec
 # 环境变量（均有内置默认，可覆盖）：TEI_EMBED_URL / RAGFLOW_BASE /
 #   RAGFLOW_API_TOKEN / RAGFLOW_DATASET_ID
 neo4j==5.27.0            # Neo4j 属性图后端（WeKnora EKOS 底座直连，P1 方案B）
+
+# ---- v1.18.0+ 合规自查（OpenClaw 智能体版）----
+reportlab==5.1.0         # 合规自查 PDF 报告（STSong-Light 中文 CID 字体，免外部字体）
+json-repair==0.64.5      # 智能体回复 JSON 畸形修复（内嵌未转义引号/截断/尾逗号）
+# v1.19.0：证据抽取改由智能体经 evidence-kit 自主完成，主链路不再解析 office 文档；
+# 下列三项保留仅供 scripts/make_selfcheck_testfiles.py（测试文件生成器）使用。
+python-docx==1.2.0       # .docx 生成（测试数据）
+openpyxl==3.1.5          # .xlsx 生成（测试数据）
+python-pptx==1.0.2       # .pptx 生成（测试数据）

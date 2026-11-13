@@ -198,6 +198,10 @@ code{background:var(--brand-soft);border:1px solid var(--line);color:var(--brand
 ::-webkit-scrollbar-thumb:hover{background:#9AB7FF;background-clip:content-box;border:2px solid transparent}
 ::-webkit-scrollbar-track{background:transparent}
 
+/* ---------- v1.18.0 合规自查（智能体版） ---------- */
+.ghost-link{display:inline-block;margin-left:10px;color:var(--brand);font-size:13px;font-weight:600;text-decoration:none;border:1px solid var(--brand-border);border-radius:8px;padding:6px 14px;background:#fff}
+.ghost-link:hover{background:var(--brand-bg)}
+
 /* ---------- 响应式 ---------- */
 @media (max-width:960px){
   .grid2{grid-template-columns:1fr}
