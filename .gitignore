@@ -30,3 +30,22 @@ app/data/site-preview/
 reports/
 QA_ACCEPTANCE_REPORT_*.md
 data/*
+
+# v1.18.0 OpenClaw 智能体服务整合：构建产物/依赖/运行态体积巨大（~3GB），不入库
+# （配置 openclaw.json 与启动脚本入库；重建方法见 README「OpenClaw 智能体服务」节）
+services/openclaw/node_modules/
+services/openclaw/dist/
+services/openclaw/state/
+services/openclaw/workspace*/
+services/openclaw/packages/
+services/openclaw/evidence-kit/.venv/
+services/openclaw/evidence-kit/hf-cache/
+services/openclaw/*.mjs
+services/openclaw/*.d.mts
+services/openclaw/package.json
+services/openclaw/pnpm-lock.yaml
+services/openclaw/pnpm-workspace.yaml
+
+# 本地代理/工具数据，不入库
+.workbuddy/
+.tooling/

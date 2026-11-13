@@ -1,5 +1,70 @@
 # 变更记录
 
+## v1.19.0（2026-11-07，合规自查 · 智能体自主取证架构）
+
+- **架构升级（需求驱动）**：按"用智能体就让它干智能体的活"原则，移除 v1.18.0 的程序化预处理层
+  （关键词挑文件 + Python 库抽文本 + MaaS 视觉/ASR 转写），证据的**相关性判断、文件读取、
+  图片视觉识别、音频转写、语义判定**全部由 OpenClaw 智能体在会话内用自身工具自主完成。
+  平台只做编排：列目录清单（不读内容）→ 下发任务 → 收结果 → 落库 → PDF。
+- **取证工具包**：新增 `services/openclaw/evidence-kit/`（自包含 venv + `read_evidence.py`），
+  供智能体经 exec 调用：office/PDF/zip 逐字抽取、音频本地 faster-whisper 逐字转写
+  （带时间戳、零加工、离线模型缓存、ffmpeg→PCM 管线绕开 PyAV 兼容坑）。图片无需工具——
+  智能体 read 工具直接视觉识别。
+- **新架构文件**：`selfcheck_ai.py` 重写（`list_files` 纯清单枚举、`build_prompt` 下发
+  "取证+判定"任务书与取证手段说明，含诚实性/严格性条款）；删除 `media_ai.py`；
+  结果新增 `readFiles`（智能体实际取证文件清单 = 审计轨迹）。
+- **展示**：前端结果区与 PDF 报告新增"智能体自主取证 N 份文件：…"轨迹行；
+  报告说明改为自主取证口径；缓存版本号 `?v=20261107a`。
+- **实测（samples/selfcheck-evidence）**：1.1 pass（0.8，含"先发文后补批""党委主体责任清单
+  未随证据提供"等深度差距发现）；1.2 fail（0.85，1.2.2 干净反例：智能体对全部 13 份证据逐一读取
+  后确认「直接责任人」零出现）；每个检查项自主取证 13 份文件、约 2-3 分钟（此前预处理挑文件
+  约 1-3 分钟且只看被挑中的 14 份）。
+- 依赖：主 venv 移除 MaaS 媒体解析用途的三方库依赖链（python-docx/openpyxl/python-pptx
+  保留仅供测试文件生成脚本）；evidence-kit 自带独立 venv。
+- 版本 `1.18.0` → `1.19.0`。
+
+## v1.18.0（2026-11-06，合规自查改造 · OpenClaw 智能体版）
+
+- **架构调整（需求驱动）**：「合规自查」模块由"前端逐要素录入 + 后端符号引擎判定"改造为
+  **全部检查逻辑由后端 OpenClaw 智能体完成**；前端只负责输入（选监管合规文件 + 指定本地/共享
+  目录）与输出（逐标题合规情况 + PDF 报告导出）。原符号引擎 `/api/inspection/*` 保留不动
+  （监管检查库详情页与 MCP 工具继续可用），新链路独立走 `/api/selfcheck/*`。
+- **openclaw 整合为独立服务**：构建产物（`dist/` + 启动器 mjs + `node_modules`）拷入
+  `services/openclaw/`，与系统其它服务并列统一管理；专属配置 `services/openclaw/openclaw.json`
+  （qwen provider / gateway token / 启用 chatCompletions 端点）、专属状态目录 `services/openclaw/state/`
+  （`OPENCLAW_STATE_DIR` 隔离于用户全局 `~/.openclaw`）；监听 `127.0.0.1:18789`（loopback + Bearer）。
+  平台启动时后台线程自动探测并拉起 gateway（`openclaw_svc.ensure_running`，幂等防抖，绝不阻塞启动）。
+  手工启动：`services/openclaw/start-gateway.bat`。
+- **用户 ↔ 智能体一一映射（轻隔离）**：`POST /api/users/register` 注册用户时经
+  `openclaw agents add <id> --non-interactive --json` 在**同一 gateway 进程内**创建该用户专属
+  agent（独立 workspace / agentDir / 会话库，非新起服务），映射存 SQLite `oc_agents` 表；
+  未注册访客共用 `default` agent。agent 创建失败自动降级（懒建重试 + 调用回落 default），永不抛错。
+- **新后端**：
+  - [openclaw_svc.py](app/services/openclaw_svc.py) —— 对接层：`agent_id_for` / `ensure_agent` /
+    `chat`（`POST /v1/chat/completions`，`model="openclaw/<agentId>"` 路由，失败重试并回落 default）/
+    `health` / `ensure_running`（自动拉起）/ `parse_json_reply`（围栏 JSON 稳健解析）。
+  - [selfcheck_ai.py](app/services/selfcheck_ai.py) —— 流水线：`scan_dir` 多格式解析
+    （docx/xlsx/pptx/pdf/rtf/odt/ods/odp/vsdx/drawio/eml/zip/md/txt/csv…；图片/音频/专有格式
+    降级为"仅存在性证据"）→ 按检查项六维关键词挑相关文件 → 逐标题构造检查任务（条文原文+检查清单+
+    检查方法+三档判定要点+证据库）→ 提交 agent 判定 → 解析 JSON 聚合逐标题结果，异步线程执行、
+    进度落 `entities` 表（type=`SelfCheckRun`）供轮询。
+  - [selfcheck_report_pdf.py](app/services/selfcheck_report_pdf.py) —— reportlab + STSong-Light
+    中文 PDF 报告（概要统计 / 逐标题要素判定表 / 差距与整改 / 汇总说明）。
+  - 新端点：`POST /api/users/register|login`、`GET /api/users`、`POST /api/selfcheck/runs`、
+    `GET /api/selfcheck/runs/{id}`、`GET /api/selfcheck/runs`、
+    `GET /api/selfcheck/runs/{id}/report.pdf`、`GET /api/selfcheck/agent/status`。
+- **前端改造**：`#selfcheck` 视图重写——文号下拉（与监管检查库同款）→ 标题清单（每项即检查点）→
+  目录输入（本地/UNC）→ 用户名（可选，注册即建专属智能体）→ 检查范围（全部/前N标题）→
+  开始自查 → 4s 轮询进度 → 逐标题三色徽章 + 要素判定表（证据文件/智能体理由/差距/整改）→
+  导出 PDF；底部智能体服务状态卡。样式沿用设计令牌（新增 `.ghost-link`）。
+- **测试文件集（保留交付）**：`samples/selfcheck-evidence/`（脚本
+  `scripts/make_selfcheck_testfiles.py` 生成，13 个虚构文件：数据安全管理总纲 docx、
+  董事会/党委会会议纪要 md、年度议题清单 xlsx、责任人任命 docx、旧版不合规制度、议事规则部分符合、
+  无关干扰文件、占位 png/mp3（不可解析类型）、zip 历史纪要存档——覆盖 pass/partial/fail/missing
+  预期案例，供后续替换真实文档继续测试）。
+- **依赖新增**：python-docx / openpyxl / python-pptx / reportlab（requirements.txt）。
+- 版本 `1.17.0` → `1.18.0`。
+
 ## v1.17.0（2026-11-05，MS6 知识库能力开放 · O6）
 
 - **能力开放（PRD `docs/11` M11）**：把知识库平台的**加工 / 查阅 / 检索 / Wiki** 四类能力开放给终端用户，界面用

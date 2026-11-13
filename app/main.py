@@ -66,6 +66,24 @@ def _startup():
     _ekos_health["checkedAt"] = datetime.datetime.now().isoformat(timespec="seconds")
     # 存到 app.state 供 /api/health 读取
     app.state.ekos_health = _ekos_health
+    # v1.18.0：openclaw 智能体服务随平台拉起（后台线程，best-effort，绝不阻塞启动）
+    import threading
+
+    def _warm_openclaw():
+        try:
+            from .services import openclaw_svc
+            openclaw_svc.ensure_running()
+        except Exception:  # noqa: BLE001
+            pass
+    threading.Thread(target=_warm_openclaw, daemon=True, name="openclaw-warm").start()
+    # v1.19.0：清理上个进程遗留的"running"僵尸自查运行（线程已随旧进程消亡）
+    try:
+        from .services import selfcheck_ai
+        n = selfcheck_ai.recover_stale_runs()
+        if n:
+            print(f"[startup] 已标记 {n} 个中断的自查运行（服务重启遗留）")
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def _err(code, message, status=400, details=None):
@@ -111,7 +129,7 @@ async def gateway_guard(request: Request, call_next):
 # ---------------- 基础 ----------------
 @app.get("/api/health")
 def health():
-    h = {"status": "ok", "service": "dsec-mvp", "version": "1.17.0",
+    h = {"status": "ok", "service": "dsec-mvp", "version": "1.19.0",
          "baseSnapshot": graph_store.BASE_SNAPSHOT_TTL.exists()}
     if hasattr(app.state, "ekos_health"):
         h["ekos"] = app.state.ekos_health
@@ -890,6 +908,149 @@ def kb_ingest_status(knowledge_id: str):
 def kb_cache_invalidate(prefix: str = ""):
     """主动失效缓存（知识入库后调用，使前端下一次取数即拿最新）。"""
     return kb_source.invalidate_env(prefix)
+
+
+# ---------------- v1.18.0 合规自查（OpenClaw 智能体版）+ 用户注册 ----------------
+# 需求：合规自查逻辑全部由后端 openclaw 智能体完成；前端只输入（选合规文件 +
+# 指定本地/共享目录）与输出（逐标题结果 + PDF 报告）。每注册用户在同一
+# gateway 进程内自动获得专属 agent（轻隔离）；未注册访客共用 default agent。
+from .services import openclaw_svc      # noqa: E402
+from .services import selfcheck_ai      # noqa: E402
+from .services import selfcheck_report_pdf  # noqa: E402
+
+
+def _ensure_users_table():
+    import sqlite3
+    from .config import DB_PATH
+    with sqlite3.connect(str(DB_PATH), timeout=10) as c:
+        c.execute("CREATE TABLE IF NOT EXISTS users("
+                  " username TEXT PRIMARY KEY, display_name TEXT,"
+                  " password_hash TEXT, agent_id TEXT, created_at TEXT)")
+
+
+@app.post("/api/users/register")
+def users_register(body: dict):
+    """注册系统用户，并在 openclaw 内自动创建该用户的专属智能体（轻隔离）。"""
+    import hashlib, time as _t
+    uname = (body.get("username") or "").strip()
+    if not uname:
+        return _err("bad_request", "用户名不能为空")
+    _ensure_users_table()
+    import sqlite3
+    from .config import DB_PATH
+    pwd = (body.get("password") or "").strip()
+    phash = hashlib.sha256(pwd.encode("utf-8")).hexdigest() if pwd else ""
+    with sqlite3.connect(str(DB_PATH), timeout=10) as c:
+        dup = c.execute("SELECT 1 FROM users WHERE username=?", (uname,)).fetchone()
+        if dup:
+            return _err("conflict", "该用户名已注册", 409)
+        ag = openclaw_svc.ensure_agent(f"u:{uname}")
+        c.execute("INSERT INTO users(username,display_name,password_hash,agent_id,created_at)"
+                  " VALUES(?,?,?,?,?)",
+                  (uname, (body.get("displayName") or "").strip(), phash,
+                   ag.get("agentId", ""), _t.strftime("%Y-%m-%dT%H:%M:%S")))
+    audit.log("ui-user", "user.register", uname, {"agentId": ag.get("agentId"),
+                                                   "agentCreated": ag.get("created")})
+    return {"ok": True, "username": uname, "agentId": ag.get("agentId"),
+            "agentCreated": ag.get("created", False),
+            "agentNote": None if ag.get("ok") else f"智能体创建降级（稍后自动重试）：{ag.get('error','')[:120]}"}
+
+
+@app.post("/api/users/login")
+def users_login(body: dict):
+    """轻量登录校验（无会话令牌，前端本地持有用户名）；确保专属 agent 就绪。"""
+    import hashlib
+    uname = (body.get("username") or "").strip()
+    _ensure_users_table()
+    import sqlite3
+    from .config import DB_PATH
+    with sqlite3.connect(str(DB_PATH), timeout=10) as c:
+        row = c.execute("SELECT password_hash FROM users WHERE username=?", (uname,)).fetchone()
+    if not row:
+        return _err("not_found", "用户不存在", 404)
+    if row[0] and row[0] != hashlib.sha256((body.get("password") or "").encode("utf-8")).hexdigest():
+        return _err("unauthorized", "密码错误", 401)
+    ag = openclaw_svc.ensure_agent(f"u:{uname}")   # 幂等：注册时创建过则直接复用
+    return {"ok": True, "username": uname, "agentId": ag.get("agentId", "default")}
+
+
+@app.get("/api/users")
+def users_list():
+    _ensure_users_table()
+    import sqlite3
+    from .config import DB_PATH
+    with sqlite3.connect(str(DB_PATH), timeout=10) as c:
+        rows = c.execute("SELECT username,display_name,agent_id,created_at FROM users"
+                         " ORDER BY created_at").fetchall()
+    return {"users": [{"username": r[0], "displayName": r[1], "agentId": r[2],
+                       "createdAt": r[3]} for r in rows]}
+
+
+@app.post("/api/selfcheck/runs")
+def selfcheck_run(body: dict):
+    """启动合规自查：选定的合规文件（文号）+ 被检查目录 → 提交智能体异步执行。"""
+    doc = (body.get("doc") or "").strip()
+    directory = (body.get("dir") or "").strip()
+    if not doc or not directory:
+        return _err("bad_request", "doc（合规文件文号）与 dir（被检查目录）必填")
+    user_key = (body.get("userKey") or "").strip() or "default"
+    openclaw_svc.ensure_agent(user_key)   # 懒建：注册钩子失败/老用户补建
+    run = selfcheck_ai.start_run(doc, directory,
+                                 priority=(body.get("priority") or "").strip(),
+                                 limit=int(body.get("limit") or 0),
+                                 user_key=user_key)
+    audit.log(user_key, "selfcheck.run", run["runId"], {"doc": doc, "dir": directory})
+    return {"runId": run["runId"], "agentId": run["agentId"], "status": run["status"]}
+
+
+@app.get("/api/selfcheck/runs/{run_id}")
+def selfcheck_run_get(run_id: str):
+    run = selfcheck_ai.get_run(run_id)
+    if not run:
+        return _err("not_found", "自查运行不存在", 404)
+    return {**run, "summary": selfcheck_ai.summarize(run)}
+
+
+@app.get("/api/selfcheck/runs")
+def selfcheck_runs_list(limit: int = 20):
+    import json as _j
+    with db() as conn:
+        rows = conn.execute("SELECT dataJSON FROM entities WHERE type='SelfCheckRun'"
+                            " ORDER BY updatedAt DESC LIMIT ?", (max(1, min(limit, 100)),)).fetchall()
+    out = []
+    for r in rows:
+        d = _j.loads(r["dataJSON"])
+        out.append({"runId": d.get("runId"), "doc": d.get("doc"), "docNo": d.get("docNo"),
+                    "dir": d.get("dir"), "status": d.get("status"),
+                    "total": d.get("total"), "done": d.get("done"),
+                    "startedAt": d.get("startedAt"), "finishedAt": d.get("finishedAt"),
+                    "summary": selfcheck_ai.summarize(d)})
+    return {"runs": out}
+
+
+@app.get("/api/selfcheck/runs/{run_id}/report.pdf")
+def selfcheck_report_pdf_dl(run_id: str):
+    run = selfcheck_ai.get_run(run_id)
+    if not run:
+        return _err("not_found", "自查运行不存在", 404)
+    try:
+        data = selfcheck_report_pdf.build_pdf(run, selfcheck_ai.summarize(run))
+    except Exception as e:  # noqa: BLE001
+        return _err("pdf_failed", f"PDF 生成失败：{str(e)[:200]}", 500)
+    from fastapi.responses import Response as _R
+    fname = f"selfcheck-{run.get('doc','doc')}-{run_id}.pdf"
+    return _R(content=data, media_type="application/pdf",
+              headers={"Content-Disposition": f'attachment; filename="{fname}"'})
+
+
+@app.get("/api/selfcheck/agent/status")
+def selfcheck_agent_status():
+    """openclaw 智能体服务健康 + agent 花名册（前端状态条 / 排障用）。"""
+    h = openclaw_svc.health()
+    if not h.get("ok"):
+        h = openclaw_svc.ensure_running()
+    return {"gateway": h, "home": str(openclaw_svc.OC_HOME),
+            "agents": openclaw_svc.list_agents().get("raw", "")}
 
 
 # v1.17.0（O6）：管理入口（含知识加工）。应用层不鉴权，安全边界交给网络层（PRD §2）。

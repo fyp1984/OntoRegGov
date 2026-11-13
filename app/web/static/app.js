@@ -14,6 +14,7 @@ function showView(id){
   const gear = $('#settings_gear');
   if (gear) gear.classList.toggle('active', id === 'settings');
   if (id === 'kbdash') kbSiteShow();
+  if (id === 'selfcheck') scInit();
   if (id === 'settings') loadSettings();
 }
 document.querySelectorAll('#nav a').forEach(a => a.onclick = () => showView(a.dataset.v));
@@ -27,6 +28,117 @@ function openSettings(){
 // ---------- 左侧菜单折叠（收缩 / 打开）----------
 function navToggle(){
   document.querySelector('.wrap').classList.toggle('nav-collapsed');
+}
+
+// ---------- 合规自查（v1.18.0：OpenClaw 智能体版）----------
+// 前端只负责输入（合规文件 + 被检查目录）与输出（逐检查项结果 + PDF 报告），
+// 全部检查逻辑由后端 openclaw 智能体完成；每注册用户在同一 gateway 内
+// 拥有专属 agent（轻隔离），访客共用 guest agent。
+const SC_R = {pass:'符合', partial:'部分符合', fail:'不符合', missing:'证据缺失', manual:'需人工'};
+const SC_V = SC_R;
+function scBadge(r){return `<span class="badge b-${r==='pass'?'ok':r==='partial'?'warn':r==='missing'?'unk':'bad'}">${SC_R[r]||r||'—'}</span>`;}
+let scPollTimer = null, scLastRunId = null;
+
+function scUserKey(){ const u=($('#sc_user').value||'').trim(); return u? 'u:'+u : 'default'; }
+
+async function scInit(){
+  scLoadTitles();
+  scLoadAgentStatus();
+  // 记住上次输入
+  try{
+    const d=localStorage.getItem('sc_dir'); if(d) $('#sc_dir').value=d;
+    const u=localStorage.getItem('sc_user'); if(u) $('#sc_user').value=u;
+  }catch(e){}
+  // 默认展示最近一次执行结果记录（服务端查最新，跨浏览器一致；执行中则继续轮询）
+  const lst=await api('/api/selfcheck/runs?limit=1').catch(()=>null);
+  const latest=lst&&lst.runs&&lst.runs[0];
+  if(latest){ scLastRunId=latest.runId; scPoll(latest.runId); }
+}
+async function scLoadTitles(){
+  const doc=$('#sc_doc').value, pri=$('#sc_pri').value;
+  const d=await api('/api/checks?doc='+doc+(pri?'&priority='+pri:''));
+  $('#sc_doc_meta').textContent=`共 ${d.filtered} 个检查项`;
+}
+async function scRegister(){
+  const u=($('#sc_user').value||'').trim();
+  if(!u){ $('#sc_agent_hint').textContent='请先输入用户名。'; return; }
+  $('#sc_agent_hint').textContent='注册中（在智能体服务内创建专属智能体）…';
+  const r=await api('/api/users/register',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({username:u})}).catch(()=>null);
+  if(!r||r.error){ $('#sc_agent_hint').textContent = r&&r.error? (r.error.message||'注册失败') : '接口不可达'; return; }
+  $('#sc_agent_hint').textContent=`✓ 专属智能体 ${r.agentId}${r.agentCreated?'（已新建）':'（已存在）'}`;
+  try{localStorage.setItem('sc_user',u);}catch(e){}
+  scLoadAgentStatus();
+}
+async function scStart(){
+  const dir=($('#sc_dir').value||'').trim();
+  if(!dir) return alert('请输入被检查文件目录（本地路径或共享盘 UNC 路径）。');
+  const body={doc:$('#sc_doc').value, dir, priority:$('#sc_pri').value,
+              limit:parseInt($('#sc_limit').value||'0',10), userKey:scUserKey()};
+  $('#sc_start_btn').disabled=true;
+  const r=await api('/api/selfcheck/runs',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify(body)}).catch(e=>({error:{message:'接口不可达：'+e}}));
+  $('#sc_start_btn').disabled=false;
+  if(!r||r.error){ $('#sc_progress').innerHTML='<span class="badge b-bad">启动失败</span> '+esc((r&&r.error&&(r.error.message||r.error.code))||''); return; }
+  scLastRunId=r.runId;
+  try{localStorage.setItem('sc_dir',dir);localStorage.setItem('sc_last_run',r.runId);}catch(e){}
+  $('#sc_results').innerHTML='<p class="muted">已提交智能体（agent: '+esc(r.agentId||'')+'），执行中…</p>';
+  scPoll(r.runId);
+}
+function scResume(runId){ scPoll(runId); }
+async function scPoll(runId){
+  clearTimeout(scPollTimer);
+  const d=await api('/api/selfcheck/runs/'+runId).catch(()=>null);
+  if(!d||d.error){ $('#sc_progress').innerHTML='<span class="muted">运行记录读取失败。</span>'; return; }
+  const s=d.summary||{};
+  $('#sc_progress').innerHTML=
+    `<span class="badge b-${d.status==='done'?'ok':d.status==='error'?'bad':'warn'}">${d.status==='running'?'智能体执行中':d.status==='done'?'已完成':d.status==='error'?'出错':d.status}</span>`+
+    ` 进度 ${d.done||0}/${d.total||0}　文件 ${d.fileCount||0} 个　agent <code>${esc(d.agentId||'')}</code>`+
+    `　依据 ${esc(d.docNo||d.doc||'')}　目录 <code>${esc(d.dir||'')}</code>`+
+    (d.error?`　<span class="muted">${esc(d.error)}</span>`:'')+
+    (d.status==='done'?`　<a href="/api/selfcheck/runs/${runId}/report.pdf" class="ghost-link">导出合规自查报告（PDF）</a>`:'');
+  scRenderResults(d);
+  if(d.status==='running') scPollTimer=setTimeout(()=>scPoll(runId), 4000);
+}
+function scRenderResults(d){
+  const items=d.items||[];
+  if(!items.length && d.status==='running'){ return; }
+  if(!items.length){ $('#sc_results').innerHTML='<p class="muted">暂无结果。</p>'; return; }
+  const s=d.summary||{};
+  const stats=`<div>
+    <span class="stat"><b>${s.complianceRate||0}%</b>检查项合规率</span>
+    <span class="stat"><b>${s.pass||0}</b>符合</span>
+    <span class="stat"><b>${s.partial||0}</b>部分符合</span>
+    <span class="stat"><b>${s.fail||0}</b>不符合</span>
+    <span class="stat"><b>${s.missing||0}</b>证据缺失</span>
+    <span class="stat"><b>${s.manual||0}</b>需人工</span></div>`;
+  $('#sc_results').innerHTML=stats+items.map(it=>{
+    const els=(it.elements||[]).map(e=>
+      `<tr><td>${esc(e.code||'')}</td><td>${scBadge(e.verdict)}</td>
+       <td>${esc((e.evidenceFiles||[]).join('、')||'—')}</td><td class="muted">${esc(e.reason||'')}</td></tr>`).join('');
+    const gaps=(it.gaps||[]).map(g=>`<li>${esc(g)}</li>`).join('');
+    const rem=(it.remediation||[]).map(g=>`<li>${esc(g)}</li>`).join('');
+    const miss=(it.missingEvidence||[]).map(g=>`<li>${esc(g)}</li>`).join('');
+    const rf=(it.readFiles||[]);
+    return `<details${it.result!=='pass'?' open':''}><summary>${esc(it.checkCode)} ${esc(it.title)}
+      ${scBadge(it.result)}${it.priority?` <span class="pill">${esc(it.priority)}</span>`:''}
+      ${it.confidence!=null?`<span class="muted">置信 ${Math.round(it.confidence*100)}%</span>`:''}</summary>
+      <p class="muted">${esc(it.summary||'')}${it.error?`　<span class="badge b-bad">智能体失败</span> ${esc(it.error)}`:''}</p>
+      ${rf.length?`<p class="muted" style="font-size:12px">智能体自主取证 ${rf.length} 份文件：${esc(rf.join('、'))}</p>`:''}
+      ${els?`<table><tr><th>要素</th><th>判定</th><th>证据文件</th><th>智能体理由</th></tr>${els}</table>`:''}
+      ${miss?`<p><b>缺失证据</b></p><ul>${miss}</ul>`:''}
+      ${gaps?`<p><b>差距</b></p><ul>${gaps}</ul>`:''}
+      ${rem?`<p><b>整改建议</b></p><ul>${rem}</ul>`:''}
+    </details>`;
+  }).join('');
+}
+async function scLoadAgentStatus(){
+  const box=$('#sc_oc_status'); if(!box) return;
+  const d=await api('/api/selfcheck/agent/status').catch(()=>null);
+  if(!d){ box.innerHTML='<span class="badge b-bad">状态接口不可达</span>'; return; }
+  const g=d.gateway||{};
+  box.innerHTML=`<span class="badge b-${g.ok?'ok':'bad'}">${g.ok?'OpenClaw 智能体服务在线':'智能体服务离线（启动自查时自动拉起）'}</span>`+
+    ` <span class="muted">端点 ${esc(g.base||'—')}　整合目录 <code>${esc(d.home||'')}</code></span>`;
 }
 
 // 检查台账（M5）本版本暂不提供：按需求先移除菜单与页面，后续再行补充。
