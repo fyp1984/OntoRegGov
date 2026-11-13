@@ -47,7 +47,7 @@ const FORBIDDEN = [
   '成熟度'
 ];
 
-const VIEWS = ['kbdash', 'dsk', 'pipeline', 'dsc', 'rem', 'rep', 'gov', 'ext', 'frame', 'arch', 'capability', 'path', 'assets', 'settings'];
+const VIEWS = ['kbdash', 'dsk', 'pipeline', 'dsc', 'rem', 'rep', 'diag', 'ledger', 'issues', 'gov', 'ext', 'frame', 'arch', 'capability', 'path', 'assets', 'settings'];
 // 知识库子路由（kbdash 内的二级导航）
 const KB_SUBROUTES = ['home', 'graph', 'path', 'timeline', 'cases', 'controls', 'checks'];
 
