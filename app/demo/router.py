@@ -2098,3 +2098,17 @@ def capabilities_domains():
     return {"capabilities": items,
             "summary": {"total": len(items), "ready": ready, "planned": len(items) - ready},
             "fetchedAt": _now()}
+
+
+# ===========================================================================
+# 5.15 实施路径（四阶段 × 六列）
+# ---------------------------------------------------------------------------
+# 第六轮原型扩展（里程碑 M1-3 实施路径）：静态只读演示数据，来自 seed 常量。
+# 口径：合成脱敏、全代号化；首轮起点主题不预设；无机构真名、无绝对路径、无
+# 条目数承诺、无厂商与产品名称；不改动底座与运行台账。返回直接业务 JSON。
+# ===========================================================================
+@router.get("/implementation/path")
+def implementation_path():
+    stages = seed.IMPLEMENTATION_PATH
+    return {"stages": stages, "summary": {"stages": len(stages)},
+            "fetchedAt": _now()}
