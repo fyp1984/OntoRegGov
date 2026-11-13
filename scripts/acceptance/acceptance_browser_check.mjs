@@ -309,8 +309,8 @@ async function main(chromium) {
         log('FAIL  检查项列表为空');
       } else {
         await row.click();
-        await page.waitForTimeout(2500);
-        const r = await page.evaluate(() => {
+        // 轮询等待六维详情渲染（固定时长在冷启动/大列表下存在竞态；取数耗时波动可达数秒）
+        const readDetail = () => page.evaluate(() => {
           const detail = document.getElementById('ck_detail');
           return {
             rowCount: document.querySelectorAll('#ck_list table tbody tr').length,
@@ -318,6 +318,12 @@ async function main(chromium) {
             sections: detail?.querySelectorAll('details').length || 0,
           };
         });
+        let r = { rowCount: 0, detailLen: 0, sections: 0 }, waited = 0;
+        while (waited < 8000) {
+          await page.waitForTimeout(250); waited += 250;
+          r = await readDetail();
+          if (r.detailLen > 80 && r.sections >= 3) break;
+        }
         const ok = r.rowCount >= 1 && r.detailLen > 80 && r.sections >= 3;
         if (!ok) problems.push('监管检查库六维详情未正常渲染：rows=' + r.rowCount +
                                ' detailLen=' + r.detailLen + ' details=' + r.sections);

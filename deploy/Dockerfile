@@ -12,7 +12,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY app/ app/
 COPY data/ data/
 COPY scripts/ scripts/
-COPY run.sh CHANGELOG.md README.md ROADMAP.md ./
+COPY run.sh start.sh CHANGELOG.md README.md ROADMAP.md ./
 
 EXPOSE 8420
 
@@ -25,4 +25,4 @@ ENV GRAPH_STORE_BACKEND=memory
 ENV SKIP_SEED=1
 ENV PORT=8420
 
-CMD ["bash", "-c", "exec python -m uvicorn app.main:app --host 0.0.0.0 --port ${PORT}"]
+CMD ["bash", "start.sh"]
