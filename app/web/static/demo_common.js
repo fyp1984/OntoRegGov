@@ -274,7 +274,9 @@
     pipeline: {group:'知识底座', title:'知识发布'},
     ext:      {group:'能力与接入', title:'场景与插件'},
     gov:      {group:'平台与治理', title:'权限与组织'},
-    dsk:      {group:'平台与治理', title:'运行驾驶舱'}
+    dsk:      {group:'平台与治理', title:'运行驾驶舱'},
+    frame:    {group:'平台与治理', title:'治理框架'},
+    arch:     {group:'平台与治理', title:'平台架构'}
   };
   DZ.VIEW_META = VIEW_META;
 

@@ -2059,3 +2059,26 @@ def issues_classes():
         layers[c["layer"]] = layers.get(c["layer"], 0) + 1
     return {"classes": classes, "summary": {"total": len(classes), "layers": layers},
             "fetchedAt": _now()}
+
+
+# ===========================================================================
+# 5.13 三层治理框架 / 知识底座五层架构
+# ---------------------------------------------------------------------------
+# 第四轮原型扩展（里程碑 M1-1 治理与架构）：静态只读演示数据，来自 seed 常量。
+# 口径：合成脱敏、全代号化；无机构真名、无绝对路径、无条目数承诺、无厂商与产品
+# 名称；不改动底座与运行台账。返回直接业务 JSON。
+# ===========================================================================
+@router.get("/governance/frame")
+def governance_frame():
+    domains = seed.GOV_FRAME_DOMAINS
+    chain = seed.GOV_FRAME_CHAIN
+    return {"domains": domains, "chain": chain,
+            "summary": {"domains": len(domains), "chain": len(chain)},
+            "fetchedAt": _now()}
+
+
+@router.get("/architecture/layers")
+def architecture_layers():
+    layers = seed.ARCH_LAYERS
+    return {"layers": layers, "summary": {"layers": len(layers)},
+            "fetchedAt": _now()}
