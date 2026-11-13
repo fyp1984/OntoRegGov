@@ -1,4 +1,4 @@
-# 本体驱动数据安全监管与治理合规平台 — OrbStack 容器编排
+# 金融行业数据安全知识库和智能体平台 — OrbStack 容器编排
 # 原则：复用本机 OrbStack 既有服务，不新造中间件。
 #   - 图存储：ontoreggov-fuseki（端口 3030，数据集 ds）
 #   - EKOS 底座：WeKnora（Neo4j bolt://ekos-weknora-neo4j:7687，API http://ekos-weknora:8080）

@@ -14,8 +14,6 @@ function showView(id){
   const gear = $('#settings_gear');
   if (gear) gear.classList.toggle('active', id === 'settings');
   if (id === 'kbdash') kbSiteShow();
-  if (id === 'checkslib') loadChecks();
-  if (id === 'selfcheck') scInit();
   if (id === 'settings') loadSettings();
 }
 document.querySelectorAll('#nav a').forEach(a => a.onclick = () => showView(a.dataset.v));
@@ -31,190 +29,83 @@ function navToggle(){
   document.querySelector('.wrap').classList.toggle('nav-collapsed');
 }
 
-// ---------- 合规自查（InspectionRun/CheckResult）----------
-let scCurrent = null;      // 当前检查项详情
-let scLastRun = {};         // key=target|check -> {runId, result}
-let scLastRunId = null;     // 最近一次提交生成的运行ID（供生成自查报告）
-async function scInit() {
-  const [assets, checks] = await Promise.all([
-    api('/api/entities?type=DataAsset&status=published'),
-    api('/api/checks?priority=P0'),
-  ]);
-  $('#sc_target').innerHTML = assets.entities.map(x=>`<option value="${x.id}">${x.label}</option>`).join('');
-  $('#sc_check').innerHTML = checks.checks.map(c=>`<option value="${c.checkCode}">${c.checkCode} ${c.title}</option>`).join('');
-  await scLoadCheck();
-}
-async function scLoadCheck() {
-  const code = $('#sc_check').value || '1.1';
-  scCurrent = await api('/api/checks/' + code);
-  const lvColor = {L1:'#1B4FE4',L2:'#3a6bf0',L3:'#6d90f5',L4:'#e08a00',L5:'#2a9d5c'};
-  const el = (scCurrent.elements||[]).map((e,i)=>{
-    const lvs = (e.focusLevels||'').split(',').filter(Boolean);
-    return `<tr><td>${e.code}</td><td>${e.text}<br><span class="muted">口径：${e.criteria||''}</span></td>
-      <td>${lvs.map(l=>`<span style="color:${lvColor[l]}" class="pill">${l}</span>`).join(' ')}</td>
-      <td><label><input type="checkbox" id="el_l1_${i}" ${lvs.includes('L4')?'':'checked'}> 制度具备</label>
-          <br><select id="el_l4_${i}"><option value="provided">证据已提供</option><option value="missing">证据缺失</option></select></td></tr>`;
-  }).join('');
-  const ev = (scCurrent.methodSteps||[]).filter(s=>s.stepKind==='evidence')
-    .map(s=>`<li>[证据${s.stepNo}] ${s.action} — <span class="muted">${s.focus||''}</span></li>`).join('');
-  const mt = (scCurrent.metrics||[]).map((m,i)=>
-    `<tr><td>${m.name}</td><td><span class="muted">${m.dataSource||''}</span></td><td>${m.threshold}</td>
-      <td><input id="mt_${i}" placeholder="实际值" style="width:90px"></td></tr>`).join('');
-  $('#sc_form').innerHTML = `
-    <h4>${scCurrent.checkCode} ${scCurrent.title} <span class="pill">${scCurrent.priority}</span></h4>
-    <details open><summary>逐要素录入（L1制度 / L4证据）</summary><table>
-      <tr><th>要素</th><th>检查内容·口径</th><th>关注层级</th><th>录入</th></tr>${el}</table></details>
-    <details><summary>对照证据要求（method.evidence_steps）</summary><ul>${ev||'<li>—</li>'}</ul></details>
-    <details><summary>L5 效果·度量实际值（后端阈值判定）</summary><table>
-      <tr><th>度量</th><th>数据来源</th><th>阈值</th><th>实际值</th></tr>${mt||'<tr><td colspan=4>本检查无度量</td></tr>'}</table></details>`;
-}
-async function scSubmit() {
-  if (!scCurrent) return alert('先载入检查项');
-  const els = scCurrent.elements||[];
-  const elements = els.map((e,i)=>({
-    code: e.code,
-    l1_ok: $(`#el_l1_${i}`).checked,
-    l4_evidence: $(`#el_l4_${i}`).value,
-    note: e.text,
-  }));
-  const metrics = (scCurrent.metrics||[]).map((m,i)=>({
-    metricId: m.name, threshold: m.threshold,
-    actual: $(`#mt_${i}`).value.trim(),
-  }));
-  const target = $('#sc_target').value;
-  const actor = ACTOR;
-  const run = await api('/api/inspection/runs', {method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({inspectedTarget: target, inspector: actor, actor})});
-  const res = await api(`/api/inspection/runs/${run.runId}/results`, {method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({checkCode: scCurrent.checkCode, elements, metrics, actor})});
-  const key = target + '|' + scCurrent.checkCode;
-  const prev = scLastRun[key];
-  scLastRun[key] = {runId: run.runId, result: res.result};
-  scRenderResult(res, prev, run.runId, key);
-}
-function scBadge(r){return `<span class="badge b-${r==='pass'?'ok':r==='partial'?'warn':'bad'}">${r}</span>`;}
-function scRenderResult(res, prev, runId, key) {
-  scLastRunId = runId;
-  const w = res.why||{};
-  const elRows = (w.elements||[]).map(e=>
-    `<tr><td>${e.code}</td><td>${scBadge(e.result)}</td><td>${e.why}</td></tr>`).join('');
-  const mtRows = (w.metrics||[]).map(m=>
-    `<tr><td>${m.metricId||''}</td><td>${m.threshold||''}</td><td>${m.actual??'—'}</td>
-      <td>${scBadge(m.status==='pass'?'pass':m.status==='fail'?'fail':m.status)}</td></tr>`).join('');
-  const fp = (scCurrent.findings||[]).map(f=>
-    `<li><b>问题</b>${f.problem}<br><span class="muted">根因：${f.rootCause}；整改：${f.remediation}</span></li>`).join('');
-  let cmp = '';
-  if (prev && prev.result !== res.result)
-    cmp = `<p class="muted">重检对比：${prev.result} → <b>${res.result}</b>（run ${prev.runId} → ${runId}）</p>`;
-  else if (prev)
-    cmp = `<p class="muted">本对象+该检查已跑过 ${prev.result}（run ${prev.runId}）；本次仍 ${res.result}。</p>`;
-  $('#sc_result').innerHTML = `
-    <p>结论：${scBadge(res.result)}　runId=${runId}　提案=${res.proposalId||'（无）'}</p>${cmp}
-    <table><tr><th>要素</th><th>判定</th><th>why</th></tr>${elRows||'<tr><td colspan=3>—</td></tr>'}</table>
-    <details open><summary>L5 度量判定（阈值对照）</summary><table>
-      <tr><th>度量</th><th>阈值</th><th>实际</th><th>判定</th></tr>${mtRows||'<tr><td colspan=4>—</td></tr>'}</table></details>
-    ${(res.result==='fail'||res.result==='partial')?`<details open><summary>常见问题/根因/整改（FindingPattern）</summary><ul>${fp||'<li>—</li>'}</ul></details>`:''}
-    <p><button onclick="scProposal('${runId}')">一键发起知识缺口提案</button>
-       <button class="ghost" onclick="scSubmit()">对同一对象+检查重检</button>
-       <button class="ghost" onclick="scReport()">生成合规自查报告</button></p>`;
-}
-
-// 合规自查报告（PRD M4.5/O5）：差距 + 整改建议 + 专家意见；确定性派生，同输入同输出
-const SC_V = {pass:'符合', partial:'部分符合', fail:'不符合'};
-async function scReport(){
-  if (!scLastRunId) return alert('请先提交一次自查，再生成报告');
-  const rep = await api('/api/inspection/runs/' + scLastRunId + '/report').catch(()=>null);
-  if (!rep || rep.error){ $('#sc_report_out').innerHTML = '<p class="muted">报告生成失败：' + esc((rep&&rep.error&&rep.error.message)||'接口不可达') + '</p>'; return; }
-  const s = rep.summary || {};
-  const vb = r => `<span class="badge b-${r==='pass'?'ok':r==='partial'?'warn':'bad'}">${SC_V[r]||r}</span>`;
-  const items = (rep.items||[]).map(i => `
-    <details${i.result!=='pass'?' open':''}><summary>${esc(i.checkCode)} ${esc(i.title)} ${vb(i.result)}${i.priority?` <span class="pill">${esc(i.priority)}</span>`:''}</summary>
-      <p class="muted">依据：${esc(((i.regulation||'')+' '+(i.articleNo||'')).trim()||'—')}
-        ｜佐证：已提供 ${i.evidence.provided} / 缺失 ${i.evidence.missing} / 无制度 ${i.evidence.absent}
-        ｜佐证${i.evidenceComplete?'完整':'不完整'} / 内容${i.contentAdequate?'完备':'不完备'} / ${i.compliant?'符合监管要求':'未达监管要求'}</p>
-      ${(i.gaps||[]).length?`<p><b>差距</b></p><ul>${i.gaps.map(g=>`<li>[${esc(g.type)}] ${esc(g.code||'—')}：${esc(g.detail)}</li>`).join('')}</ul>`:''}
-      ${(i.remediation||[]).length?`<p><b>整改建议</b></p><ul>${i.remediation.map(r=>`<li>${esc(r.action)}<span class="muted">（依据：${esc(r.basis)}）</span></li>`).join('')}</ul>`:''}
-      <p><b>专家意见</b>：${esc(i.expertOpinion)}</p>
-    </details>`).join('');
-  const gaps = rep.gapSummary||[], experts = rep.expertOpinions||[];
-  $('#sc_report_out').innerHTML = `
-    <p>被查对象：<b>${esc(rep.inspectedTarget||'—')}</b>　检查人：${esc(rep.inspector||'—')}
-      　运行：<code>${esc(rep.runId)}</code>　生成：${esc((rep.generatedAt||'').replace('T',' '))}　总体：${vb(s.overall)}</p>
-    <div>
-      <span class="stat"><b>${s.complianceRate||0}%</b>合规率</span>
-      <span class="stat"><b>${s.evidenceCompleteness||0}%</b>佐证完整性</span>
-      <span class="stat"><b>${s.contentAdequacy||0}%</b>内容完备性</span>
-      <span class="stat"><b>${s.pass||0}/${s.partial||0}/${s.fail||0}</b>符合/部分/不符合</span>
-    </div>
-    <h4>一、逐条自查结论与差距</h4>${items||'<p class="muted">无</p>'}
-    <h4>二、差距汇总</h4>${gaps.length?`<ul>${gaps.map(g=>`<li>${esc(g.checkCode)} [${esc(g.type)}] ${esc(g.code||'—')}：${esc(g.detail)}</li>`).join('')}</ul>`:'<p class="muted">无</p>'}
-    <h4>三、专家意见汇总</h4>${experts.length?`<ul>${experts.map(e=>`<li>[${esc(e.priority||'—')}] ${esc(e.checkCode)}：${esc(e.opinion)}</li>`).join('')}</ul>`:'<p class="muted">无</p>'}`;
-  const dl = $('#sc_report_dl');
-  if (dl){ dl.href = '/api/inspection/runs/' + scLastRunId + '/report.md'; dl.style.display = 'inline'; }
-}
-async function scProposal(runId) {
-  const r = await api('/api/proposals', {method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({reason: `检查项 ${scCurrent.checkCode}（${scCurrent.title}）自查存在知识缺口，需专家补全证据要求/判定规则/阈值`,
-      targetKind: 'EvidenceRequirement', raisedFrom: runId,
-      payload: {checkCode: scCurrent.checkCode, runId}, actor: ACTOR})});
-  alert('已发起提案 ' + (r.id||JSON.stringify(r)) + '，请到「待审核队列」查看。');
-}
-
 // 检查台账（M5）本版本暂不提供：按需求先移除菜单与页面，后续再行补充。
 
 async function loadChecks() {
-  const doc = $('#ck_doc').value, dom = $('#ck_domain').value, pri = $('#ck_pri').value, kw = $('#ck_kw').value.trim();
+  const docEl = $('#ck_doc'), domEl = $('#ck_domain'), priEl = $('#ck_pri'), kwEl = $('#ck_kw'), listEl = $('#ck_list');
+  if (!listEl) return;
+  const doc = docEl ? docEl.value : '', dom = domEl ? domEl.value : '',
+        pri = priEl ? priEl.value : '', kw = kwEl ? kwEl.value.trim() : '';
   let url = '/api/checks?';
   if (doc) url += '&doc=' + doc;
   if (dom) url += '&domain=' + dom;
   if (pri) url += '&priority=' + pri;
   if (kw) url += '&keyword=' + encodeURIComponent(kw);
+  listEl.innerHTML = '<span class="muted">加载中…</span>';
   const d = await api(url);
   const docLabel = {jg24:'金规〔2024〕24号', jg93:'金办发〔2025〕93号', pboc3:'人行令〔2025〕第3号', jf8:'金发〔2026〕8号'};
-  $('#ck_meta').textContent = `共 ${d.total} 项（筛选 ${d.filtered}）｜按文号 ` +
-    JSON.stringify(Object.fromEntries(Object.entries(d.byDoc||{}).map(([k,v])=>[docLabel[k]||k,v]))) +
-    '｜领域 ' + JSON.stringify(d.byDomain) + '｜优先级 ' + JSON.stringify(d.byPriority);
-  $('#ck_list').innerHTML = '<table><tr><th>编号</th><th>标题</th><th>优先级</th><th>领域</th><th>文号</th></tr>' +
-    d.checks.map(c =>
-      `<tr style="cursor:pointer" onclick="showCheck('${c.checkCode}')">
-        <td><b>${c.checkCode}</b></td><td>${c.title}</td>
-        <td><span class="pill">${c.priority}</span></td><td>${c.domainLabel||c.domain}</td>
-        <td><span class="muted">${docLabel[c.docKey]||c.docKey||''}</span></td></tr>`).join('') + '</table>';
+  if (!d || !d.checks){ listEl.innerHTML = '<span class="muted">检查项取数失败，请稍后重试。</span>'; return; }
+  const rows = d.checks.map(c =>
+    `<tr style="cursor:pointer" onclick="showCheck('${c.checkCode}')" title="查看 ${esc(c.checkCode)} 六维详情">
+      <td><b>${esc(c.checkCode)}</b></td><td>${esc(c.title)}</td>
+      <td><span class="pill">${esc(c.priority)}</span></td><td>${esc(c.domainLabel||c.domain||'')}</td>
+      <td><span class="muted">${esc(docLabel[c.docKey]||c.docKey||'')}</span></td></tr>`).join('');
+  listEl.innerHTML =
+    `<div class="muted" style="margin:0 0 8px">共 <b>${d.filtered != null ? d.filtered : d.checks.length}</b> 项` +
+    `${d.total != null && d.total !== d.filtered ? `（总 ${d.total} 项）` : ''}</div>` +
+    '<table><thead><tr><th>编号</th><th>标题</th><th>优先级</th><th>领域</th><th>文号</th></tr></thead>' +
+    '<tbody>' + (rows || '<tr><td colspan=5>没有匹配的检查项</td></tr>') + '</tbody></table>';
 }
 async function showCheck(code) {
+  const box = $('#ck_detail');
+  if (!box) return;
+  box.innerHTML = '<span class="muted">加载中…</span>';
   const c = await api('/api/checks/' + code);
+  if (!c || c.error){ box.innerHTML = '<span class="muted">检查项加载失败，请稍后重试。</span>'; return; }
   const lvColor = {L1:'#1B4FE4',L2:'#3a6bf0',L3:'#6d90f5',L4:'#e08a00',L5:'#2a9d5c'};
   const el = (c.elements||[]).map(e =>
-    `<tr><td>${e.code}</td><td>${e.text}</td>
-      <td>${(e.focusLevels||'').split(',').filter(Boolean).map(l=>`<span style="color:${lvColor[l]}" class="pill">${l}</span>`).join(' ')}</td></tr>`).join('');
-  const steps = (c.methodSteps||[]).map(s=>`<li><b>[${s.stepKind==='evidence'?'查证据':'查制度'}${s.stepNo}]</b> ${s.action||s.focus} ${s.focus&&s.stepKind==='evidence'?('— '+s.focus):''}</li>`).join('');
-  const v = c.verdict||{};
-  const vd = k => (JSON.parse(v[k]||'[]')).map(x=>`<li>${x}</li>`).join('');
-  const fp = (c.findings||[]).map(f=>`<li><b>问题</b>${f.problem}<br><span class="muted">根因：${f.rootCause}；整改：${f.remediation}</span></li>`).join('');
-  const rel = (c.related||[]).map(r=>`<li>${r.ref}（关联）</li>`).join('');
-  const sc = (c.suggestedControls||[]).map(s=>{
-    const badge = s.status==='provisional'
-      ? `<span class="badge b-warn">暂定对应·待CT确认</span>`
-      : `<span class="badge b-unk">待对齐（10工程v1.5）</span>`;
-    return `<li>[${s.layer}] <b>${s.name}</b> ${badge}<br>
-      <span class="muted">${s.type||''}${s.baseControlTitle?'｜暂定对应底座：'+s.baseControlTitle:''}</span></li>`;
+    `<tr><td><b>${esc(e.code)}</b></td><td>${esc(e.text)}</td>
+      <td>${(e.focusLevels||'').split(',').filter(Boolean).map(l=>`<span style="color:${lvColor[l]}" class="pill">${esc(l)}</span>`).join(' ') || '<span class="muted">—</span>'}</td></tr>`).join('');
+  const steps = (c.methodSteps||[]).map(s=>{
+    const kind = s.stepKind === 'evidence' ? '查证据' : '查制度';
+    const focus = (s.stepKind === 'evidence' && s.focus) ? ` — <span class="muted">${esc(s.focus)}</span>` : '';
+    return `<li><b>[${kind}${esc(String(s.stepNo))}]</b> ${esc(s.action || s.focus || '')}${focus}</li>`;
   }).join('');
-  $('#ck_detail').innerHTML = `
-    <h4>${c.checkCode} ${c.title} <span class="pill">${c.priority}</span> ${c.domainLabel||c.domain}</h4>
-    <p class="muted">依据 ${c.regulation}（${c.articleNo}）｜挂接法条：${(c.citesClause||[]).join(', ')}</p>
-    <details open><summary>条文原文</summary><p>${c.articleText||'（同前条，见法条）'}</p></details>
-    <details open><summary>检查清单（要素·关注层级色标）</summary><table>${el}</table></details>
-    <details><summary>检查方法（查制度·查证据${c.tip?'；杀手锏：'+c.tip:''}）</summary><ol>${steps}</ol></details>
+  const v = c.verdict || {};
+  const vd = k => {
+    let arr = [];
+    try { arr = JSON.parse(v[k] || '[]') || []; } catch (e) { arr = []; }
+    return arr.map(x => `<li>${esc(x)}</li>`).join('');
+  };
+  const vBlock = (label, cls, key) =>
+    `<p style="margin:10px 0 2px"><span class="badge ${cls}">${label}</span></p><ul style="margin:4px 0">${vd(key) || '<li class="muted">—</li>'}</ul>`;
+  const fp = (c.findings||[]).map(f =>
+    `<li><b>问题</b>　${esc(f.problem)}<br><span class="muted"><b>根因</b>：${esc(f.rootCause||'—')}；<b>整改</b>：${esc(f.remediation||'—')}</span></li>`).join('');
+  const rel = (c.related||[]).map(r => `<li><b>${esc(r.ref)}</b>（关联）</li>`).join('');
+  const sc = (c.suggestedControls||[]).map(s=>{
+    const badge = s.status === 'provisional'
+      ? `<span class="badge b-warn">暂定对应 · 待 CT 确认</span>`
+      : `<span class="badge b-unk">待对齐（10 工程 v1.5）</span>`;
+    return `<li><span class="pill">${esc(s.layer)}</span> <b>${esc(s.name)}</b> ${badge}<br>
+      <span class="muted">${esc(s.type||'')}${s.baseControlTitle ? '｜暂定对应底座：' + esc(s.baseControlTitle) : ''}</span></li>`;
+  }).join('');
+  box.innerHTML = `
+    <h4>${esc(c.checkCode)} ${esc(c.title)} <span class="pill">${esc(c.priority)}</span> <span class="muted">${esc(c.domainLabel||c.domain||'')}</span></h4>
+    <p class="muted"><b>依据</b> ${esc(c.regulation||'—')} <b>（${esc(c.articleNo||'—')}）</b>｜<b>挂接法条</b>：${esc((c.citesClause||[]).join('、')||'—')}</p>
+    <details open><summary>条文原文</summary><p>${esc(c.articleText||'（同前条，见法条）')}</p></details>
+    <details open><summary>检查清单（要素 · 关注层级色标）</summary><table>
+      <thead><tr><th>要素</th><th>检查内容</th><th>关注层级</th></tr></thead>
+      <tbody>${el||'<tr><td colspan=3 class="muted">—</td></tr>'}</tbody></table></details>
+    <details><summary>检查方法（查制度 · 查证据${c.tip?' · <b>杀手锏：'+esc(c.tip)+'</b>':''}）</summary><ol>${steps||'<li>—</li>'}</ol></details>
     <details><summary>三档判定要点</summary>
-      <p><b>通过：</b><ul>${vd('verdictPass')}</ul></p>
-      <p><b>部分符合：</b><ul>${vd('verdictPartial')}</ul></p>
-      <p><b>不符合：</b><ul>${vd('verdictFail')}</ul></p></details>
-    <details><summary>常见问题/根因/整改</summary><ul>${fp||'<li>—</li>'}</ul></details>
+      ${vBlock('通过','b-ok','verdictPass')}
+      ${vBlock('部分符合','b-warn','verdictPartial')}
+      ${vBlock('不符合','b-bad','verdictFail')}</details>
+    <details><summary>常见问题 / 根因 / 整改</summary><ul>${fp||'<li>—</li>'}</ul></details>
     <details><summary>关联检查项</summary><ul>${rel||'<li>—</li>'}</ul>
-      <p class="muted">${c.relatedRaw||''}</p></details>
-    <details open><summary>建议控制措施（占位·待 10 工程 v1.5 CT 编码对齐）</summary>
-      <p class="muted">以下为检查侧控制需求占位，<b>非已落实/已对齐权威控制</b>；权威控制词汇唯一事实源=10 工程 v1.5。</p>
+      <p class="muted">${esc(c.relatedRaw||'')}</p></details>
+    <details open><summary>建议控制措施（占位 · 待 10 工程 v1.5 CT 编码对齐）</summary>
+      <p class="muted">以下为检查侧控制需求占位，<b>非已落实 / 已对齐权威控制</b>；权威控制词汇唯一事实源 = <b>10 工程 v1.5</b>。</p>
       <ul>${sc||'<li>—</li>'}</ul></details>`;
 }
 
@@ -359,6 +250,7 @@ async function llmTest() {
 }
 
 // ---------- 设置页：可引用的知识库（多选） + 取数来源状态 ----------
+let kbEffCount = 0;   // 部署当前生效的知识库数量（未勾选时用于说明兜底口径）
 function loadSettings(){ loadKbPick(); loadLlmset(); loadSrcStatus(); }
 
 async function loadKbPick(){
@@ -368,22 +260,34 @@ async function loadKbPick(){
   if (!d || d.available === undefined){
     box.innerHTML = '<span class="muted">知识库列表不可达，请检查知识库平台。</span>'; return;
   }
+  const degraded = d.source === 'degraded';
+  const note = degraded
+    ? '<div class="muted" style="margin-bottom:8px"><span class="badge b-warn">降级展示</span> ' +
+      '知识库平台暂不可达，以下为<strong>演示知识库目录</strong>（已含部署当前生效库），' +
+      '可正常勾选，不阻断作业。</div>'
+    : '';
   if (!d.available.length){
-    box.innerHTML = '<span class="muted">暂无可用知识库。</span>'; return;
+    box.innerHTML = note + '<span class="muted">暂无可用知识库。</span>'; return;
   }
   const sel = d.selected || [];
-  box.innerHTML = d.available.map(k => `
+  const docs = n => (n === null || n === undefined) ? '篇数 —' : (n + ' 篇');
+  const eff = d.effective || [];
+  box.innerHTML = note + d.available.map(k => `
     <label class="pick" title="${esc(k.id)}">
       <input type="checkbox" value="${esc(k.id)}" ${sel.includes(k.id) ? 'checked' : ''}>
       <span class="pick-name">${esc(k.name)}</span>
-      <span class="pick-meta">${k.docCount} 篇</span>
+      ${k.effective ? '<span class="badge b-ok">当前生效</span>' : ''}
+      <span class="pick-meta">${docs(k.docCount)}</span>
     </label>`).join('');
-  kbPickStatus(sel.length);
+  kbPickStatus(sel.length, eff.length);
 }
 
-function kbPickStatus(n){
+function kbPickStatus(n, effN){
   const el = $('#kb_pick_status'); if (!el) return;
-  el.textContent = n ? `已选 ${n} 个知识库` : '未选择，使用默认知识库';
+  if (effN !== undefined) kbEffCount = effN;
+  const base = n ? `已选 ${n} 个知识库`
+    : (kbEffCount ? `未选择，使用部署默认的 ${kbEffCount} 个知识库` : '未选择，使用默认知识库');
+  el.textContent = base;
 }
 
 async function kbPickSave(){
@@ -393,7 +297,7 @@ async function kbPickSave(){
     headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ids})}).catch(() => null);
   if (!r || r.error){ if (el) el.textContent = '保存失败：接口不可达。'; return; }
   kbSiteInited = false;                       // 使知识库视图下次进入时按新配置重建
-  kbPickStatus((r.selected || []).length);
+  kbPickStatus((r.selected || []).length, (r.effective || []).length);
   if (el) el.textContent = '✓ 已保存，' + el.textContent;
 }
 

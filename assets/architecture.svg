@@ -14,7 +14,7 @@
 
   <!-- Header -->
   <rect x="0" y="0" width="1240" height="96" fill="url(#hdr)"/>
-  <text x="34" y="50" fill="#FFFFFF" font-size="30" font-weight="700">数据安全管理平台 · 技术架构</text>
+  <text x="34" y="50" fill="#FFFFFF" font-size="30" font-weight="700">金融行业数据安全知识库和智能体平台 · 技术架构</text>
   <text x="34" y="78" fill="#D8E3FF" font-size="15">ekos 本体驱动底座 · 分层治理 · 多场景智能体服务</text>
   <text x="1206" y="52" fill="#FFFFFF" font-size="15" font-weight="600" text-anchor="end">本体驱动 · 数据驱动</text>
   <text x="1206" y="78" fill="#D8E3FF" font-size="13" text-anchor="end">Ontology-Driven Data Security Governance</text>

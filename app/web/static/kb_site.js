@@ -38,12 +38,12 @@ window.KbSite = (function () {
   var IN_CACHE = {};        // 入链缓存（随条目详情接口返回）
   /* 图谱多源（v1.20.0）：每个来源首次访问时各取一次并缓存；切换来源不重取。
    *   site     —— 本站知识库装配图（Markdown -> nodes/edges）
-   *   native   —— 底层 WeKnora 抽取图（Neo4j :ENTITY*，经后端只读代理）
+   *   native   —— 底层抽取图（Neo4j :ENTITY*，经后端只读代理）
    *   ontology —— 平台本体镜像图（Neo4j :Entity @ dsec.local）
    * 后端在 Neo4j 不可达时自动回落 site，信封 source 字段标注实际来源。 */
   var GRAPH_SOURCES = [
     { key: 'site',     label: '知识库图谱',   hint: '本站知识库装配图 · 11 类实体' },
-    { key: 'native',   label: 'WeKnora 抽取图', hint: '底层 WeKnora 实体抽取图（Neo4j）' },
+    { key: 'native',   label: '底层抽取图',   hint: '底层实体抽取图（Neo4j）' },
     { key: 'ontology', label: '平台本体图',   hint: '平台本体镜像图（Neo4j · dsec）' }
   ];
   var GRAPH_CACHE = {}, GRAPH_PENDING = {}, GRAPH_SRC = 'site', GRAPH_LOADED = false;
@@ -290,6 +290,7 @@ window.KbSite = (function () {
         if (parts[1] === 'layer' && parts[2]) return { name: 'controls', layer: decodeURIComponent(parts[2]) };
         return { name: 'controls' };
       case 'control-mapping': return { name: 'control-mapping' };
+      case 'checks':  return { name: 'checks' };
       default:        return { name: 'notfound', path: h };
     }
   }
@@ -329,6 +330,7 @@ window.KbSite = (function () {
       case 'cases':     setCrumbs(['案例库']); renderCases(); break;
       case 'type':      renderTypeList(route.type); break;
       case 'controls':  renderControls(route.layer); break;
+      case 'checks':    setCrumbs(['监管检查库']); renderChecks(); break;
       case 'control-mapping': setCrumbs(['控制体系', '控制↔法规/标准映射']); renderControlMapping(); break;
       default:          setCrumbs(['未找到']); renderNotFound(route.path);
     }
@@ -347,7 +349,7 @@ window.KbSite = (function () {
       return '<a class="type-tile" style="--tc:' + m.color + '" href="#/type/' + encodeURIComponent(t) + '">' +
         '<div class="t-name">' + m.label + '</div>' +
         '<div class="t-count">' + n + '</div>' +
-        '<div class="t-desc">' + (n > 0 ? '点击进入，按此类型浏览' : '建设中，敬请期待') + '</div></a>';
+        (n > 0 ? '' : '<div class="t-desc">建设中，敬请期待</div>') + '</a>';
     }).join('');
 
     // 精选卡片：案例 + 指南 + L1 入门条目
@@ -365,7 +367,6 @@ window.KbSite = (function () {
       '<section class="hero">' +
       '  <span class="hero-deco" aria-hidden="true"></span>' +
       '  <h1>数据安全知识库</h1>' +
-      '  <p class="tagline">以数据安全法、个人信息保护法为纲，串联概念、法规、标准、控制、案例与学习路径——一个可溯源、可检索、可下钻的中文知识体系。</p>' +
       '  <div class="searchbox">' +
       '    <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>' +
       '    <input id="searchInput" type="search" placeholder="搜索标题、别名、标签、摘要或正文…" aria-label="全站检索" autocomplete="off">' +
@@ -386,7 +387,7 @@ window.KbSite = (function () {
       '</div>' +
 
       '<div class="section">' +
-      '  <div class="section-head"><h2>重点法规 / 专题</h2><span class="sub">核心法律与专项行动专题（可直接分享）</span></div>' +
+      '  <div class="section-head"><h2>重点法规 / 专题</h2></div>' +
       '  <div class="card-grid">' + highlights + '</div>' +
       '</div>' +
 
@@ -943,6 +944,48 @@ window.KbSite = (function () {
     }
     draw(routeLayer ? { layer: routeLayer } : {});
     setCrumbs(routeLayer ? ['控制体系', LAYER_LABEL[routeLayer] || routeLayer] : ['控制体系']);
+  }
+
+  /* ================= 视图：监管检查库（PRD K3 · 多文号 · 关联检索） =================
+   * 由知识库上方标签承载（见 index.html #kb_nav data-nav="checks"）。
+   * 渲染宿主 DOM 后复用 app.js 的全局 loadChecks()/showCheck()：
+   *   - 元素 id 与内联 onchange/oninput 调用保持与既往实现一致（#ck_doc/#ck_domain/
+   *     #ck_pri/#ck_kw → #ck_list、点击行 → #ck_detail）；
+   *   - 取数统一走 /api/checks（统一信封 + 降级链），页面不做分支渲染。 */
+  function renderChecks() {
+    var opts = function (vals) {
+      return '<option value="">' + vals[0] + '</option>' + vals.slice(1).map(function (v) {
+        return '<option value="' + v[0] + '">' + v[1] + '</option>';
+      }).join('');
+    };
+    appEl.innerHTML =
+      '<div class="section" style="margin-top:4px">' +
+        '<div class="card">' +
+          '<h3>监管检查库（多文号 · 关联检索）</h3>' +
+          '<div class="dz-toolbar">' +
+            '<select id="ck_doc" onchange="loadChecks()" title="按文号筛选" aria-label="按文号筛选" style="max-width:300px">' +
+              opts(['全部文号',
+                    ['jg24', '金规〔2024〕24号（银行保险数据安全办法）'],
+                    ['jg93', '金办发〔2025〕93号（专项行动自查表）'],
+                    ['pboc3', '人行令〔2025〕第3号（业务领域数据安全办法）'],
+                    ['jf8', '金发〔2026〕8号（AI 安全开发应用指导意见）']]) +
+            '</select>' +
+            '<select id="ck_domain" onchange="loadChecks()" title="按领域筛选" aria-label="按领域筛选" style="max-width:160px">' +
+              opts(['全部领域', ['gov', '治理域'], ['tech', '科技域'], ['cross', '跨域']]) +
+            '</select>' +
+            '<select id="ck_pri" onchange="loadChecks()" title="按优先级筛选" aria-label="按优先级筛选" style="max-width:170px">' +
+              opts(['全部优先级', ['P0', 'P0'], ['P1', 'P1'], ['P2', 'P2']]) +
+            '</select>' +
+            '<input id="ck_kw" placeholder="搜索关键词" oninput="loadChecks()" title="搜索关键词" aria-label="搜索关键词" style="max-width:220px">' +
+            '<button onclick="loadChecks()" title="应用筛选">筛选</button>' +
+          '</div>' +
+          '<div id="ck_list" style="max-height:56vh;overflow:auto"></div>' +
+        '</div>' +
+        '<div class="card"><h3>检查项六维详情</h3>' +
+          '<div id="ck_detail" class="muted">点击上方检查项查看六维详情。</div>' +
+        '</div>' +
+      '</div>';
+    if (typeof window.loadChecks === 'function') window.loadChecks();
   }
 
   /* ================= 视图：控制↔法规/标准映射 ================= */

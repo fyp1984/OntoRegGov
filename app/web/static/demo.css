@@ -1,0 +1,220 @@
+/* ============================================================
+   金融行业数据安全知识库和智能体平台 · 全量功能 Demo 组件层（demo.css）
+   只新增 dz- 前缀组件；颜色 / 圆角 / 阴影 / 字体全部复用 styles.css 变量，
+   与既有界面风格保持完全统一。不引入任何外部字体 / CDN。
+   ============================================================ */
+
+/* ---------- 工具条 ---------- */
+.dz-toolbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px}
+.dz-toolbar .muted{font-size:12px}
+/* 全局 input/select 为 width:100%，在 flex 工具条里会把整行撑满并挤掉同行元素；
+   工具条内的控件按内容宽度排布，保证同一行展示 */
+.dz-toolbar select,.dz-toolbar input{width:auto;max-width:320px;flex:0 0 auto}
+/* 单行工具条：不换行；末位说明文字（账号 / 当前版本）必要时省略号截断 */
+.dz-toolbar--single{flex-wrap:nowrap}
+.dz-toolbar--single>*{flex:0 0 auto}
+.dz-toolbar--single .dz-toolbar-note{margin-left:auto;flex:0 1 auto;min-width:0;
+  overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+
+/* ---------- 数据保存策略（设置页） ---------- */
+.ret-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(268px,1fr));gap:12px}
+.ret-group{border:1px solid var(--line);border-radius:var(--radius);padding:8px 12px 4px}
+.ret-group-title{font-size:12px;font-weight:600;color:var(--brand-deep);padding-bottom:2px}
+.ret-row{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:13px;
+  color:var(--text);padding:6px 0}
+.ret-row+.ret-row{border-top:1px solid var(--line)}
+.ret-row input[type=number]{width:66px;flex:0 0 auto;padding:5px 8px;text-align:center}
+.ret-row select{width:auto;flex:0 0 auto;padding:5px 8px}
+.ret-row input[type=checkbox]{width:auto;flex:0 0 auto;padding:0;margin:0;vertical-align:middle}
+.ret-fixed{margin-top:14px;padding-top:10px;border-top:1px dashed var(--line);
+  display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:2px 28px}
+.ret-fixed .dz-metric{border-bottom:0;padding:4px 0}
+
+/* ---------- KPI 指标卡 ---------- */
+.dz-kpi-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin-bottom:18px}
+.dz-kpi{position:relative;overflow:hidden;background:var(--card);border:1px solid var(--line);
+  border-radius:var(--radius);padding:14px 16px;box-shadow:var(--shadow)}
+.dz-kpi::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--brand)}
+.dz-kpi-label{font-size:12px;color:var(--muted);font-weight:500}
+.dz-kpi-value{font-size:24px;font-weight:700;color:var(--brand-deep);line-height:1.35;margin-top:2px}
+.dz-kpi-sub{font-size:12px;color:var(--muted)}
+.dz-kpi.k-ok::before{background:var(--ok)}
+.dz-kpi.k-ok .dz-kpi-value{color:var(--ok-ink)}
+.dz-kpi.k-warn::before{background:var(--warn)}
+.dz-kpi.k-warn .dz-kpi-value{color:var(--warn-ink)}
+.dz-kpi.k-bad::before{background:var(--bad)}
+.dz-kpi.k-bad .dz-kpi-value{color:var(--bad-ink)}
+
+/* ---------- 两栏自适应布局 ---------- */
+.dz-split{display:grid;grid-template-columns:320px minmax(0,1fr);gap:18px;align-items:start}
+.dz-side{min-width:0}
+.dz-main{min-width:0}
+.dz-sticky{position:sticky;top:16px;max-height:calc(100vh - 120px);overflow:auto}
+
+/* ---------- 步骤条 ---------- */
+.dz-steps{display:flex;flex-wrap:wrap;list-style:none;margin:0 0 16px;padding:0}
+.dz-step{display:flex;align-items:center;gap:8px;padding:8px 14px;margin:0 8px 8px 0;
+  font-size:13px;color:var(--muted);background:var(--brand-soft);
+  border:1px solid var(--line);border-radius:999px}
+.dz-step .dz-step-no{display:inline-flex;align-items:center;justify-content:center;
+  width:20px;height:20px;border-radius:50%;background:var(--line-strong);color:#fff;
+  font-size:12px;font-weight:600;flex:none}
+.dz-step.on{background:var(--brand-bg);border-color:var(--brand-border);color:var(--brand-dark);font-weight:600}
+.dz-step.on .dz-step-no{background:var(--brand)}
+.dz-step.done{background:var(--ok-bg);border-color:var(--ok);color:var(--ok-ink)}
+.dz-step.done .dz-step-no{background:var(--ok)}
+
+/* ---------- 时间线 ---------- */
+.dz-tl{list-style:none;margin:0;padding:0 0 0 16px;border-left:2px solid var(--line-strong)}
+.dz-tl-item{position:relative;padding:0 0 14px 14px}
+.dz-tl-item::before{content:"";position:absolute;left:-23px;top:4px;width:10px;height:10px;
+  border-radius:50%;background:var(--card);border:2px solid var(--brand)}
+.dz-tl-time{font-size:12px;color:var(--muted)}
+.dz-tl-title{font-weight:600;color:var(--brand-deep);font-size:13.5px}
+
+/* ---------- 胶囊筛选条 ---------- */
+.dz-chipbar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+.dz-chip{background:var(--brand-soft);border:1px solid var(--line-strong);border-radius:999px;
+  padding:4px 12px;font-size:12.5px;color:var(--text);cursor:pointer;
+  transition:background .15s,border-color .15s,color .15s}
+.dz-chip:hover{background:var(--brand-bg);border-color:var(--brand-border)}
+.dz-chip.on{background:var(--brand);color:#fff;border-color:var(--brand);font-weight:600}
+
+/* ---------- 骨架屏（shimmer） ---------- */
+.dz-skeleton{display:block}
+.dz-skeleton-row{margin-bottom:10px}
+.dz-sk-bar{display:block;height:16px;border-radius:8px;
+  background:linear-gradient(90deg,var(--brand-soft) 25%,var(--brand-bg) 37%,var(--brand-soft) 63%);
+  background-size:400% 100%;animation:dz-shimmer 1.3s ease-in-out infinite}
+.dz-skeleton-row:nth-child(even) .dz-sk-bar{height:40px}
+@keyframes dz-shimmer{0%{background-position:100% 50%}100%{background-position:0 50%}}
+
+/* ---------- 右下角轻提示 ---------- */
+#dz_toast_box{position:fixed;right:18px;bottom:18px;z-index:2000;display:flex;flex-direction:column;
+  gap:8px;align-items:flex-end}
+.dz-toast{max-width:340px;padding:10px 14px;border-radius:10px;background:var(--brand-deep);color:#fff;
+  font-size:13px;box-shadow:0 8px 24px rgba(30,50,104,.28);
+  opacity:1;transform:translateY(0);transition:opacity .4s,transform .4s}
+.dz-toast.ok{background:var(--ok-ink)}
+.dz-toast.warn{background:var(--warn-ink)}
+.dz-toast.bad{background:var(--bad-ink)}
+.dz-toast.out{opacity:0;transform:translateY(8px)}
+
+/* ---------- 提示条 ---------- */
+.dz-banner{display:flex;align-items:center;gap:10px;padding:10px 14px;margin-bottom:14px;
+  border-radius:10px;font-size:13px;background:var(--brand-bg);
+  border:1px solid var(--brand-border);color:var(--brand-dark)}
+.dz-banner.warn{background:var(--warn-bg);border-color:var(--warn);color:var(--warn-ink)}
+.dz-banner.bad{background:var(--bad-bg);border-color:var(--bad);color:var(--bad-ink)}
+.dz-banner-text{flex:1;min-width:0}
+.dz-banner-retry{flex:none}
+
+/* ---------- 小字 / 进度条 ---------- */
+.dz-mini{font-size:12px;color:var(--muted)}
+.dz-bar{position:relative;height:8px;min-width:60px;border-radius:999px;background:var(--brand-bg);overflow:hidden}
+.dz-bar>i{display:block;height:100%;border-radius:999px;
+  background:linear-gradient(90deg,var(--brand),var(--brand-border));transition:width .4s}
+
+/* ---------- 引用 / 软标签 ---------- */
+.dz-cite{background:var(--brand-soft);border-left:3px solid var(--brand-border);
+  border-radius:8px;padding:8px 12px;font-size:12.5px;margin:8px 0}
+.dz-cite .dz-cite-src{color:var(--muted);font-size:12px}
+.dz-tag-soft{display:inline-block;background:var(--brand-bg);color:var(--brand-dark);
+  border-radius:6px;padding:1px 8px;font-size:12px;font-weight:500}
+
+/* ---------- 空态 ---------- */
+.dz-empty{text-align:center;padding:34px 16px;color:var(--muted);
+  border:1px dashed var(--line-strong);border-radius:var(--radius);background:var(--brand-soft)}
+.dz-empty-title{font-size:13.5px;margin-bottom:10px}
+.dz-actions{display:flex;gap:10px;flex-wrap:wrap;align-items:center;justify-content:center}
+
+/* ---------- 选项卡 ---------- */
+.dz-tabs{display:flex;gap:6px;flex-wrap:wrap;border-bottom:1px solid var(--line);margin-bottom:14px}
+.dz-tab{background:transparent;color:var(--muted);border:0;border-bottom:2px solid transparent;
+  border-radius:0;padding:8px 12px;font-size:13px;font-weight:500;cursor:pointer;
+  transition:background .15s,color .15s,border-color .15s}
+.dz-tab:hover{background:var(--brand-soft);color:var(--brand-dark)}
+.dz-tab.on{background:transparent;color:var(--brand-dark);border-bottom-color:var(--brand);font-weight:600}
+.dz-tab-count{font-size:11px;color:var(--muted)}
+.dz-tab.on .dz-tab-count{color:var(--brand-dark)}
+
+/* ---------- 流程节点 ---------- */
+.dz-flow{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:10px 0}
+.dz-node{min-width:96px;padding:10px 14px;text-align:center;font-size:12.5px;
+  background:var(--card);border:1px solid var(--line-strong);border-radius:10px;box-shadow:var(--shadow)}
+.dz-node-title{font-weight:600;color:var(--brand-deep)}
+.dz-node.done{border-color:var(--ok);background:var(--ok-bg)}
+.dz-node.on{border-color:var(--brand);background:var(--brand-bg)}
+.dz-node.bad{border-color:var(--bad);background:var(--bad-bg)}
+.dz-arrow{color:var(--muted);font-weight:700}
+
+/* ---------- 契约 / JSON 展示 ---------- */
+.dz-contract{font-family:ui-monospace,Menlo,Consolas,"PingFang SC",monospace;font-size:12px;
+  background:var(--brand-deep);color:#fff;border-radius:10px;padding:12px 14px;overflow:auto;
+  white-space:pre-wrap;word-break:break-all}
+
+/* ---------- 来源可辨 ---------- */
+.dz-srcbar{display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap}
+
+/* ---------- 键值metric ---------- */
+.dz-metric{display:flex;justify-content:space-between;gap:10px;padding:8px 0;border-bottom:1px solid var(--line)}
+.dz-metric:last-child{border-bottom:none}
+.dz-metric-k{color:var(--muted);font-size:12.5px}
+.dz-metric-v{font-weight:600;color:var(--brand-deep)}
+
+/* ---------- 热力 / 图例 ---------- */
+.dz-heat{display:inline-grid;grid-template-columns:repeat(auto-fill,16px);gap:3px}
+.dz-heat i{display:block;width:16px;height:16px;border-radius:3px;background:var(--unk-bg)}
+.dz-heat i.l1{background:var(--brand-bg)}
+.dz-heat i.l2{background:var(--ok-bg)}
+.dz-heat i.l3{background:var(--warn-bg)}
+.dz-heat i.l4{background:var(--bad-bg)}
+.dz-legend{display:flex;gap:14px;flex-wrap:wrap;margin:8px 0;font-size:12px;color:var(--muted)}
+.dz-legend span{display:inline-flex;align-items:center;gap:6px}
+.dz-legend b{display:inline-block;width:10px;height:10px;border-radius:3px}
+
+/* ---------- 文件 / 头像 / SLA ---------- */
+.dz-file{display:flex;align-items:center;gap:8px;padding:8px 10px;font-size:12.5px;
+  border:1px solid var(--line);border-radius:8px;background:var(--brand-soft)}
+.dz-file-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  font-weight:600;color:var(--brand-deep)}
+.dz-file-meta{color:var(--muted);font-size:12px}
+.dz-avatar{display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;
+  border-radius:50%;background:var(--brand);color:#fff;font-size:12px;font-weight:600;flex:none}
+.dz-avatar.lg{width:40px;height:40px;font-size:14px}
+.dz-sla{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--muted)}
+.dz-sla.ok{color:var(--ok-ink)}
+.dz-sla.soon{color:var(--warn-ink)}
+.dz-sla.over{color:var(--bad-ink)}
+
+/* ---------- 段落标题 ---------- */
+.dz-section-title{display:flex;align-items:center;gap:8px;margin:0 0 12px;
+  font-size:15px;color:var(--brand-deep);font-weight:600}
+.dz-section-title::before{content:"";display:inline-block;width:4px;height:15px;border-radius:2px;
+  background:linear-gradient(180deg,var(--brand),var(--brand-border))}
+
+/* ---------- 表格横向滚动容器 ---------- */
+.dz-table-wrap{overflow:auto}
+
+/* ---------- 页面头（轻量页标题：所属分组 › 页面标题） ---------- */
+.dz-pagehead{display:flex;align-items:baseline;padding:0 0 8px;margin:0 0 14px;
+  border-bottom:1px solid var(--line)}
+.dz-crumb{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;min-width:0}
+.dz-crumb-group{font-size:12.5px;color:var(--muted)}
+.dz-crumb-sep{font-size:12.5px;color:var(--muted);opacity:.5}
+.dz-pagehead-title{margin:0;font-size:17px;font-weight:700;color:var(--brand-deep);
+  letter-spacing:.2px;line-height:1.35}
+
+/* ---------- 页签面板（多 tab 拆分：同一视图内互斥显示） ---------- */
+.dz-pane{animation:dz-fade .18s ease-out}
+.dz-pane[hidden]{display:none}
+@keyframes dz-fade{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+
+/* ---------- 响应式：窄屏两栏堆叠 ---------- */
+@media (max-width:960px){
+  .dz-split{grid-template-columns:1fr}
+  .dz-sticky{position:static;max-height:none}
+}
+@media (max-width:720px){
+  .dz-pagehead-title{font-size:16px}
+}

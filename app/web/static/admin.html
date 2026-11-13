@@ -23,8 +23,6 @@
   </div>
   <a data-v="kbdash" class="active">知识库</a>
   <a data-v="kbproc">知识加工</a>
-  <a data-v="checkslib">监管检查库</a>
-  <a data-v="selfcheck">合规自查</a>
   <a data-v="llmset">LLM 配置</a>
 </nav>
 <button class="nav-open" id="nav_open" onclick="navToggle()" title="展开左侧菜单">»</button>
@@ -38,6 +36,7 @@
         <a href="#/timeline" data-nav="timeline">法规时间线</a>
         <a href="#/cases" data-nav="cases">案例库</a>
         <a href="#/controls" data-nav="controls">控制体系</a>
+        <a href="#/checks" data-nav="checks">监管检查库</a>
       </div>
       <div id="kb_meta" class="muted" style="margin:-8px 0 12px"></div>
       <div class="page" id="kb_app"></div>
@@ -71,54 +70,6 @@
     </div>
   </section>
 
-  <section id="checkslib" class="view hidden">
-    <div class="grid2">
-      <div class="card"><h3>监管检查库（多文号 · 关联检索）</h3>
-        <div class="row">
-          <select id="ck_doc" onchange="loadChecks()">
-            <option value="">全部文号</option>
-            <option value="jg24">金规〔2024〕24号（银行保险数据安全办法）</option>
-            <option value="jg93">金办发〔2025〕93号（专项行动自查表）</option>
-            <option value="pboc3">人行令〔2025〕第3号（业务领域数据安全办法）</option>
-            <option value="jf8">金发〔2026〕8号（AI安全开发应用指导意见）</option>
-          </select>
-          <select id="ck_domain"><option value="">全部领域</option><option value="gov">治理域</option><option value="tech">科技域</option><option value="cross">跨域</option></select>
-          <select id="ck_pri"><option value="">全部优先级</option><option value="P0">P0</option><option value="P1">P1</option><option value="P2">P2</option></select>
-          <input id="ck_kw" placeholder="搜索关键词" oninput="loadChecks()">
-          <button onclick="loadChecks()">筛选</button>
-        </div>
-        <div id="ck_meta" class="muted"></div>
-        <div id="ck_list" style="max-height:60vh;overflow:auto"></div>
-      </div>
-      <div class="card"><h3>检查项六维详情</h3><div id="ck_detail">点击左侧检查项。</div></div>
-    </div>
-  </section>
-
-  <section id="selfcheck" class="view hidden">
-    <div class="card"><h3>合规自查 · 检查运行（InspectionRun → CheckResult）</h3>
-      <div class="row">
-        被查对象：<select id="sc_target"></select>
-        检查项：<select id="sc_check" onchange="scLoadCheck()"></select>
-        <button onclick="scLoadCheck()">载入检查项要素</button>
-      </div>
-      <div id="sc_form"></div>
-      <p><button onclick="scSubmit()">提交自查（创建 InspectionRun/CheckResult）</button></p>
-      <p class="muted">逐要素录 L1-L3 制度 / L4 证据 / L5 实际值；阈值判定由后端符号引擎完成，无法判定者标 manual 并提示缺口。</p>
-    </div>
-    <div class="card"><h3>结论与 why 溯源</h3>
-      <div id="sc_result">提交后此处展示三色结论、逐条 why 与常见问题。</div>
-    </div>
-    <div class="card"><h3>合规自查报告（差距 · 整改建议 · 专家意见）</h3>
-      <p class="muted">按本次运行生成自查报告：逐条给出佐证是否完整 / 内容是否完备 / 是否符合监管合规要求，
-        并派生<b>差距</b>、<b>整改建议</b>与<b>专家意见</b>；报告为确定性派生，同输入同输出。</p>
-      <div class="row">
-        <button onclick="scReport()">生成合规自查报告</button>
-        <a id="sc_report_dl" class="muted" style="display:none" download>下载 Markdown</a>
-      </div>
-      <div id="sc_report_out" class="muted">提交自查后可生成报告。</div>
-    </div>
-  </section>
-
   <section id="llmset" class="view hidden">
     <div class="card"><h3>LLM 配置（OpenAI 兼容）</h3>
       <p class="muted">配置保存后立即生效（六维生成 / 法规问答 / 自然语言查库共用），无需重启；
@@ -144,6 +95,6 @@
 </main>
 </div>
 <script src="/kb_site.js?v=2"></script>
-<script src="/app.js?v=20261105e"></script>
+<script src="/app.js?v=20261112c"></script>
 </body>
 </html>
