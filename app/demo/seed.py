@@ -16,7 +16,7 @@ import datetime
 
 from . import store
 
-SEED_VERSION = "demo-v1.4"
+SEED_VERSION = "demo-v1.5"
 
 # ===========================================================================
 # 可引用的知识库清单（演示目录）
@@ -1245,7 +1245,7 @@ def _seed_plugins_scenarios(now):
             "io_schema_json": json.dumps({"input": {"type": "object"}, "output": {"type": "object"}},
                                          ensure_ascii=False),
             "auth_type": "bearer", "rate_limit": "600/min", "status": status,
-            "vendor": "EKOS 生态" if status == "在线" else "第三方（离线）",
+            "vendor": "平台自研" if status == "在线" else "第三方（离线）",
             "latency_ms": lat})
     # 插件调用记录（≥3）
     for i, (pid, st, lat) in enumerate([("pl-grading", "ok", 118), ("pl-class", "ok", 142),

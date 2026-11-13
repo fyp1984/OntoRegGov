@@ -29,6 +29,17 @@ const ARGS = process.argv.slice(2);
 const MAIN_VIEWS = ['kbdash', 'dsk', 'pipeline', 'dsc', 'rem', 'rep', 'diag', 'ledger', 'issues', 'gov', 'ext', 'frame', 'arch', 'capability', 'path', 'assets'];
 const KB_ROUTES = ['home', 'graph', 'path', 'timeline', 'cases', 'controls', 'checks'];
 
+// 数据一致性期望值（白皮书口径：第 7/9/11 章、附录 A.1-补 / B / E；与差距对照表一致）
+const EXPECT_DOMAINS = [
+  '治理与制度支撑', '数据资产与分类分级', '身份与访问／特权账号', '加密与密钥',
+  '脱敏与测试数据', '数据防泄漏与办公渠道', '导出与流转管控', '接口与应用安全',
+  '日志审计与监测告警', '第三方与外包', '移动应用与组件', '备份归档与销毁',
+  '个人信息保护', '策略编排与工具接入'
+];
+const EXPECT_STAGE_KEYS = ['stage', 'start', 'goal', 'gate', 'tools', 'asset'];
+const EXPECT_ASSETS = ['台账', '自查报告', '方法与模板', '已确认结果'];
+const EXPECT_FIVE = ['problems', 'bases', 'ownership', 'evidenceGaps', 'nextSteps'];
+
 // 降级/异常"状态"短语（判定必须是状态化，见 detectInPage）
 const BAD_TEXT = ['来源不可用', '知识库暂不可达', '暂不可用'];
 
@@ -353,6 +364,39 @@ async function main(chromium) {
     }
   }
 
+  /* [5] 数据一致性校验（白皮书口径：能力域 / 实施路径 / 资产 / 报告样例 / 场景包 / 九类问题） */
+  hr('[5] 数据一致性校验（白皮书口径）');
+  let dataChecked = 0;
+  {
+    const probes = [
+      { name: '能力域目录（附录 E · 14 项）', url: '/api/capabilities', pick: (j) => j.capabilities,
+        check: (a) => a.length === 14 && a.map((x) => x.name).join('|') === EXPECT_DOMAINS.join('|') },
+      { name: '实施路径（第 9 章 · 四阶段×六列）', url: '/api/implementation/path', pick: (j) => j.stages,
+        check: (a) => a.length === 4 && a.every((s) => EXPECT_STAGE_KEYS.every((k) => s[k] != null && s[k] !== '')) },
+      { name: '留存资产（第 11 章 · 四类）', url: '/api/assets', pick: (j) => j.assets,
+        check: (a) => a.length === 4 && EXPECT_ASSETS.every((n, i) => (a[i] || {}).name === n) },
+      { name: '报告样例（附录 B · 五项结构）', url: '/api/report/sample', pick: (j) => j.five,
+        check: (f) => !!f && EXPECT_FIVE.every((k) => Array.isArray(f[k]) && f[k].length > 0) },
+      { name: '场景包（平台扩展场景 · 八项）', url: '/api/scenario-packs', pick: (j) => j.packs,
+        check: (a) => a.length === 8 },
+      { name: '典型问题归类（附录 A.1-补 · 九类）', url: '/api/issues/classes', pick: (j) => j.classes,
+        check: (a) => a.length === 9 }
+    ];
+    for (const pr of probes) {
+      let ok = false, note = '';
+      try {
+        const r = await fetch(BASE_URL + pr.url);
+        const j = await r.json();
+        const arr = pr.pick(j);
+        ok = !!arr && !!pr.check(arr);
+        note = Array.isArray(arr) ? ('n=' + arr.length) : String(typeof arr);
+      } catch (e) { note = e.message; }
+      if (!ok) problems.push('数据一致性：' + pr.name);
+      log((ok ? 'PASS' : 'FAIL').padEnd(5), pr.name.padEnd(32), note);
+      dataChecked++;
+    }
+  }
+
   /* [4] JS 异常与失败请求 */
   hr('[4] JS 异常 / 网络失败');
   log('pageerror + console.error :', jsErrs.length ? '\n  ' + jsErrs.slice(0, 8).join('\n  ') : '(none)');
@@ -364,8 +408,9 @@ async function main(chromium) {
 
   /* 汇总 */
   hr('汇总');
-  log('核验项数：' + checked +
-      '（主视图 ' + MAIN_VIEWS.length + ' + 知识子路由 ' + KB_ROUTES.length + ' + 交互冒烟 2）');
+  log('核验项数：' + (checked + dataChecked) +
+      '（主视图 ' + MAIN_VIEWS.length + ' + 知识子路由 ' + KB_ROUTES.length +
+      ' + 交互冒烟 2 + 数据一致性 ' + dataChecked + '）');
   if (problems.length === 0) {
     log('结论：PASS —— 全部视图渲染正常，无降级状态、无 JS 异常、无失败请求');
     return 0;

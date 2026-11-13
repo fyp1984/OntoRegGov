@@ -33,12 +33,18 @@ async function resolvePlaywright() {
 
 // 禁用词口径见 SKILL.md §4.4 术语对照表；机器可读标识（接口路径/表名/字段名）
 // 属知识库正文与接口契约样例，已在 visibleText() 中排除，不参与判定。
+// 末段为白皮书附录 C「术语与口径对照」统一用语对齐项：非通用口语化用语
+// （迎检/销号/陪跑）与内部平台代号（EKOS）一律不得出现在用户可见文案。
 const FORBIDDEN = [
   '质量门', '差分明细', '原子发布', '原子', '更新标识 updated_at', 'updated_at', 'Webhook', 'webhook',
   'manifest', 'Manifest', 'docId', 'docKey', 'prev_hash', 'append-only', 'runId ', 'run-live',
   'ERROR=0', 'WARN=0', 'strict', 'canonical', 'MCP', 'HITL', 'SoD',
   '端到端', 'packId', 'invocationId', 'latencyMs', 'worst-case', 'in_progress',
-  'avgProgress', 'riskLevel', 'computedAt', 'routedToHuman', 'WeKnora', 'weknora', '时延(ms)'
+  'avgProgress', 'riskLevel', 'computedAt', 'routedToHuman', 'WeKnora', 'weknora', '时延(ms)',
+  // —— 附录 C 用语对齐（M2-3）：非通用用语与内部平台代号 ——
+  '迎检', '销号', '陪跑', 'EKOS', 'ekos',
+  // 白皮书红线：不得出现成熟度词（对外仅用"数据安全能力/能力域"口径）
+  '成熟度'
 ];
 
 const VIEWS = ['kbdash', 'dsk', 'pipeline', 'dsc', 'rem', 'rep', 'gov', 'ext', 'frame', 'arch', 'capability', 'path', 'assets', 'settings'];
@@ -81,10 +87,21 @@ const latinFreq = {};
 // 标签文案中"中文标签 + 小写英文标识"混排（如「差距 gaps」「数据范围 scope」）也判为不一致
 const CN_EN_LEAK = /[\u4e00-\u9fa5]\s+[a-z][a-zA-Z_]{3,}/g;
 
+// 白皮书红线：不得出现"条目数承诺"（118/139/140 条）。
+// 判定口径 = 平台自产文案（chrome，已排除外部知识库正文 #kb_app 与接口契约样例 .dz-contract）。
+// 依据：外部知识库（10_知识库工程）为只读事实源，其正文属"事实源内容"，
+//       不构成平台对外的条目数承诺；该红线仅约束平台自述文案（已评审确认）。
+const NUM_ITEM_LEAK = /(?:118|139|140)\s*条|\d{2,}\s*\/\s*\d{2,}\s*条/g;
+
 function scan(label, res) {
   const hits = FORBIDDEN.filter(t => res.chrome.includes(t));
   (res.labels.match(CN_EN_LEAK) || []).forEach(s => {
     const v = s.trim();
+    if (!hits.includes(v)) hits.push(v);
+  });
+  // 条目数红线：仅对平台自产文案（chrome）生效，口径与禁用词表一致
+  (res.chrome.match(NUM_ITEM_LEAK) || []).forEach(s => {
+    const v = '条目数「' + s.trim() + '」';
     if (!hits.includes(v)) hits.push(v);
   });
   if (hits.length) { bad += hits.length; console.log(`FAIL  ${label}  残留: ${hits.join(' | ')}`); }
