@@ -16,7 +16,7 @@ import datetime
 
 from . import store
 
-SEED_VERSION = "demo-v1.5"
+SEED_VERSION = "demo-v1.6"
 
 # ===========================================================================
 # 可引用的知识库清单（演示目录）
@@ -460,6 +460,68 @@ RETAINED_ASSETS = [
 ]
 
 # ===========================================================================
+# 第八轮：8 个扩展视图功能化 · 作业种子
+# ---------------------------------------------------------------------------
+# 口径：为可写作业表提供一份"已经在跑"的初始状态，让页面一进入就有可操作的
+#      输入输出与流程节点；所有内容均为合成脱敏、全代号化示例。
+# ===========================================================================
+
+# —— 能力接入登记：已接入的能力实例（输入 / 输出 / 类别 / 状态）——
+CAPABILITY_ACCESS_MODES = ["接口接入", "智能体接入", "内置部署", "数据同步"]
+
+CAPABILITY_INSTANCES = [
+    {"domain_no": 2, "name": "数据分级插件", "kind": "分类分级",
+     "input": "待分级字段清单与分级规则", "output": "分级结果与打标记录", "status": "active"},
+    {"domain_no": 2, "name": "数据分类插件", "kind": "分类分级",
+     "input": "数据表与字段元数据", "output": "分类结果与目录条目", "status": "active"},
+    {"domain_no": 2, "name": "敏感数据识别插件", "kind": "敏感数据识别",
+     "input": "样本数据与识别规则", "output": "敏感字段清单与命中规则", "status": "active"},
+    {"domain_no": 5, "name": "脱敏插件", "kind": "脱敏",
+     "input": "原始字段与脱敏策略", "output": "脱敏结果与生效核查记录", "status": "active"},
+    {"domain_no": 5, "name": "水印插件", "kind": "水印溯源",
+     "input": "导出文件与标识信息", "output": "带水印文件与溯源记录", "status": "active"},
+]
+
+# —— 平台架构 · 层模块接入登记：接入方式按层归口 ——
+ARCH_MODULE_ACCESS = {
+    "知识层": "数据同步", "编排层": "内置部署", "接入层": "接口接入",
+    "能力层": "接口接入", "证据层": "内置部署",
+}
+
+# —— 实施路径 · 四阶段转段判据（每阶段逐项判定，全过方可转段）——
+PATH_GATE_ITEMS = {
+    "一": ["报告经指定人员复核确认", "每项问题有依据、责任与举证情况"],
+    "二": ["台账逐项可核验", "控制生效有运行记录"],
+    "三": ["每项问题有认领", "有复测记录", "有验收审批记录"],
+    "四": ["上一轮确认过的结论成为下一轮对照基准"],
+}
+
+# —— 逐类问题处置：已在流转中的处置工单 ——
+ISSUE_SEED_DISPOSALS = [
+    {"issue_no": "②", "status": "assigned", "org_name": "数据管理部", "position": "数据治理岗",
+     "plan": "按分类分级办法补齐目录，新增系统、移动渠道与外部接口逐项纳管。"},
+    {"issue_no": "⑥", "status": "in_progress", "org_name": "信息科技部", "position": "运维安全岗",
+     "plan": "特权账号实名单列，临时提权到期回收，清理僵尸与共享账号。"},
+]
+
+# —— 治理框架 · 闭合链在办案件（环序推进）——
+FRAME_SEED_CASES = [
+    {"issue_no": "②", "title": "分类分级与目录覆盖不完整 —— 闭合链推进（演示）",
+     "rings": [
+         (1, "逐项对照，形成问题清单", "形成分级覆盖缺口清单：系统甲、移动渠道各一处未覆盖", ""),
+         (2, "每条问题挂到可核对的依据口径", "挂接分类分级办法与目录维护规范",
+          "分类分级办法相关条款、目录维护规范"),
+         (3, "拆到发起、审批、复核、问责岗位", "明确数据归属方与牵头部门责任，落到数据治理岗", ""),
+     ]},
+]
+
+# —— 现状诊断：一份在填的诊断批次（留存证据说明待补，用于演示提交校验）——
+DIAG_SEED_TITLE = "首轮现状诊断（演示）"
+# 前两个维度已补齐证据说明，后三个维度留空 → 提交时触发"证据说明必填"校验
+DIAG_SEED_EVIDENCE_FILLED = {1, 2}
+
+
+# ===========================================================================
 # 报告脱敏样例（白皮书附录 B 形态）
 # ---------------------------------------------------------------------------
 # 口径：用于展示自查报告五项结构与填写方式的示例化、代号化样例；主题仅作结构
@@ -835,6 +897,8 @@ def _seed_all() -> None:
     _seed_governance(now, jg24, jg93)
     # ---- 插件 / 场景包 ----
     _seed_plugins_scenarios(now)
+    # ---- 第八轮：8 个扩展视图功能化作业种子 ----
+    _seed_extended(now)
     # ---- 审计（≥60，哈希链）----
     _seed_audit(now)
 
@@ -1284,6 +1348,104 @@ def _seed_plugins_scenarios(now):
             "report_template": tpl, "builtin": builtin})
 
 
+def _seed_extended(now: str) -> None:
+    """第八轮：8 个扩展视图功能化的作业种子（让页面一进入就有在办状态）。"""
+    # —— 能力接入实例 ——
+    cap_by_no = {c["no"]: c for c in CAPABILITY_DOMAINS}
+    for i, inst in enumerate(CAPABILITY_INSTANCES, start=1):
+        dom = cap_by_no.get(inst["domain_no"], {})
+        store.insert("capability_instance", {
+            "instance_id": f"cap-{i}", "domain_no": inst["domain_no"],
+            "domain_name": dom.get("name", ""), "name": inst["name"], "kind": inst["kind"],
+            "input_desc": inst["input"], "output_desc": inst["output"],
+            "status": inst["status"], "owner": "kbops", "created_by": "kbops",
+            "created_at": now, "updated_at": now})
+
+    # —— 架构层模块接入登记 ——
+    n = 0
+    for L in ARCH_LAYERS:
+        mode = ARCH_MODULE_ACCESS.get(L["name"], "内置部署")
+        for m in L["modules"]:
+            n += 1
+            store.insert("arch_module", {
+                "module_id": f"am-{n}", "layer_no": L["no"], "layer_name": L["name"],
+                "name": m, "access_mode": m if L["name"] == "接入层" else mode,
+                "bound_capability": "", "status": "active",
+                "owner": "admin", "created_by": "admin",
+                "created_at": now, "updated_at": now})
+
+    # —— 实施路径：阶段一已完成，阶段二进行中（首项判据已判定）——
+    stage_status = {"一": "done", "二": "in_progress", "三": "pending", "四": "pending"}
+    for s in IMPLEMENTATION_PATH:
+        st = s["stage"]
+        stat = stage_status.get(st, "pending")
+        store.insert("path_stage_state", {
+            "stage": st, "stage_name": f"阶段{st}", "status": stat,
+            "started_at": now if stat in ("done", "in_progress") else None,
+            "finished_at": now if stat == "done" else None,
+            "updated_by": "admin", "updated_at": now})
+        for seq, text in enumerate(PATH_GATE_ITEMS.get(st, []), start=1):
+            checked = 1 if stat == "done" else (1 if (st == "二" and seq == 1) else 0)
+            store.insert("path_gate_item", {
+                "item_id": f"pg-{st}-{seq}", "stage": st, "seq": seq, "text": text,
+                "checked": checked, "checked_by": "admin" if checked else None,
+                "checked_at": now if checked else None})
+
+    # —— 留存资产登记 ——
+    for a in RETAINED_ASSETS:
+        store.insert("retained_asset_record", {
+            "asset_id": f"asset-{a['no']}", "name": a["name"], "category": a["name"],
+            "source_stage": a["stage"], "ref": a["intro"], "status": "在册",
+            "owner": "admin", "created_by": "admin", "created_at": now,
+            "archived_at": None, "updated_at": now})
+
+    # —— 闭合链在办案件 ——
+    for i, case in enumerate(FRAME_SEED_CASES, start=1):
+        cid = f"fc-{i}"
+        cur = max(r[0] for r in case["rings"]) + 1
+        store.insert("frame_chain_case", {
+            "case_id": cid, "title": case["title"], "issue_no": case["issue_no"],
+            "status": "in_progress", "current_ring": cur, "owner": "admin",
+            "created_by": "admin", "created_at": now, "updated_at": now})
+        for ring_no, ring_name, output, evidence in case["rings"]:
+            store.insert("frame_ring_record", {
+                "record_id": f"fr-{cid}-{ring_no}", "case_id": cid, "ring_no": ring_no,
+                "ring_name": ring_name, "output": output, "evidence": evidence,
+                "operator": "admin", "created_at": now})
+
+    # —— 现状诊断在填批次（后三个维度证据说明留空，用于演示提交校验）——
+    aid = "da-1"
+    store.insert("diag_assessment", {
+        "assessment_id": aid, "title": DIAG_SEED_TITLE, "status": "draft",
+        "owner": "admin", "created_by": "admin", "created_at": now,
+        "updated_at": now, "submitted_at": None})
+    for d in DIAG_DIMENSIONS:
+        for k, a in enumerate(d["answers"], start=1):
+            ev = "已归集沟通、派单与复核记录（演示材料）" if d["no"] in DIAG_SEED_EVIDENCE_FILLED else ""
+            store.insert("diag_answer", {
+                "answer_id": f"ans-{aid}-{d['no']}-{k}", "assessment_id": aid,
+                "dim_no": d["no"], "dim_name": d["name"], "q": a["q"],
+                "state": a["state"], "note": d["note"], "evidence": ev, "updated_at": now})
+
+    # —— 应用与业务层台账 ——
+    for i, r in enumerate(LEDGER_ROWS, start=1):
+        store.insert("ledger_row", {
+            "row_id": f"lr-{i}", "scene": r["scene"], "level": r["level"],
+            "should": r["should"], "actual": r["actual"], "result": r["result"],
+            "owner": "admin", "created_by": "admin", "created_at": now, "updated_at": now})
+
+    # —— 逐类问题处置工单 ——
+    issue_by_no = {c["no"]: c for c in ISSUE_CLASSES}
+    for i, d in enumerate(ISSUE_SEED_DISPOSALS, start=1):
+        c = issue_by_no.get(d["issue_no"], {})
+        store.insert("issue_disposal", {
+            "disposal_id": f"disp-{i}", "issue_no": d["issue_no"],
+            "issue_name": c.get("name", ""), "layer": c.get("layer", ""),
+            "status": d["status"], "org_name": d["org_name"], "position": d["position"],
+            "plan": d["plan"], "evidence": "", "owner": "admin", "created_by": "admin",
+            "created_at": now, "updated_at": now, "closed_at": None})
+
+
 def _seed_audit(now):
     base = datetime.datetime.fromisoformat(now)
     entries = [
@@ -1311,6 +1473,14 @@ def _seed_audit(now):
         ("kbops", "刘运营（演示）", "review.proposal", "p-3", {"decision": "approve"}, "ok"),
         ("lijb", "李经办（演示）", "evidence.upload", "ev-t1-1", {"size": 245678}, "ok"),
         ("lifh", "李复核（演示）", "hitl.decide", "h-3", {"decision": "approve"}, "ok"),
+        ("admin", "系统管理员（演示）", "capability.instance.create", "cap-5", {"domainNo": 5}, "ok"),
+        ("admin", "系统管理员（演示）", "arch.module.create", "am-11", {"layerNo": 3}, "ok"),
+        ("admin", "系统管理员（演示）", "path.gate.check", "二", {"seq": 1}, "ok"),
+        ("admin", "系统管理员（演示）", "frame.ring.record", "fc-1", {"ringNo": 3}, "ok"),
+        ("admin", "系统管理员（演示）", "diag.answer.save", "da-1", {"dimNo": 1}, "ok"),
+        ("admin", "系统管理员（演示）", "ledger.row.create", "lr-8", {"result": "missing"}, "ok"),
+        ("admin", "系统管理员（演示）", "issue.disposal.assign", "disp-1", {"org": "数据管理部"}, "ok"),
+        ("admin", "系统管理员（演示）", "asset.archive", "asset-2", {"status": "已归档"}, "ok"),
     ]
     # 复制一轮并逐条错开时间，凑足 ≥60 条（真实感）
     all_rows = []

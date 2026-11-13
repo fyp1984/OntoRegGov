@@ -164,6 +164,56 @@ CREATE TABLE IF NOT EXISTS collect_task(
 CREATE TABLE IF NOT EXISTS kb_category_mapping(
   mapping_id TEXT PRIMARY KEY, type_prefix TEXT, category TEXT, sort INTEGER DEFAULT 0);
 
+-- 第八轮：8 个扩展视图功能化（可写作业表）
+-- 口径：每张表承载一个"作业流程"的输入与状态，写操作一律校验 + 审计留痕。
+CREATE TABLE IF NOT EXISTS capability_instance(
+  instance_id TEXT PRIMARY KEY, domain_no INTEGER, domain_name TEXT, name TEXT,
+  kind TEXT, input_desc TEXT, output_desc TEXT, status TEXT DEFAULT 'active',
+  owner TEXT, created_by TEXT, created_at TEXT, updated_at TEXT);
+
+CREATE TABLE IF NOT EXISTS arch_module(
+  module_id TEXT PRIMARY KEY, layer_no INTEGER, layer_name TEXT, name TEXT,
+  access_mode TEXT, bound_capability TEXT, status TEXT DEFAULT 'active',
+  owner TEXT, created_by TEXT, created_at TEXT, updated_at TEXT);
+
+CREATE TABLE IF NOT EXISTS path_stage_state(
+  stage TEXT PRIMARY KEY, stage_name TEXT, status TEXT DEFAULT 'pending',
+  started_at TEXT, finished_at TEXT, updated_by TEXT, updated_at TEXT);
+
+CREATE TABLE IF NOT EXISTS path_gate_item(
+  item_id TEXT PRIMARY KEY, stage TEXT, seq INTEGER, text TEXT,
+  checked INTEGER DEFAULT 0, checked_by TEXT, checked_at TEXT);
+
+CREATE TABLE IF NOT EXISTS retained_asset_record(
+  asset_id TEXT PRIMARY KEY, name TEXT, category TEXT, source_stage TEXT, ref TEXT,
+  status TEXT DEFAULT '在册', owner TEXT, created_by TEXT, created_at TEXT,
+  archived_at TEXT, updated_at TEXT);
+
+CREATE TABLE IF NOT EXISTS frame_chain_case(
+  case_id TEXT PRIMARY KEY, title TEXT, issue_no TEXT, status TEXT DEFAULT 'in_progress',
+  current_ring INTEGER DEFAULT 1, owner TEXT, created_by TEXT, created_at TEXT, updated_at TEXT);
+
+CREATE TABLE IF NOT EXISTS frame_ring_record(
+  record_id TEXT PRIMARY KEY, case_id TEXT, ring_no INTEGER, ring_name TEXT,
+  output TEXT, evidence TEXT, operator TEXT, created_at TEXT);
+
+CREATE TABLE IF NOT EXISTS diag_assessment(
+  assessment_id TEXT PRIMARY KEY, title TEXT, status TEXT DEFAULT 'draft', owner TEXT,
+  created_by TEXT, created_at TEXT, updated_at TEXT, submitted_at TEXT);
+
+CREATE TABLE IF NOT EXISTS diag_answer(
+  answer_id TEXT PRIMARY KEY, assessment_id TEXT, dim_no INTEGER, dim_name TEXT,
+  q TEXT, state TEXT, note TEXT, evidence TEXT, updated_at TEXT);
+
+CREATE TABLE IF NOT EXISTS ledger_row(
+  row_id TEXT PRIMARY KEY, scene TEXT, level TEXT, should TEXT, actual TEXT,
+  result TEXT, owner TEXT, created_by TEXT, created_at TEXT, updated_at TEXT);
+
+CREATE TABLE IF NOT EXISTS issue_disposal(
+  disposal_id TEXT PRIMARY KEY, issue_no TEXT, issue_name TEXT, layer TEXT,
+  status TEXT DEFAULT 'open', org_name TEXT, position TEXT, plan TEXT, evidence TEXT,
+  owner TEXT, created_by TEXT, created_at TEXT, updated_at TEXT, closed_at TEXT);
+
 -- 演示状态（键值）
 CREATE TABLE IF NOT EXISTS demo_state(k TEXT PRIMARY KEY, v TEXT);
 """
@@ -198,6 +248,10 @@ ALL_TABLES = [
     "hitl_candidate", "knowledge_proposal", "review_task", "kb_publish_manifest",
     "kb_publish_run", "audit_log", "scenario_pack", "plugin_registry", "plugin_invocation",
     "collect_task", "kb_category_mapping", "demo_state",
+    # 第八轮：8 个扩展视图功能化表
+    "capability_instance", "arch_module", "path_stage_state", "path_gate_item",
+    "retained_asset_record", "frame_chain_case", "frame_ring_record",
+    "diag_assessment", "diag_answer", "ledger_row", "issue_disposal",
 ]
 
 
