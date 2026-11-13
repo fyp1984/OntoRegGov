@@ -273,6 +273,7 @@
     kbdash:   {group:'知识底座', title:'知识库'},
     pipeline: {group:'知识底座', title:'知识发布'},
     ext:      {group:'能力与接入', title:'场景与插件'},
+    capability: {group:'能力与接入', title:'能力域目录'},
     gov:      {group:'平台与治理', title:'权限与组织'},
     dsk:      {group:'平台与治理', title:'运行驾驶舱'},
     frame:    {group:'平台与治理', title:'治理框架'},

@@ -26,7 +26,7 @@ const ARGS = process.argv.slice(2);
 // 视图清单（与 app/web/static/index.html 的 nav + section 对齐）
 // 说明：checkslib（监管检查库）已并入知识库上方标签 #kb_nav（data-nav="checks"）；
 //       kbqa（知识检索问答）、selfcheck（合规自查）已按需求下线。
-const MAIN_VIEWS = ['kbdash', 'dsk', 'pipeline', 'dsc', 'rem', 'rep', 'diag', 'ledger', 'issues', 'gov', 'ext', 'frame', 'arch'];
+const MAIN_VIEWS = ['kbdash', 'dsk', 'pipeline', 'dsc', 'rem', 'rep', 'diag', 'ledger', 'issues', 'gov', 'ext', 'frame', 'arch', 'capability'];
 const KB_ROUTES = ['home', 'graph', 'path', 'timeline', 'cases', 'controls', 'checks'];
 
 // 降级/异常"状态"短语（判定必须是状态化，见 detectInPage）

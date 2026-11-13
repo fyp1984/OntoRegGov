@@ -41,7 +41,7 @@ const FORBIDDEN = [
   'avgProgress', 'riskLevel', 'computedAt', 'routedToHuman', 'WeKnora', 'weknora', '时延(ms)'
 ];
 
-const VIEWS = ['kbdash', 'dsk', 'pipeline', 'dsc', 'rem', 'rep', 'gov', 'ext', 'settings'];
+const VIEWS = ['kbdash', 'dsk', 'pipeline', 'dsc', 'rem', 'rep', 'gov', 'ext', 'frame', 'arch', 'capability', 'settings'];
 // 知识库子路由（kbdash 内的二级导航）
 const KB_SUBROUTES = ['home', 'graph', 'path', 'timeline', 'cases', 'controls', 'checks'];
 
