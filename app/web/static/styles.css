@@ -1,5 +1,5 @@
 /* ============================================================
-   数据安全工作平台 · 本体驱动数据安全监管与治理合规平台
+   金融行业数据安全知识库和智能体平台
    主色 #2055D7 / 深色 #1847C7 / 深蓝标题 #1E3268 / 浅蓝底 #EEF4FF
    边框 #9AB7FF / 正文 #243447 —— 稳、清晰、企业级、可信赖
    ============================================================ */
@@ -35,6 +35,11 @@ nav a{display:block;padding:9px 16px;color:var(--text);text-decoration:none;font
 nav a:hover{background:var(--brand-bg);color:var(--brand-dark)}
 nav a.active{background:var(--brand);color:#fff;font-weight:600;
   box-shadow:0 2px 8px rgba(32,85,215,.28)}
+/* ---------- 左侧菜单：能力分组标题 ---------- */
+.nav-group{margin:14px 8px 6px;padding-left:9px;font-size:11px;font-weight:700;
+  letter-spacing:.8px;color:var(--muted);
+  border-left:3px solid var(--brand-border);line-height:1.2}
+.nav-group:first-of-type{margin-top:2px}
 main{flex:1;padding:24px 28px;overflow:auto;min-width:0}
 
 /* ---------- 左侧菜单折叠（收缩 / 打开）---------- */

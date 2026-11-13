@@ -1,0 +1,40 @@
+# 金融行业数据安全知识库和智能体平台 — 全量功能 Demo 容器编排（独立运行）
+# 原则：不依赖任何外部网络 / 中间件，仅本地构建 + 挂载，使用独立演示库。
+# 唯一外部挂载依赖：知识库静态站快照（只读），用于知识阅览/Wiki/图谱取数；
+#   缺失时该视图降级提示"来源不可用"，不影响其余模块与演示主链路。
+# 用法（在 deploy/ 目录）：
+#   docker compose -f docker-compose.demo.yml up -d --build
+#   → http://127.0.0.1:8420/
+services:
+  ontoreggov-demo:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    container_name: ontoreggov-demo
+    ports:
+      - "8420:8420"
+    volumes:
+      # 代码热挂载（含新增 app/demo 演示包与前端静态资源）
+      - ../app:/app/app
+      - ../app/data:/app/app/data
+      # 知识库静态站（只读）：知识阅览/Wiki/图谱视图的数据源。
+      # 由 @边缘知识工程 10_知识库工程/site 提供（data/knowledge-data.js），
+      # 缺失时知识视图走降级链并提示"来源不可用"，不阻塞其它模块。
+      - ../../../@西北人的成长/20-Areas/信息安全/数据安全/10_知识库工程/site:/app/kb_site:ro
+    environment:
+      - SKIP_SEED=1
+      - PORT=8420
+      - GRAPH_STORE_BACKEND=memory
+      - DB_READ_FROM=sqlite
+      - KB_READ_FROM=canonical
+      - KB10_SITE=/app/kb_site
+      - ONTOREG_DEMO=1
+      # 时区与宿主机（+8）保持一致，避免演示时间戳出现 UTC/+8 混排
+      - TZ=Asia/Shanghai
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8420/api/health',timeout=3).status==200 else 1)\""]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    restart: unless-stopped
