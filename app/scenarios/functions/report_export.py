@@ -94,7 +94,7 @@ def run(params: dict | None = None) -> dict:
 
     report_type = params.get("reportType", "selfcheck")
     title = params.get("title") or (
-        "被监管方自查/迎检报告" if report_type == "selfcheck" else "监管检查复盘报告")
+        "被监管方自查报告" if report_type == "selfcheck" else "监管检查复盘报告")
     actor = params.get("actor", "reviewer")
 
     coll = _collect(run_ids)

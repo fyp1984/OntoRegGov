@@ -145,7 +145,7 @@ window.KbSite = (function () {
   };
   var CONTROL_TYPE_ORDER = ['govern', 'identify', 'protect', 'detect', 'respond', 'recover'];
   var FRAMEWORK_LABEL = {
-    'MLPS2.0': '等保2.0', 'DSMM': '数据安全能力成熟度', 'GBT43697': '数据分类分级',
+    'MLPS2.0': '等保2.0', 'DSMM': '数据安全能力', 'GBT43697': '数据分类分级',
     'GBT35273': '个人信息安全规范', 'MLPS-CRYPTO': '密评', 'JRT0197': '金融数据分级',
     'JRT0223': '金融数据生命周期', 'JINGUI-24-2024': '金规24号', 'NIST-CSF20': 'NIST CSF 2.0',
     'CIS-V8': 'CIS Controls v8', 'ISO27002-2022': 'ISO 27002'
@@ -685,7 +685,7 @@ window.KbSite = (function () {
           var det = document.createElement('details');
           det.className = 'idx-details';
           var sum = document.createElement('summary');
-          sum.textContent = '展开查看 139 / 140 条检查项索引';
+          sum.textContent = '展开查看检查项索引';
           det.appendChild(sum);
           nodes.forEach(function (x) { det.appendChild(x); });
           h.insertAdjacentElement('afterend', det);
