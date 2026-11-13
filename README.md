@@ -102,9 +102,22 @@ bash run.sh
 - 智能体网关：`:8422`（`streamable-http`）
 
 ```bash
-# 容器方式（推荐，复用本机既有中间件，不新造）
-docker compose -f deploy/docker-compose.ontoreggov.yml up -d --build
+# 容器方式（单文件编排，用 profile 选择运行形态）
+# · 独立演示形态（推荐；零外部依赖，使用独立演示库）
+docker compose -f deploy/docker-compose.ontoreggov.yml --profile demo up -d --build
+# · 完整形态（接入本机既有底座：WeKnora / Neo4j）
+docker compose -f deploy/docker-compose.ontoreggov.yml --profile full up -d --build
 ```
+
+**部署说明**
+
+- 两种形态共用同一编排文件与公共段（镜像构建、代码/数据卷、知识库只读卷、健康检查、时区），差异仅由 profile 决定；
+  公共环境变量：`SKIP_SEED=1`、`PORT=8420`、`GRAPH_STORE_BACKEND=memory`、`KB_READ_FROM=canonical`、`KB10_SITE=/app/kb_site`、`TZ=Asia/Shanghai`。
+- 就绪判据：`GET /api/health` 返回 200（已豁免网关鉴权）；compose 内置 healthcheck（`interval 30s / timeout 5s / retries 3 / start_period 20s`），
+  可 `docker inspect --format '{{.State.Health.Status}}' ontoreggov-demo` 查看。
+- 改前端静态资源即时生效（需 bump `index.html` 内 `?v=` 缓存参数）；改后端 Python 需 `docker restart ontoreggov-demo`。
+- **降级行为（知识库快照不可达时）**：仅知识阅览/Wiki/图谱视图受影响，页面显示「来源不可用 / 知识库暂不可达，请稍后重试。」；
+  监管检查库回落至平台自带检查项库（`source=db`）；其余全部模块与演示主链路不受影响，无 5xx、无 JS 异常。
 
 ---
 

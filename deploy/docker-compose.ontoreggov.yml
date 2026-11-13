@@ -1,45 +1,85 @@
-# 金融行业数据安全知识库和智能体平台 — OrbStack 容器编排
-# 原则：复用本机 OrbStack 既有服务，不新造中间件。
-#   - 图存储：ontoreggov-fuseki（端口 3030，数据集 ds）
-#   - EKOS 底座：WeKnora（Neo4j bolt://ekos-weknora-neo4j:7687，API http://ekos-weknora:8080）
-#   - 通过接入 compose_weknora-net 实现容器名直连，无需 host.docker.internal 迂回。
-# 用法（在 deploy/ 目录）：
-#   docker compose -f docker-compose.ontoreggov.yml up -d --build
-#   docker compose -f docker-compose.ontoreggov.yml logs -f
+# 金融行业数据安全知识库和智能体平台 — 统一容器编排（单文件 + profile）
+#
+# 设计原则：
+#   1. 单文件收敛：一个 compose 覆盖两种运行形态，由 profile 选择，避免双份编排漂移；
+#   2. 公共段复用：镜像构建、代码/数据卷、知识库只读卷、健康检查、时区经 YAML 锚点共享；
+#   3. 自包含优先：demo 形态不依赖任何外部网络 / 中间件，仅本地构建 + 挂载；
+#      full 形态接入本机 OrbStack 既有 WeKnora 底座网络（compose_weknora-net）。
+#
+# 两种运行形态（在仓库根目录执行）：
+#   · demo —— 独立演示形态（推荐；零外部依赖，使用独立演示库）
+#       docker compose -f deploy/docker-compose.ontoreggov.yml --profile demo up -d --build
+#       → http://127.0.0.1:8420/
+#   · full —— 完整形态（接入本机既有底座：WeKnora / Neo4j bolt）
+#       docker compose -f deploy/docker-compose.ontoreggov.yml --profile full up -d --build
+#
+# 说明：原 deploy/docker-compose.demo.yml 已退役，统一由本文件 --profile demo 承担。
+
+x-app-common: &app-common
+  build:
+    context: ..
+    dockerfile: deploy/Dockerfile
+  ports:
+    - "8420:8420"
+  volumes:
+    # 代码热挂载（含新增 app/demo 演示包与前端静态资源）：改前端即生效，改后端需重启容器
+    - ../app:/app/app
+    - ../app/data:/app/app/data
+    # 知识库静态站（只读）：知识阅览/Wiki/图谱视图的数据源。
+    # 由 10_知识库工程/site 提供（data/knowledge-data.js）；路径相对本 compose 文件（deploy/）解析。
+    # 缺失时知识视图走降级链并提示"来源不可用"，不阻塞其它模块与演示主链路。
+    - ../../../@西北人的成长/20-Areas/信息安全/数据安全/10_知识库工程/site:/app/kb_site:ro
+  # 公共环境变量（两种形态一致；差异项由各服务在下方追加/覆盖）
+  environment: &app-env
+    SKIP_SEED: "1"
+    PORT: "8420"
+    GRAPH_STORE_BACKEND: memory
+    KB_READ_FROM: canonical
+    KB10_SITE: /app/kb_site
+    # 时区与宿主机（+8）保持一致，避免演示时间戳出现 UTC/+8 混排
+    TZ: Asia/Shanghai
+  # 统一健康检查：以 /api/health 200 为就绪判据（端点已豁免网关鉴权）
+  healthcheck:
+    test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8420/api/health',timeout=3).status==200 else 1)\""]
+    interval: 30s
+    timeout: 5s
+    retries: 3
+    start_period: 20s
+  restart: unless-stopped
+
 services:
+  # ——— 形态一：独立 Demo（自包含、零外部依赖） ———
+  ontoreggov-demo:
+    <<: *app-common
+    container_name: ontoreggov-demo
+    profiles: ["demo"]
+    environment:
+      <<: *app-env
+      # 演示形态使用独立 SQLite 演示库，不接外部中间件
+      DB_READ_FROM: sqlite
+      ONTOREG_DEMO: "1"
+
+  # ——— 形态二：完整形态（接入本机 OrbStack 既有底座） ———
   ontoreggov-app:
-    build:
-      context: ..
-      dockerfile: deploy/Dockerfile
+    <<: *app-common
     image: ontoreggov-app:1.17.0
     container_name: ontoreggov-app
-    ports:
-      - "8420:8420"
-    volumes:
-      # 代码热挂载（替代 docker cp 注入）
-      - ../app:/app/app
-      - ../app/data:/app/app/data
-      # 知识库静态站（8430 site/ 目录，挂载到 /kb/）；路径相对本 compose 文件（deploy/）解析
-      - ../../../@西北人的成长/20-Areas/信息安全/数据安全/10_知识库工程/site:/app/kb_site:ro
+    profiles: ["full"]
     environment:
-      - DB_READ_FROM=db
-      - KB_READ_FROM=canonical
-      - GRAPH_STORE_BACKEND=memory
-      # EKOS / WeKnora 底座对接（P0 网络打通后启用）
-      - WEKNORA_API_BASE=http://ekos-weknora:8080
-      - WEKNORA_API_TOKEN=${WEKNORA_API_TOKEN:-}
-      # 统一知识库（数据安全统一知识库，526 篇全量合并去重后）
-      - WEKNORA_KB_ID=59ad56fe-6673-49af-9380-b7d11f194a0d
-      - WEKNORA_NEO4J_URI=bolt://ekos-weknora-neo4j:7687
-      - WEKNORA_NEO4J_USER=neo4j
-      - WEKNORA_NEO4J_PASSWORD=weknora_p2_dev_only_change_me
-      - SKIP_SEED=1
-      - PORT=8420
-      - KB10_SITE=/app/kb_site
+      <<: *app-env
+      # 完整形态读源：db（PG 投影）+ canonical（权威本体），库不可达自动回落
+      DB_READ_FROM: db
+      # EKOS / WeKnora 底座对接
+      WEKNORA_API_BASE: http://ekos-weknora:8080
+      WEKNORA_API_TOKEN: ${WEKNORA_API_TOKEN:-}
+      # 统一知识库（数据安全统一知识库）
+      WEKNORA_KB_ID: 59ad56fe-6673-49af-9380-b7d11f194a0d
+      WEKNORA_NEO4J_URI: bolt://ekos-weknora-neo4j:7687
+      WEKNORA_NEO4J_USER: neo4j
+      WEKNORA_NEO4J_PASSWORD: weknora_p2_dev_only_change_me
     networks:
       - default
       - weknora-net
-    restart: unless-stopped
 
 networks:
   # 复用 WeKnora compose project 创建的隔离网络（外部网络，不在本 compose 内创建）
