@@ -164,16 +164,44 @@ def test_llm_settings(payload: dict):
 # ---------------- 应用设置：可引用的知识库（多选） ----------------
 # 大白话：默认只引用部署环境变量指定的知识库；在这里勾选后，
 # 知识库页面与检索只引用所选集合（改完即刷新取数缓存，下一次即生效）。
+# 取数纪律（PRD §7.3 契约稳定性）：知识库平台不可达时**不返回空清单**，
+# 也不只回单个库，而是降级展示"完整演示目录"并显式标注 source=degraded ——
+# 清单可完整呈现、可勾选，页面永不空态、状态可辨。
+def _degraded_kb_catalog(effective: list) -> list:
+    """平台不可达时的降级清单：完整演示目录 + 标出部署当前生效库。
+
+    必要兜底：若部署配置里的库不在演示目录中，补到最前，保证"当前生效库"一定可选。
+    """
+    from .demo.seed import DEMO_KB_CATALOG
+    eff = [str(x) for x in (effective or [])]
+    items = [{"id": kb_id, "name": name, "docCount": doc_count,
+              "degraded": True, "effective": kb_id in eff}
+             for kb_id, name, doc_count in DEMO_KB_CATALOG]
+    known = {it["id"] for it in items}
+    for kb_id in eff:
+        if kb_id not in known:
+            items.insert(0, {"id": kb_id, "name": "数据安全统一知识库（部署默认）",
+                             "docCount": None, "degraded": True, "effective": True})
+    return items
+
+
 @app.get("/api/settings/kb")
 def get_kb_settings():
     from .services import weknora_retriever as _wr
+    effective = _wr.effective_kb_ids()
+    detail = ""
     try:
         available = _wr.list_knowledge_bases()
-    except Exception:  # noqa: BLE001 — 知识库不可达时返回空清单，页面降级提示
-        available = []
+        source = "weknora"
+    except Exception as e:  # noqa: BLE001 — 知识库平台不可达：降级展示完整演示目录（不阻断设置页）
+        detail = str(e)[:200]
+        available = _degraded_kb_catalog(effective)
+        source = "degraded"
     return {"available": available,
+            "source": source,
+            "sourceDetail": detail,
             "selected": settings_store.get_reference_kbs(),
-            "effective": _wr.effective_kb_ids()}
+            "effective": effective}
 
 
 @app.put("/api/settings/kb")
@@ -1033,6 +1061,17 @@ def admin_page():
     if not p.exists():
         return _err("not_found", "管理入口未就绪", 404)
     return FileResponse(str(p), media_type="text/html")
+
+
+# ---- 全量功能 Demo（可选模块；导入失败不影响现有功能）----
+try:
+    from .demo.router import router as _demo_router
+    app.include_router(_demo_router)
+    from .demo import seed as _demo_seed
+    _demo_seed.ensure_seeded()
+except Exception as _demo_err:  # noqa: BLE001
+    import logging as _logging
+    _logging.getLogger(__name__).warning("demo module disabled: %s", _demo_err)
 
 
 # ---------------- P4-4：挂载 8430 知识库静态站到 /kb/ ----------------

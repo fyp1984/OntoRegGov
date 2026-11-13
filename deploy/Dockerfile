@@ -1,4 +1,4 @@
-# 本体驱动数据安全监管与治理合规平台 — 容器镜像（OrbStack 部署用）
+# 金融行业数据安全知识库和智能体平台 — 容器镜像（OrbStack 部署用）
 # 复用既有容器服务：ekos-postgres(15432)/Fuseki(3030) 通过 host.docker.internal 访问
 FROM python:3.13-slim
 
@@ -11,10 +11,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 # 应用代码（app/data 由卷挂载持久化，镜像内仅保留 .gitkeep）
 COPY app/ app/
 COPY data/ data/
-COPY ingest/ ingest/
 COPY scripts/ scripts/
-COPY tools/ tools/
-COPY run.sh CHANGELOG.md README.md ROADMAP.md ./
+COPY run.sh start.sh CHANGELOG.md README.md ROADMAP.md ./
 
 EXPOSE 8420
 
@@ -27,4 +25,4 @@ ENV GRAPH_STORE_BACKEND=memory
 ENV SKIP_SEED=1
 ENV PORT=8420
 
-CMD ["bash", "-c", "exec python -m uvicorn app.main:app --host 0.0.0.0 --port ${PORT}"]
+CMD ["bash", "start.sh"]

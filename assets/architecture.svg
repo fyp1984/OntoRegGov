@@ -14,7 +14,7 @@
 
   <!-- Header -->
   <rect x="0" y="0" width="1240" height="96" fill="url(#hdr)"/>
-  <text x="34" y="50" fill="#FFFFFF" font-size="30" font-weight="700">数据安全管理平台 · 技术架构</text>
+  <text x="34" y="50" fill="#FFFFFF" font-size="30" font-weight="700">金融行业数据安全知识库和智能体平台 · 技术架构</text>
   <text x="34" y="78" fill="#D8E3FF" font-size="15">ekos 本体驱动底座 · 分层治理 · 多场景智能体服务</text>
   <text x="1206" y="52" fill="#FFFFFF" font-size="15" font-weight="600" text-anchor="end">本体驱动 · 数据驱动</text>
   <text x="1206" y="78" fill="#D8E3FF" font-size="13" text-anchor="end">Ontology-Driven Data Security Governance</text>
@@ -114,14 +114,14 @@
     <rect x="148" y="508" width="12" height="118" fill="#FFFFFF"/>
     <text x="95" y="560" fill="#FFFFFF" font-size="18" font-weight="700" text-anchor="middle">L2</text>
     <text x="95" y="588" fill="#D8E3FF" font-size="15" text-anchor="middle">适配层</text>
-    <rect x="190" y="546" width="157" height="42" rx="8" fill="#F1F5FF" stroke="#C9D8FF"/>
-    <text x="268" y="572" fill="#0F172A" font-size="13.5" text-anchor="middle">SPI 统一适配器</text>
-    <rect x="363" y="546" width="157" height="42" rx="8" fill="#F1F5FF" stroke="#C9D8FF"/>
-    <text x="441" y="572" fill="#0F172A" font-size="13.5" text-anchor="middle">图存储可插拔</text>
+    <rect x="190" y="546" width="157" height="42" rx="8" fill="#E8EFFF" stroke="#1B4FE4"/>
+    <text x="268" y="572" fill="#0F172A" font-size="13" text-anchor="middle">统一取数 kb_source</text>
+    <rect x="363" y="546" width="157" height="42" rx="8" fill="#E8EFFF" stroke="#1B4FE4"/>
+    <text x="441" y="572" fill="#0F172A" font-size="13" text-anchor="middle">契约装配 kb_knowledge</text>
     <rect x="536" y="546" width="157" height="42" rx="8" fill="#F1F5FF" stroke="#C9D8FF"/>
-    <text x="614" y="572" fill="#0F172A" font-size="13.5" text-anchor="middle">模型可插拔 · 降级链</text>
+    <text x="614" y="572" fill="#0F172A" font-size="13" text-anchor="middle">图存储 / 模型可插拔</text>
     <rect x="709" y="546" width="155" height="42" rx="8" fill="#F1F5FF" stroke="#C9D8FF"/>
-    <text x="786" y="572" fill="#0F172A" font-size="13.5" text-anchor="middle">权限 / 脱敏插位</text>
+    <text x="786" y="572" fill="#0F172A" font-size="13" text-anchor="middle">权限 / 脱敏插位</text>
   </g>
 
   <!-- L1 -->
@@ -139,8 +139,8 @@
     <text x="534" y="704" fill="#0F172A" font-size="13" text-anchor="middle">图存储服务</text>
     <rect x="610" y="678" width="122" height="42" rx="8" fill="#F1F5FF" stroke="#C9D8FF"/>
     <text x="671" y="704" fill="#0F172A" font-size="13" text-anchor="middle">向量索引</text>
-    <rect x="744" y="678" width="120" height="42" rx="8" fill="#F1F5FF" stroke="#C9D8FF"/>
-    <text x="804" y="704" fill="#0F172A" font-size="13" text-anchor="middle">推理服务</text>
+    <rect x="744" y="678" width="120" height="42" rx="8" fill="#E8EFFF" stroke="#1B4FE4"/>
+    <text x="804" y="704" fill="#0F172A" font-size="12.5" text-anchor="middle">知识库平台·只读</text>
   </g>
 
   <!-- Bottom band -->

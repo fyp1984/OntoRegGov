@@ -8,7 +8,7 @@ app/data/*.ttl
 !app/data/.gitkeep
 .DS_Store
 
-# 知识库发布影子站（生成物，由 scripts/kb_publish.py 重建，~67M）
+# 知识库发布影子站（生成物，由 scripts/kb/kb_publish.py 重建，~67M）
 .kb-publish/
 
 # 数据库备份（含内部 PG dump，不入库）

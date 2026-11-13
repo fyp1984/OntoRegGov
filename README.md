@@ -1,6 +1,6 @@
-# 数据安全管理平台 · OntoRegGov
+# 金融行业数据安全知识库和智能体平台 · OntoRegGov
 
-> **本体驱动的数据安全监管与治理合规平台**
+> **金融行业数据安全知识库和智能体平台**
 > 以 **ekos 底座** 为核心，把监管法规、行业标准、控制措施与合规证据编译成一张**可计算、可判定、可追溯的知识网络**，
 > 通过智能体（Agent）与技能（Skill）编排，面向**监管检查、机构自查、知识问答、台账与报告、图谱洞察、培训赋能**等多场景提供统一服务能力。
 
@@ -22,15 +22,15 @@
 
 ## 二、技术架构
 
-![数据安全管理平台技术架构](assets/architecture.svg)
+![金融行业数据安全知识库和智能体平台技术架构](assets/architecture.svg)
 
 架构分为五层，能力与流程正交，开源组件与自研逻辑之间以适配层隔离：
 
 - **L5 接入层**：统一 REST 网关、智能体网关（Agent/Skill 调用）、H5 业务台、OpenAPI/SDK。
 - **L4 编排层**：知识编译流水线、发布质量门（影子彩排 + 失败自动回滚）、检查闭环编排、任务与调度。
 - **L3 内核层（差异化护城河）**：本体引擎（对象 / 关系 / 动作 / 能力）、形状闸门校验、确定性判定引擎、角色分离与三重负向拦截。
-- **L2 适配层**：统一 SPI 适配器契约，图存储 / 模型 / 权限 / 脱敏按配置插拔，换实现不动上层。
-- **L1 底座层**：本体知识仓库、关系型资产库、图存储服务、向量索引、推理服务。
+- **L2 适配层**：统一取数适配器（`kb_source`：统一信封 + 降级链 weknora→canonical→db→sqlite）、知识契约装配（`kb_knowledge`：原始正文 → 站点契约）、SPI 适配器（图存储 / 模型 / 权限 / 脱敏按配置插拔）。
+- **L1 底座层**：本体知识仓库（RDF 正本）、关系型资产库（PG 投影）、图存储服务、向量索引、知识库平台（只读接入）。
 
 > 平台**不是通用企业知识库**，而是**监管治理的知识内核**：语义（是什么）+ 动力（能做什么）兼备，
 > 上层由智能体与 Skill 编排成多场景服务。
@@ -40,7 +40,7 @@
 ## 三、核心能力
 
 ### 1. 本体知识底座（语义 + 动力）
-- 11 类实体（术语 / 法规 / 标准 / 控制 / 案例 / 方案 / 场景 / 角色 / 指南 / 专题 / 组织）+ 21 类关系，形成法规↔条款↔义务↔控制↔证据的语义网络。
+- 12 类实体（术语 / 法规 / 标准 / 控制 / 案例 / 方案 / 场景 / 角色 / 指南 / 专题 / 组织 / 原始文档）+ 21 类关系，形成法规↔条款↔义务↔控制↔证据的语义网络。
 - 本体四要素齐备：**对象（Object）、关系（Link）、动作（Action）、能力（Function）**；动作只写运行命名空间，绝不回写权威知识。
 - 知识以**确定性编译**方式由编辑源生成统一口径的知识图，同输入同输出、可重复、可审计。
 
@@ -62,7 +62,7 @@
 - 法规问答支持**带文号 / 条号引用**的溯源回答。
 
 ### 6. 智能体网关（MCP）
-- 平台能力以标准智能体协议对外暴露，**13 个工具**（控制缺口、控制对齐、检查详情、发起检查、登记结果、检查台账、计划清单、图后端、图查询、检索、按文号取检查项、93号文问卷、法规问答），支持外部智能体/系统按同一协议互调。
+- 平台能力以标准智能体协议对外暴露，**14 个工具**（控制缺口、控制对齐、检查详情、发起检查、登记结果、检查台账、计划清单、图后端、图查询、检索、按文号取检查项、93号文问卷、法规问答、知识与 Wiki 取数），支持外部智能体/系统按同一协议互调。
 
 ### 7. 场景化应用（配置驱动）
 - 内置两大场景：**被监管方**（金规24号 + 93号文自查/迎检工具）与**监管方**（监管检查工具·金规24号）。
@@ -70,7 +70,7 @@
 
 ### 8. 数据库资产层与网关产品化
 - 权威知识抽出独立关系型资产库（实体 / 关系 / 控制 / 检查 / 要素 / 条款 / 自查细项等表），与知识图同源对账。
-- 读源支持**三态回落**（资产库 → 知识图 → 本地种子），任一路断链自动降级、服务不中断；网关内建认证、限流、审计。
+- 读源支持**多源降级**（知识库平台 → 本体知识图 → 资产库 → 本地种子），任一路断链自动降级、服务不中断；网关内建认证、限流、审计。
 
 ---
 
@@ -106,9 +106,22 @@ bash run.sh
   每注册用户在同一 gateway 进程内自动获得专属 agent（轻隔离），未注册访客共用 `default` agent。
 
 ```bash
-# 容器方式（推荐，复用本机既有中间件，不新造）
-docker compose -f deploy/docker-compose.ontoreggov.yml up -d --build
+# 容器方式（单文件编排，用 profile 选择运行形态）
+# · 独立演示形态（推荐；零外部依赖，使用独立演示库）
+docker compose -f deploy/docker-compose.ontoreggov.yml --profile demo up -d --build
+# · 完整形态（接入本机既有底座：WeKnora / Neo4j）
+docker compose -f deploy/docker-compose.ontoreggov.yml --profile full up -d --build
 ```
+
+**部署说明**
+
+- 两种形态共用同一编排文件与公共段（镜像构建、代码/数据卷、知识库只读卷、健康检查、时区），差异仅由 profile 决定；
+  公共环境变量：`SKIP_SEED=1`、`PORT=8420`、`GRAPH_STORE_BACKEND=memory`、`KB_READ_FROM=canonical`、`KB10_SITE=/app/kb_site`、`TZ=Asia/Shanghai`。
+- 就绪判据：`GET /api/health` 返回 200（已豁免网关鉴权）；compose 内置 healthcheck（`interval 30s / timeout 5s / retries 3 / start_period 20s`），
+  可 `docker inspect --format '{{.State.Health.Status}}' ontoreggov-demo` 查看。
+- 改前端静态资源即时生效（需 bump `index.html` 内 `?v=` 缓存参数）；改后端 Python 需 `docker restart ontoreggov-demo`。
+- **降级行为（知识库快照不可达时）**：仅知识阅览/Wiki/图谱视图受影响，页面显示「来源不可用 / 知识库暂不可达，请稍后重试。」；
+  监管检查库回落至平台自带检查项库（`source=db`）；其余全部模块与演示主链路不受影响，无 5xx、无 JS 异常。
 
 ---
 
@@ -128,8 +141,14 @@ OntoRegGov/
 │   └── data/            # 运行时数据（已 gitignore）
 ├── data/checks/         # ★ 种子数据（入库）：多文号检查项 JSON + 缺口清单
 ├── deploy/              # 容器编排（Dockerfile + compose）
-├── scripts/             # 运维与验收脚本（种子/编译/一致性/发布/报告）
-├── ingest/  tools/      # 检查项 ETL 与构建工具
+├── scripts/             # 运维与验收脚本（按用途分目录，不再平铺根目录）
+│   ├── acceptance/      #   · 发布门：浏览器逐视图验收 + UI 语言一致性审计
+│   ├── kb/              #   · 知识编译 / 发布 / 入库 / 迁移 / 控制对齐
+│   ├── etl/             #   · 检查项与控制项构建（原 ingest/ + tools/ 已并入）
+│   ├── demo/            #   · 端到端演示与自检（app.cli demo 的落点）
+│   ├── smoke/           #   · 冒烟与回归（适配器 / 图存储 / 网关 / 阈值）
+│   ├── research/        #   · 外部数据采集（行政处罚案例）
+│   └── phase/           #   · 历史阶段过程脚本（p0–p3，一次性推进留档）
 ├── samples/             # 演示样例与消费演示页
 ├── assets/              # README 架构图与系统截图
 ├── README.md / CHANGELOG.md / ROADMAP.md
@@ -140,14 +159,18 @@ OntoRegGov/
 
 ## 七、工程文档位置（文档与代码分离）
 
-本项目采用**工程文档与工程代码分离**的管理模式：
+本项目采用**工程文档与工程代码分离**的管理模式（硬约束）：
 
-- **工程代码**：本仓库 `OntoRegGov`（源码、部署、种子数据、脚本）。
-- **工程文档**：设计、调研、验收报告、交付证据等已归档至工作台目录
+- **工程代码**：本仓库 `OntoRegGov`（源码、部署编排、种子数据、脚本）。
+- **工程文档**：PRD、设计、调研、验收报告、交付证据、测试资料等**一律落位**于工作台目录
   `/Users/FYP/Documents/@西北人的成长/10-Projects/职业项目/数据安全管理平台/03_平台工程/`
-  （含 `design/` `docs/` `research/` `reports/` `evidence/`，以及平台归类规则与索引）。
+  （分区：`design/` 设计 · `docs/` 说明 · `research/` 调研 · `reports/` 报告与验收 · `evidence/` 交付证据）。
+- **工程根目录只保留 README 相关文件**：`README.md`、`CHANGELOG.md`、`ROADMAP.md`；
+  其余实施类文档（PRD 映射表、QA 验收报告等）不得存放于工程目录。
+- **脚本与过程文件必须归档**：一律置于 `scripts/` 的分类子目录，严禁散落在工程根目录或平铺堆积。
 
 > 代码注释中出现的 `docs/xx`、`reports/xx` 为历史引用，对应文档以上述工作台目录为准。
+> 另：`reports/` 为脚本运行时产物目录（已 gitignore），非文档归档位。
 
 ---
 
@@ -155,6 +178,7 @@ OntoRegGov/
 
 - 健康与本体：`GET /api/health`、`/api/ontology/classes`、`/api/vocab`
 - 实体与图谱：`/api/entities`、`/api/entity/{id}`、`/api/search`、`/api/graph`、`/api/graph/sparql`
+- 知识库取数：`/api/kb/knowledge`（全量契约）、`/api/kb/knowledge/index`·`/graph`·`/entity/{id}`·`/search`（按主题独立 ETag）、`/api/kb/cache/invalidate`（缓存失效）、`/api/settings/kb`（可引用知识库多选）
 - 抽取与审核：`/api/documents/upload`、`/api/extract`、`/api/review/queue`、`/api/ingest/review`
 - 知识缺口与提案：`/api/proposals`
 - 监管检查：`/api/checks`（多文号筛选）、`/api/checks/{code}`（六维）、`/api/inspection/runs`（+ results / compare / report）、`/api/control` 缺口 `/api/controls/gaps`

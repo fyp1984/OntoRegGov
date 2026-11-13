@@ -11,7 +11,7 @@ def main():
     if cmd == "seed":
         seed.seed()
     elif cmd == "demo":
-        from scripts.demo_e2e import run
+        from scripts.demo.demo_e2e import run
         run()
     elif cmd == "import-checks":
         from .ontology import checks_import
@@ -24,7 +24,7 @@ def main():
         s = checks_import.import_control_placeholders()
         print("[import-control-placeholders]", json.dumps(s, ensure_ascii=False))
     elif cmd == "demo-checks":
-        from scripts.demo_checks import run
+        from scripts.demo.demo_checks import run
         run()
     else:
         print("未知命令:", cmd)

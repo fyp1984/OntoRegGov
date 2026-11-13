@@ -4,15 +4,16 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="theme-color" content="#2055D7">
-<title>本体驱动的数据安全管理平台</title>
+<title>金融行业数据安全知识库和智能体平台</title>
 <link rel="icon" href="/favicon.png">
 <link rel="stylesheet" href="/styles.css?v=20261107a">
 <link rel="stylesheet" href="/kb_site.css?v=20261106e">
+<link rel="stylesheet" href="/demo.css?v=20261112g">
 </head>
 <body>
 <header>
   <div>
-    <h1>本体驱动的数据安全管理平台</h1>
+    <h1>金融行业数据安全知识库和智能体平台</h1>
   </div>
 </header>
 <div class="wrap">
@@ -21,9 +22,30 @@
     <span class="nav-title">功能菜单</span>
     <button class="nav-toggle" id="nav_toggle" onclick="navToggle()" title="折叠左侧菜单">«</button>
   </div>
-  <a data-v="kbdash" class="active">知识库</a>
-  <a data-v="checkslib">监管检查库</a>
+  <div class="nav-group">自查与报告</div>
   <a data-v="selfcheck">合规自查</a>
+  <a data-v="dsc">安全自查</a>
+  <a data-v="rep">报告与看板</a>
+  <div class="nav-group">诊断与治理</div>
+  <a data-v="diag">现状诊断</a>
+  <a data-v="ledger">应用与业务层台账</a>
+  <a data-v="issues">逐类问题处置</a>
+  <div class="nav-group">整改闭环</div>
+  <a data-v="rem">整改与复检</a>
+  <div class="nav-group">知识底座</div>
+  <a data-v="kbdash" class="active">知识库</a>
+  <a data-v="pipeline">知识发布</a>
+  <div class="nav-group">能力与接入</div>
+  <a data-v="ext">场景与插件</a>
+  <a data-v="capability">能力域目录</a>
+  <div class="nav-group">平台与治理</div>
+  <a data-v="gov">权限与组织</a>
+  <a data-v="dsk">运行驾驶舱</a>
+  <a data-v="frame">治理框架</a>
+  <a data-v="arch">平台架构</a>
+  <div class="nav-group">实施与资产</div>
+  <a data-v="path">实施路径</a>
+  <a data-v="assets">留存资产</a>
 </nav>
 <button class="nav-open" id="nav_open" onclick="navToggle()" title="展开左侧菜单">»</button>
 <button class="settings-gear" id="settings_gear" onclick="openSettings()" title="设置" aria-label="设置">
@@ -42,6 +64,7 @@
         <a href="#/timeline" data-nav="timeline">法规时间线</a>
         <a href="#/cases" data-nav="cases">案例库</a>
         <a href="#/controls" data-nav="controls">控制体系</a>
+        <a href="#/checks" data-nav="checks">监管检查库</a>
       </div>
       <div id="kb_meta" class="muted" style="margin:-8px 0 12px"></div>
       <div class="page" id="kb_app"></div>
@@ -52,29 +75,6 @@
         · 知识由知识库平台实时提供
         · 生成于 <span id="kb_genat">—</span>
       </div>
-    </div>
-  </section>
-
-  <section id="checkslib" class="view hidden">
-    <div class="grid2">
-      <div class="card"><h3>监管检查库（多文号 · 关联检索）</h3>
-        <div class="row">
-          <select id="ck_doc" onchange="loadChecks()">
-            <option value="">全部文号</option>
-            <option value="jg24">金规〔2024〕24号（银行保险数据安全办法）</option>
-            <option value="jg93">金办发〔2025〕93号（专项行动自查表）</option>
-            <option value="pboc3">人行令〔2025〕第3号（业务领域数据安全办法）</option>
-            <option value="jf8">金发〔2026〕8号（AI安全开发应用指导意见）</option>
-          </select>
-          <select id="ck_domain"><option value="">全部领域</option><option value="gov">治理域</option><option value="tech">科技域</option><option value="cross">跨域</option></select>
-          <select id="ck_pri"><option value="">全部优先级</option><option value="P0">P0</option><option value="P1">P1</option><option value="P2">P2</option></select>
-          <input id="ck_kw" placeholder="搜索关键词" oninput="loadChecks()">
-          <button onclick="loadChecks()">筛选</button>
-        </div>
-        <div id="ck_meta" class="muted"></div>
-        <div id="ck_list" style="max-height:60vh;overflow:auto"></div>
-      </div>
-      <div class="card"><h3>检查项六维详情</h3><div id="ck_detail">点击左侧检查项。</div></div>
     </div>
   </section>
 
@@ -156,10 +156,60 @@
     <div class="card"><h3>运行状态</h3>
       <div id="src_status" class="muted">加载中…</div>
     </div>
+
+    <div class="card"><h3>数据保存策略</h3>
+      <p class="muted">定义各类数据的在线保留、归档保留与超期销毁审批要求；保存后写入审计留痕。</p>
+      <div id="retention_form" class="muted">加载中…</div>
+      <div class="row" style="margin-top:12px">
+        <button onclick="retentionSave()">保存策略</button>
+        <button class="ghost" onclick="retentionReset()">恢复默认</button>
+        <span id="retention_status" class="muted"></span>
+      </div>
+    </div>
+
+    <div class="card"><h3>数据刷新</h3>
+      <p class="muted">知识库内容更新后，前端默认 30 秒内自动生效；如需立即拉取最新，请点击刷新。</p>
+      <div class="row">
+        <button onclick="kbRefreshData()">刷新数据</button>
+        <span id="kb_refresh_status" class="muted"></span>
+      </div>
+    </div>
   </section>
+
+  <section id="dsk" class="view hidden"><div id="dsk_root"></div></section>
+  <section id="pipeline" class="view hidden"><div id="pipeline_root"></div></section>
+  <section id="dsc" class="view hidden"><div id="dsc_root"></div></section>
+  <section id="rem" class="view hidden"><div id="rem_root"></div></section>
+  <section id="rep" class="view hidden"><div id="rep_root"></div></section>
+  <section id="diag" class="view hidden"><div id="diag_root"></div></section>
+  <section id="ledger" class="view hidden"><div id="ledger_root"></div></section>
+  <section id="issues" class="view hidden"><div id="issues_root"></div></section>
+  <section id="gov" class="view hidden"><div id="gov_root"></div></section>
+  <section id="ext" class="view hidden"><div id="ext_root"></div></section>
+  <section id="frame" class="view hidden"><div id="frame_root"></div></section>
+  <section id="arch" class="view hidden"><div id="arch_root"></div></section>
+  <section id="capability" class="view hidden"><div id="capability_root"></div></section>
+  <section id="path" class="view hidden"><div id="path_root"></div></section>
+  <section id="assets" class="view hidden"><div id="assets_root"></div></section>
 </main>
 </div>
-<script src="/kb_site.js?v=20261106d"></script>
-<script src="/app.js?v=20261107a"></script>
+<script src="/kb_site.js?v=20261113g"></script>
+<script src="/app.js?v=20261113h"></script>
+<script src="/demo_common.js?v=20261113e"></script>
+<script src="/demo_console.js?v=20261112i"></script>
+<script src="/demo_pipeline.js?v=20261112k"></script>
+<script src="/demo_selfcheck.js?v=20261112j"></script>
+<script src="/demo_governance.js?v=20261112h"></script>
+<script src="/demo_reports.js?v=20261113e"></script>
+<script src="/demo_admin.js?v=20261112k"></script>
+<script src="/demo_ext.js?v=20261112k"></script>
+<script src="/demo_diag.js?v=20261113a"></script>
+<script src="/demo_ledger.js?v=20261113a"></script>
+<script src="/demo_issues.js?v=20261113a"></script>
+<script src="/demo_frame.js?v=20261113b"></script>
+<script src="/demo_arch.js?v=20261113b"></script>
+<script src="/demo_capability.js?v=20261113c"></script>
+<script src="/demo_path.js?v=20261113d"></script>
+<script src="/demo_assets.js?v=20261113e"></script>
 </body>
 </html>

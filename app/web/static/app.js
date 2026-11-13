@@ -14,7 +14,6 @@ function showView(id){
   const gear = $('#settings_gear');
   if (gear) gear.classList.toggle('active', id === 'settings');
   if (id === 'kbdash') kbSiteShow();
-  if (id === 'checkslib') loadChecks();
   if (id === 'selfcheck') scInit();
   if (id === 'settings') loadSettings();
 }
@@ -145,57 +144,80 @@ async function scLoadAgentStatus(){
 // 检查台账（M5）本版本暂不提供：按需求先移除菜单与页面，后续再行补充。
 
 async function loadChecks() {
-  const doc = $('#ck_doc').value, dom = $('#ck_domain').value, pri = $('#ck_pri').value, kw = $('#ck_kw').value.trim();
+  const docEl = $('#ck_doc'), domEl = $('#ck_domain'), priEl = $('#ck_pri'), kwEl = $('#ck_kw'), listEl = $('#ck_list');
+  if (!listEl) return;
+  const doc = docEl ? docEl.value : '', dom = domEl ? domEl.value : '',
+        pri = priEl ? priEl.value : '', kw = kwEl ? kwEl.value.trim() : '';
   let url = '/api/checks?';
   if (doc) url += '&doc=' + doc;
   if (dom) url += '&domain=' + dom;
   if (pri) url += '&priority=' + pri;
   if (kw) url += '&keyword=' + encodeURIComponent(kw);
+  listEl.innerHTML = '<span class="muted">加载中…</span>';
   const d = await api(url);
   const docLabel = {jg24:'金规〔2024〕24号', jg93:'金办发〔2025〕93号', pboc3:'人行令〔2025〕第3号', jf8:'金发〔2026〕8号'};
-  $('#ck_meta').textContent = `共 ${d.total} 项（筛选 ${d.filtered}）｜按文号 ` +
-    JSON.stringify(Object.fromEntries(Object.entries(d.byDoc||{}).map(([k,v])=>[docLabel[k]||k,v]))) +
-    '｜领域 ' + JSON.stringify(d.byDomain) + '｜优先级 ' + JSON.stringify(d.byPriority);
-  $('#ck_list').innerHTML = '<table><tr><th>编号</th><th>标题</th><th>优先级</th><th>领域</th><th>文号</th></tr>' +
-    d.checks.map(c =>
-      `<tr style="cursor:pointer" onclick="showCheck('${c.checkCode}')">
-        <td><b>${c.checkCode}</b></td><td>${c.title}</td>
-        <td><span class="pill">${c.priority}</span></td><td>${c.domainLabel||c.domain}</td>
-        <td><span class="muted">${docLabel[c.docKey]||c.docKey||''}</span></td></tr>`).join('') + '</table>';
+  if (!d || !d.checks){ listEl.innerHTML = '<span class="muted">检查项取数失败，请稍后重试。</span>'; return; }
+  const rows = d.checks.map(c =>
+    `<tr style="cursor:pointer" onclick="showCheck('${c.checkCode}')" title="查看 ${esc(c.checkCode)} 六维详情">
+      <td><b>${esc(c.checkCode)}</b></td><td>${esc(c.title)}</td>
+      <td><span class="pill">${esc(c.priority)}</span></td><td>${esc(c.domainLabel||c.domain||'')}</td>
+      <td><span class="muted">${esc(docLabel[c.docKey]||c.docKey||'')}</span></td></tr>`).join('');
+  listEl.innerHTML =
+    `<div class="muted" style="margin:0 0 8px">共 <b>${d.filtered != null ? d.filtered : d.checks.length}</b> 项` +
+    `${d.total != null && d.total !== d.filtered ? `（总 ${d.total} 项）` : ''}</div>` +
+    '<table><thead><tr><th>编号</th><th>标题</th><th>优先级</th><th>领域</th><th>文号</th></tr></thead>' +
+    '<tbody>' + (rows || '<tr><td colspan=5>没有匹配的检查项</td></tr>') + '</tbody></table>';
 }
 async function showCheck(code) {
+  const box = $('#ck_detail');
+  if (!box) return;
+  box.innerHTML = '<span class="muted">加载中…</span>';
   const c = await api('/api/checks/' + code);
+  if (!c || c.error){ box.innerHTML = '<span class="muted">检查项加载失败，请稍后重试。</span>'; return; }
   const lvColor = {L1:'#1B4FE4',L2:'#3a6bf0',L3:'#6d90f5',L4:'#e08a00',L5:'#2a9d5c'};
   const el = (c.elements||[]).map(e =>
-    `<tr><td>${e.code}</td><td>${e.text}</td>
-      <td>${(e.focusLevels||'').split(',').filter(Boolean).map(l=>`<span style="color:${lvColor[l]}" class="pill">${l}</span>`).join(' ')}</td></tr>`).join('');
-  const steps = (c.methodSteps||[]).map(s=>`<li><b>[${s.stepKind==='evidence'?'查证据':'查制度'}${s.stepNo}]</b> ${s.action||s.focus} ${s.focus&&s.stepKind==='evidence'?('— '+s.focus):''}</li>`).join('');
-  const v = c.verdict||{};
-  const vd = k => (JSON.parse(v[k]||'[]')).map(x=>`<li>${x}</li>`).join('');
-  const fp = (c.findings||[]).map(f=>`<li><b>问题</b>${f.problem}<br><span class="muted">根因：${f.rootCause}；整改：${f.remediation}</span></li>`).join('');
-  const rel = (c.related||[]).map(r=>`<li>${r.ref}（关联）</li>`).join('');
-  const sc = (c.suggestedControls||[]).map(s=>{
-    const badge = s.status==='provisional'
-      ? `<span class="badge b-warn">暂定对应·待CT确认</span>`
-      : `<span class="badge b-unk">待对齐（10工程v1.5）</span>`;
-    return `<li>[${s.layer}] <b>${s.name}</b> ${badge}<br>
-      <span class="muted">${s.type||''}${s.baseControlTitle?'｜暂定对应底座：'+s.baseControlTitle:''}</span></li>`;
+    `<tr><td><b>${esc(e.code)}</b></td><td>${esc(e.text)}</td>
+      <td>${(e.focusLevels||'').split(',').filter(Boolean).map(l=>`<span style="color:${lvColor[l]}" class="pill">${esc(l)}</span>`).join(' ') || '<span class="muted">—</span>'}</td></tr>`).join('');
+  const steps = (c.methodSteps||[]).map(s=>{
+    const kind = s.stepKind === 'evidence' ? '查证据' : '查制度';
+    const focus = (s.stepKind === 'evidence' && s.focus) ? ` — <span class="muted">${esc(s.focus)}</span>` : '';
+    return `<li><b>[${kind}${esc(String(s.stepNo))}]</b> ${esc(s.action || s.focus || '')}${focus}</li>`;
   }).join('');
-  $('#ck_detail').innerHTML = `
-    <h4>${c.checkCode} ${c.title} <span class="pill">${c.priority}</span> ${c.domainLabel||c.domain}</h4>
-    <p class="muted">依据 ${c.regulation}（${c.articleNo}）｜挂接法条：${(c.citesClause||[]).join(', ')}</p>
-    <details open><summary>条文原文</summary><p>${c.articleText||'（同前条，见法条）'}</p></details>
-    <details open><summary>检查清单（要素·关注层级色标）</summary><table>${el}</table></details>
-    <details><summary>检查方法（查制度·查证据${c.tip?'；杀手锏：'+c.tip:''}）</summary><ol>${steps}</ol></details>
+  const v = c.verdict || {};
+  const vd = k => {
+    let arr = [];
+    try { arr = JSON.parse(v[k] || '[]') || []; } catch (e) { arr = []; }
+    return arr.map(x => `<li>${esc(x)}</li>`).join('');
+  };
+  const vBlock = (label, cls, key) =>
+    `<p style="margin:10px 0 2px"><span class="badge ${cls}">${label}</span></p><ul style="margin:4px 0">${vd(key) || '<li class="muted">—</li>'}</ul>`;
+  const fp = (c.findings||[]).map(f =>
+    `<li><b>问题</b>　${esc(f.problem)}<br><span class="muted"><b>根因</b>：${esc(f.rootCause||'—')}；<b>整改</b>：${esc(f.remediation||'—')}</span></li>`).join('');
+  const rel = (c.related||[]).map(r => `<li><b>${esc(r.ref)}</b>（关联）</li>`).join('');
+  const sc = (c.suggestedControls||[]).map(s=>{
+    const badge = s.status === 'provisional'
+      ? `<span class="badge b-warn">暂定对应 · 待 CT 确认</span>`
+      : `<span class="badge b-unk">待对齐（10 工程 v1.5）</span>`;
+    return `<li><span class="pill">${esc(s.layer)}</span> <b>${esc(s.name)}</b> ${badge}<br>
+      <span class="muted">${esc(s.type||'')}${s.baseControlTitle ? '｜暂定对应底座：' + esc(s.baseControlTitle) : ''}</span></li>`;
+  }).join('');
+  box.innerHTML = `
+    <h4>${esc(c.checkCode)} ${esc(c.title)} <span class="pill">${esc(c.priority)}</span> <span class="muted">${esc(c.domainLabel||c.domain||'')}</span></h4>
+    <p class="muted"><b>依据</b> ${esc(c.regulation||'—')} <b>（${esc(c.articleNo||'—')}）</b>｜<b>挂接法条</b>：${esc((c.citesClause||[]).join('、')||'—')}</p>
+    <details open><summary>条文原文</summary><p>${esc(c.articleText||'（同前条，见法条）')}</p></details>
+    <details open><summary>检查清单（要素 · 关注层级色标）</summary><table>
+      <thead><tr><th>要素</th><th>检查内容</th><th>关注层级</th></tr></thead>
+      <tbody>${el||'<tr><td colspan=3 class="muted">—</td></tr>'}</tbody></table></details>
+    <details><summary>检查方法（查制度 · 查证据${c.tip?' · <b>杀手锏：'+esc(c.tip)+'</b>':''}）</summary><ol>${steps||'<li>—</li>'}</ol></details>
     <details><summary>三档判定要点</summary>
-      <p><b>通过：</b><ul>${vd('verdictPass')}</ul></p>
-      <p><b>部分符合：</b><ul>${vd('verdictPartial')}</ul></p>
-      <p><b>不符合：</b><ul>${vd('verdictFail')}</ul></p></details>
-    <details><summary>常见问题/根因/整改</summary><ul>${fp||'<li>—</li>'}</ul></details>
+      ${vBlock('通过','b-ok','verdictPass')}
+      ${vBlock('部分符合','b-warn','verdictPartial')}
+      ${vBlock('不符合','b-bad','verdictFail')}</details>
+    <details><summary>常见问题 / 根因 / 整改</summary><ul>${fp||'<li>—</li>'}</ul></details>
     <details><summary>关联检查项</summary><ul>${rel||'<li>—</li>'}</ul>
-      <p class="muted">${c.relatedRaw||''}</p></details>
-    <details open><summary>建议控制措施（占位·待 10 工程 v1.5 CT 编码对齐）</summary>
-      <p class="muted">以下为检查侧控制需求占位，<b>非已落实/已对齐权威控制</b>；权威控制词汇唯一事实源=10 工程 v1.5。</p>
+      <p class="muted">${esc(c.relatedRaw||'')}</p></details>
+    <details open><summary>建议控制措施（占位 · 待 10 工程 v1.5 CT 编码对齐）</summary>
+      <p class="muted">以下为检查侧控制需求占位，<b>非已落实 / 已对齐权威控制</b>；权威控制词汇唯一事实源 = <b>10 工程 v1.5</b>。</p>
       <ul>${sc||'<li>—</li>'}</ul></details>`;
 }
 
@@ -340,6 +362,7 @@ async function llmTest() {
 }
 
 // ---------- 设置页：可引用的知识库（多选） + 取数来源状态 ----------
+let kbEffCount = 0;   // 部署当前生效的知识库数量（未勾选时用于说明兜底口径）
 function loadSettings(){ loadKbPick(); loadLlmset(); loadSrcStatus(); }
 
 async function loadKbPick(){
@@ -349,22 +372,34 @@ async function loadKbPick(){
   if (!d || d.available === undefined){
     box.innerHTML = '<span class="muted">知识库列表不可达，请检查知识库平台。</span>'; return;
   }
+  const degraded = d.source === 'degraded';
+  const note = degraded
+    ? '<div class="muted" style="margin-bottom:8px"><span class="badge b-warn">降级展示</span> ' +
+      '知识库平台暂不可达，以下为<strong>演示知识库目录</strong>（已含部署当前生效库），' +
+      '可正常勾选，不阻断作业。</div>'
+    : '';
   if (!d.available.length){
-    box.innerHTML = '<span class="muted">暂无可用知识库。</span>'; return;
+    box.innerHTML = note + '<span class="muted">暂无可用知识库。</span>'; return;
   }
   const sel = d.selected || [];
-  box.innerHTML = d.available.map(k => `
+  const docs = n => (n === null || n === undefined) ? '篇数 —' : (n + ' 篇');
+  const eff = d.effective || [];
+  box.innerHTML = note + d.available.map(k => `
     <label class="pick" title="${esc(k.id)}">
       <input type="checkbox" value="${esc(k.id)}" ${sel.includes(k.id) ? 'checked' : ''}>
       <span class="pick-name">${esc(k.name)}</span>
-      <span class="pick-meta">${k.docCount} 篇</span>
+      ${k.effective ? '<span class="badge b-ok">当前生效</span>' : ''}
+      <span class="pick-meta">${docs(k.docCount)}</span>
     </label>`).join('');
-  kbPickStatus(sel.length);
+  kbPickStatus(sel.length, eff.length);
 }
 
-function kbPickStatus(n){
+function kbPickStatus(n, effN){
   const el = $('#kb_pick_status'); if (!el) return;
-  el.textContent = n ? `已选 ${n} 个知识库` : '未选择，使用默认知识库';
+  if (effN !== undefined) kbEffCount = effN;
+  const base = n ? `已选 ${n} 个知识库`
+    : (kbEffCount ? `未选择，使用部署默认的 ${kbEffCount} 个知识库` : '未选择，使用默认知识库');
+  el.textContent = base;
 }
 
 async function kbPickSave(){
@@ -374,13 +409,26 @@ async function kbPickSave(){
     headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ids})}).catch(() => null);
   if (!r || r.error){ if (el) el.textContent = '保存失败：接口不可达。'; return; }
   kbSiteInited = false;                       // 使知识库视图下次进入时按新配置重建
-  kbPickStatus((r.selected || []).length);
+  kbPickStatus((r.selected || []).length, (r.effective || []).length);
   if (el) el.textContent = '✓ 已保存，' + el.textContent;
 }
 
 async function kbPickReset(){
   document.querySelectorAll('#kb_pick input').forEach(x => x.checked = false);
   await kbPickSave();
+}
+
+// 主动刷新：失效后端取数缓存 → 立即重取知识库首屏索引并回显条目数/取数时间。
+// 对应「知识库内容更新后，前端如何拿到最新」的机制（30s TTL 之外的手动即时刷新）。
+async function kbRefreshData(){
+  const el = $('#kb_refresh_status'); if (el) el.textContent = '刷新中…';
+  const env = await api('/api/kb/cache/invalidate', {method: 'POST'}).catch(() => null);
+  if (!env){ if (el) el.textContent = '刷新失败：接口不可达。'; return; }
+  kbSiteInited = false;                       // 使知识库视图按最新数据重建
+  await kbSiteShow();
+  const n = (window.KNOWLEDGE_BASE && (window.KNOWLEDGE_BASE.entities || []).length) || 0;
+  if (el) el.textContent = '✓ 已刷新，条目 ' + n +
+    '　取数 ' + String(env.fetchedAt || '').replace('T', ' ');
 }
 
 async function loadSrcStatus(){

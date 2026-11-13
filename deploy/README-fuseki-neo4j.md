@@ -44,8 +44,8 @@ curl -X POST http://127.0.0.1:3030/ds/query -H 'Content-Type: application/sparql
 ## 冒烟脚本
 
 ```bash
-python scripts/smoke_graphstore.py            # memory + oxigraph 全断言
-GRAPH_STORE_BACKEND=fuseki python scripts/smoke_graphstore.py   # Fuseki（需容器已起）
+python scripts/smoke/smoke_graphstore.py            # memory + oxigraph 全断言
+GRAPH_STORE_BACKEND=fuseki python scripts/smoke/smoke_graphstore.py   # Fuseki（需容器已起）
 ```
 
 ## Neo4j 适配器（属性图，非 SPARQL 原生）
