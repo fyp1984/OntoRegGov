@@ -96,6 +96,7 @@
         '<button class="ghost" id="scn_refresh" title="重新查询场景包" aria-label="查询场景包">查询</button>' +
       '</div>' +
       '<div id="scn_launch_result"></div>' +
+      DZ.guide('<b>场景包</b>：按业务场景组织知识库与工具调用；左侧选择场景包，右侧维护其调用要素（知识来源 / 知识库 / 部门岗位角色 / 工具与系统 / 更新信息）。') +
       '<div id="scn_area">' + DZ.skeleton(5) + '</div>';
   }
 

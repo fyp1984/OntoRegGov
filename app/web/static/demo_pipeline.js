@@ -1,7 +1,8 @@
 /* ============================================================
-   金融行业数据安全知识库和智能体平台 · 全量功能 Demo：知识发布
-   承载视图：
-     - pipeline → 容器 #pipeline_root（知识库平台对接 · 知识发布治理）
+   金融行业数据安全知识库和智能体平台 · 全量功能 Demo：知识发布 / 知识采集
+   承载视图（左侧两个菜单）：
+     - pipeline → 容器 #pipeline_root（知识发布：发布总览 / 知识文档 / 变更清单 / 发布文档清单 / 版本历史 / 调用日志）
+     - collect  → 容器 #collect_root （知识采集：外部采集 / 分类映射）
    依赖：demo_common.js 提供的全局 window.DZ（严格只用 DZ.*），样式只用 dz- 前缀。
    新增对接：GET /api/kb/targets、/api/kb/documents、/api/kb/documents/{id}、
              /api/kb/change-log、/api/kb/call-log
@@ -14,8 +15,12 @@
   var DZ = window.DZ;
   if (!DZ){ return; }
 
-  // ---------- 视图容器与接口路径 ----------
-  var ROOT_P = '#pipeline_root';
+  // ---------- 视图键与接口路径 ----------
+  // 本文件承载两个视图（左侧菜单各一），共用同一套页签渲染与业务逻辑：
+  //   pipeline → 容器 #pipeline_root（知识发布，6 个页签）
+  //   collect  → 容器 #collect_root （知识采集，2 个页签）
+  // 根容器一律按当前 VIEW 计算，页签状态按 VIEW 分别记忆。
+  var VIEW = 'pipeline';   // 当前正在初始化的视图键（由各 init 设置）
   var API = {
     // 知识发布治理（对接知识库平台）
     kbTargets:      '/api/kb/targets',
@@ -60,7 +65,6 @@
     currentVersion: '',
     manifestAll: [], manFilter: 'all',
     collectFilter: '', collectCounts: {}, collectAll: null,
-    tab: 'docs',
     kbTargets: null,
     docFilter: {kbId:'', status:''},
     docs: null,
@@ -70,17 +74,37 @@
   };
   var plTimer = null;   // 发布作业轮询计时器
 
-  // 页签定义：新治理能力在前，既有重建发布能力在后。
-  var PL_TABS = [
-    { key: 'docs',      label: '知识文档' },
-    { key: 'changelog', label: '变更清单' },
-    { key: 'calllog',   label: '调用日志' },
-    { key: 'overview',  label: '发布总览' },
-    { key: 'manifest',  label: '发布文档清单' },
-    { key: 'history',   label: '版本历史' },
-    { key: 'collect',   label: '外部采集' },
-    { key: 'mapping',   label: '分类映射' }
-  ];
+  // 页签定义：按视图键分组。
+  //   pipeline（知识发布）按工作流程排序：总览 → 文档 → 变更 → 清单 → 版本 → 调用
+  //   collect （知识采集）
+  var TABS = {
+    pipeline: [
+      { key: 'overview',  label: '发布总览' },
+      { key: 'docs',      label: '知识文档' },
+      { key: 'changelog', label: '变更清单' },
+      { key: 'manifest',  label: '发布文档清单' },
+      { key: 'history',   label: '版本历史' },
+      { key: 'calllog',   label: '调用日志' }
+    ],
+    collect: [
+      { key: 'collect', label: '外部采集' },
+      { key: 'mapping', label: '分类映射' }
+    ]
+  };
+  // 各视图当前激活的页签（按 VIEW 分别记忆，避免两个菜单互相覆盖）
+  var TAB_STATE = { pipeline: 'overview', collect: 'collect' };
+
+  // 各页签的引导说明：一句话讲清本页签要做什么
+  var PANE_GUIDE = {
+    overview:  '<b>发布总览</b>：查看知识文档规模、入库与发布作业状态；静态优先、变更驱动重建。',
+    docs:      '<b>知识文档</b>：新建或采集知识文档，关联知识库与知识类型，提交专家审核后入库。',
+    changelog: '<b>变更清单</b>：查看知识文档的版本变更与差异记录。',
+    manifest:  '<b>发布文档清单</b>：查看本次发布包含的文档与版本指纹。',
+    history:   '<b>版本历史</b>：查看历次发布作业与重建记录。',
+    calllog:   '<b>调用日志</b>：查看知识库被智能体调用的记录与结果。',
+    collect:   '<b>外部采集</b>：立即执行一次外部采集，采集结果进入入库审核流程。',
+    mapping:   '<b>分类映射</b>：维护知识库分类映射，保持知识库分类与资产台账一致。'
+  };
 
   // ---------- 通用小工具 ----------
   function isErr(r){ return !!(r && r.error); }
@@ -128,51 +152,58 @@
   }
 
   /* ==========================================================================
-     视图骨架
+     视图骨架（按当前 VIEW 生成；页签容器与内容容器均加 VIEW 前缀，避免两个视图冲突）
      ========================================================================== */
-  function pipelineShell(){
-    return '' +
-      '<div class="dz-toolbar">' +
-        '<button class="ghost" id="pl_query" title="重新查询知识发布数据" aria-label="查询">查询</button>' +
-        '<span class="muted dz-toolbar-note" id="pl_current">当前版本 —</span>' +
-      '</div>' +
-      '<div id="pl_tabs"></div>' +
+  function viewShell(){
+    var h = '<div class="dz-toolbar">' +
+      '<button class="ghost" id="' + VIEW + '_query" title="重新查询数据" aria-label="查询">查询</button>';
+    if (VIEW === 'pipeline'){
+      h += '<span class="muted dz-toolbar-note" id="pl_current">当前版本 —</span>';
+    }
+    h += '</div>' +
+      '<div id="' + VIEW + '_tabs"></div>' +
+      '<div id="' + VIEW + '_pane" class="dz-pane"></div>';
+    return h;
+  }
 
-      // 页签一：知识文档（对接知识库平台 · 选库与类型 · 上传/采集 · 专家审核 · 版本与日志）
-      '<div class="dz-pane" data-pane="docs">' +
-        '<div id="pl_doc_form"></div>' +
+  // 各页签的内容骨架（切换页签时仅渲染当前页签内容）
+  function paneHtml(key){
+    if (key === 'docs'){
+      // 知识文档（对接知识库平台 · 选库与类型 · 上传/采集 · 专家审核 · 版本与日志）
+      return '<div id="pl_doc_form"></div>' +
         '<div id="pl_docs_kpis"></div>' +
-        '<div class="card"><h3>知识文档清单</h3>' +
-          '<div class="dz-toolbar">' +
-            '<button id="pl_doc_new_btn" title="新建知识文档">新建文档</button>' +
-            '<select id="pl_doc_kb_filter" title="按知识库筛选" aria-label="按知识库筛选"></select>' +
-            '<select id="pl_doc_status_filter" title="按状态筛选" aria-label="按状态筛选"></select>' +
-            '<button class="ghost" id="pl_doc_apply" title="应用筛选条件">筛选</button>' +
+        '<div class="card">' +
+          '<div class="dz-card-head">' +
+            '<h3>知识文档清单</h3>' +
+            '<div class="dz-card-actions">' +
+              '<button id="pl_doc_new_btn" title="新建知识文档">新建文档</button>' +
+            '</div>' +
           '</div>' +
+          DZ.filterBar([
+            { label: '知识库', html: '<select id="pl_doc_kb_filter" title="按知识库筛选" aria-label="按知识库筛选"></select>' },
+            { label: '状态', html: '<select id="pl_doc_status_filter" title="按状态筛选" aria-label="按状态筛选"></select>' }
+          ], {
+            aria: '知识文档筛选',
+            end: '<button class="ghost" id="pl_doc_apply" title="应用筛选条件">筛选</button>'
+          }) +
           '<div id="pl_docs_list"></div>' +
         '</div>' +
-        '<div id="pl_doc_detail"></div>' +
-      '</div>' +
-
-      // 页签二：知识变更清单
-      '<div class="dz-pane" data-pane="changelog" hidden>' +
-        '<div class="card"><h3>知识变更清单</h3>' +
+        '<div id="pl_doc_detail"></div>';
+    }
+    if (key === 'changelog'){
+      return '<div class="card"><h3>知识变更清单</h3>' +
           '<div id="pl_cl_chips"></div>' +
           '<div id="pl_changelog"></div>' +
-        '</div>' +
-      '</div>' +
-
-      // 页签三：知识调用日志
-      '<div class="dz-pane" data-pane="calllog" hidden>' +
-        '<div class="card"><h3>知识调用日志</h3>' +
+        '</div>';
+    }
+    if (key === 'calllog'){
+      return '<div class="card"><h3>知识调用日志</h3>' +
           '<div id="pl_call_chips"></div>' +
           '<div id="pl_calllog"></div>' +
-        '</div>' +
-      '</div>' +
-
-      // 页签四：发布总览（既有）
-      '<div class="dz-pane" data-pane="overview" hidden>' +
-        '<div class="dz-toolbar">' +
+        '</div>';
+    }
+    if (key === 'overview'){
+      return '<div class="dz-toolbar">' +
           '<button id="pl_trigger_btn" title="手动触发一次重建发布" aria-label="手动触发重建">手动触发重建</button>' +
           '<select id="pl_mode" title="选择重建模式" aria-label="重建模式">' +
             '<option value="incremental">增量重建</option>' +
@@ -183,102 +214,100 @@
         '<div class="grid2">' +
           '<div class="card"><h3>发布前质量校验</h3><div id="pl_gate"></div></div>' +
           '<div class="card"><h3>变更感知通道</h3><div id="pl_channels"></div></div>' +
-        '</div>' +
-      '</div>' +
-
-      // 页签五：发布文档清单（既有）
-      '<div class="dz-pane" data-pane="manifest" hidden>' +
-        '<div class="card"><h3>发布文档清单</h3><div id="pl_manifest"></div></div>' +
-      '</div>' +
-
-      // 页签六：版本历史（既有）
-      '<div class="dz-pane" data-pane="history" hidden>' +
-        '<div class="card"><h3>版本历史与回滚</h3><div id="pl_history"></div></div>' +
-      '</div>' +
-
-      // 页签七：外部采集与入库审核（既有）
-      '<div class="dz-pane" data-pane="collect" hidden>' +
-        '<div class="card"><h3>外部采集与入库审核</h3>' +
-          '<div class="dz-toolbar">' +
-            '<button id="pl_collect_run" title="立即执行一次外部采集" aria-label="立即采集">立即采集</button>' +
+        '</div>';
+    }
+    if (key === 'manifest'){
+      return '<div class="card"><h3>发布文档清单</h3><div id="pl_manifest"></div></div>';
+    }
+    if (key === 'history'){
+      return '<div class="card"><h3>版本历史与回滚</h3><div id="pl_history"></div></div>';
+    }
+    if (key === 'collect'){
+      return '<div class="card">' +
+          '<div class="dz-card-head">' +
+            '<h3>外部采集与入库审核</h3>' +
+            '<div class="dz-card-actions">' +
+              '<button id="pl_collect_run" title="立即执行一次外部采集" aria-label="立即采集">立即采集</button>' +
+            '</div>' +
           '</div>' +
           '<div id="pl_collect_hint"></div>' +
           '<div id="pl_collect"></div>' +
-        '</div>' +
-      '</div>' +
-
-      // 页签八：知识库分类映射（既有）
-      '<div class="dz-pane" data-pane="mapping" hidden>' +
-        '<div class="card"><h3>知识库分类映射</h3>' +
+        '</div>';
+    }
+    if (key === 'mapping'){
+      return '<div class="card"><h3>知识库分类映射</h3>' +
           '<div class="row">' +
             '<button class="ghost" id="pl_map_add" title="新增一条映射">新增一行</button>' +
             '<button id="pl_map_save" title="保存分类映射">保存映射</button>' +
             '<span class="muted" id="pl_map_status"></span>' +
           '</div>' +
           '<div id="pl_mapping"></div>' +
-        '</div>' +
-      '</div>';
+        '</div>';
+    }
+    return '';
   }
 
   // ---------- 页签渲染与切换 ----------
-  function renderPlTabs(){
-    DZ.tabs('#pl_tabs', PL_TABS, plState.tab, function(key){ switchPlTab(key); });
+  function renderTabs(){
+    DZ.tabs('#' + VIEW + '_tabs', TABS[VIEW] || [], TAB_STATE[VIEW], function(key){ switchTab(key); });
   }
 
-  function switchPlTab(key){
-    plState.tab = key;
-    var root = document.querySelector(ROOT_P);
-    if (root){
-      Array.prototype.forEach.call(root.querySelectorAll('.dz-pane'), function(p){
-        p.hidden = (p.getAttribute('data-pane') !== key);
-      });
+  // 切换页签：仅渲染当前页签内容，并加载该页签数据；页签状态按 VIEW 记忆
+  function switchTab(key){
+    var list = TABS[VIEW] || [];
+    var valid = false;
+    for (var i = 0; i < list.length; i++){ if (list[i].key === key){ valid = true; break; } }
+    if (!valid) key = list.length ? list[0].key : '';
+    TAB_STATE[VIEW] = key;
+    var pane = document.getElementById(VIEW + '_pane');
+    if (pane){
+      pane.innerHTML = DZ.guide(PANE_GUIDE[key] || '') + paneHtml(key);
+      bindPane(key);
+      loadTab(key);
     }
-    renderPlTabs();
+    renderTabs();
   }
 
-  function pipelineInit(){
+  // 页签内的事件绑定（元素随页签重渲染，重复绑定不会叠加）
+  function bindPane(key){
+    if (key === 'docs'){
+      DZ.on('#pl_doc_new_btn', 'click', function(){ plState.docForm = !plState.docForm; renderDocForm(); });
+      DZ.on('#pl_doc_apply', 'click', function(){ doDocFilter(); });
+    } else if (key === 'overview'){
+      DZ.on('#pl_trigger_btn', 'click', function(){ doTrigger(); });
+    } else if (key === 'collect'){
+      DZ.on('#pl_collect_run', 'click', function(){ doCollectRun(); });
+    } else if (key === 'mapping'){
+      DZ.on('#pl_map_add', 'click', function(){ addMappingRow(); });
+      DZ.on('#pl_map_save', 'click', function(){ saveMapping(); });
+    }
+  }
+
+  // 页签数据装载（仅装载当前页签）
+  function loadTab(key){
+    if (key === 'overview'){ renderChannels(); loadOverview(); }
+    else if (key === 'docs'){ loadDocTargets(); loadDocs(); if (plState.docSel) loadDocDetail(plState.docSel); }
+    else if (key === 'changelog'){ loadChangeLog(); }
+    else if (key === 'calllog'){ loadCallLog(); }
+    else if (key === 'manifest'){ loadManifest(); }
+    else if (key === 'history'){ loadHistory(); }
+    else if (key === 'collect'){ loadCollect(plState.collectFilter); }
+    else if (key === 'mapping'){ loadMapping(); }
+  }
+
+  // 视图初始化（两个视图共用；VIEW 由各自 init 设置后调用）
+  function viewInit(){
     if (plTimer){ clearInterval(plTimer); plTimer = null; }
-    var root = document.querySelector(ROOT_P);
+    var root = document.getElementById(VIEW + '_root');
     if (!root) return;
-    root.innerHTML = pipelineShell();
-
-    switchPlTab(plState.tab);
-    renderChannels();
-    bindPipeline();
-    loadDocTargets();
-    loadDocs();
-    loadChangeLog();
-    loadCallLog();
-    loadOverview();
-    loadHistory();
-    loadManifest();
-    loadCollect('');
-    loadMapping();
-  }
-
-  function bindPipeline(){
-    DZ.on('#pl_query', 'click', function(){ doQuery(); });
-    DZ.on('#pl_trigger_btn', 'click', function(){ doTrigger(); });
-    DZ.on('#pl_collect_run', 'click', function(){ doCollectRun(); });
-    DZ.on('#pl_map_add', 'click', function(){ addMappingRow(); });
-    DZ.on('#pl_map_save', 'click', function(){ saveMapping(); });
-    DZ.on('#pl_doc_new_btn', 'click', function(){ plState.docForm = !plState.docForm; renderDocForm(); });
-    DZ.on('#pl_doc_apply', 'click', function(){ doDocFilter(); });
+    root.innerHTML = viewShell();
+    DZ.on('#' + VIEW + '_query', 'click', function(){ doQuery(); });
+    switchTab(TAB_STATE[VIEW]);
   }
 
   async function doQuery(){
-    switchPlTab(plState.tab);
-    await loadDocTargets();
-    await loadDocs();
-    await loadChangeLog();
-    await loadCallLog();
-    await loadOverview();
-    await loadHistory();
-    await loadManifest();
-    await loadCollect(plState.collectFilter);
-    await loadMapping();
-    if (plState.docSel) await loadDocDetail(plState.docSel);
-    DZ.toast('已重新查询知识发布数据', 'ok');
+    switchTab(TAB_STATE[VIEW]);
+    DZ.toast('已重新查询数据', 'ok');
   }
 
   /* ==========================================================================
@@ -397,7 +426,7 @@
     var box = document.getElementById('pl_docs_kpis');
     if (!box) return;
     var s = r.summary || {};
-    box.innerHTML = '<div class="dz-kpi-row">' +
+    box.innerHTML = '<div class="dz-kpi-row is-compact">' +
       DZ.kpi('知识文档', DZ.number(s.total), '合计', '') +
       DZ.kpi('已入库', DZ.number(s.published), '专家审核通过', 'ok') +
       DZ.kpi('待专家审核', DZ.number(s.pendingReview), '待审核', 'warn') +
@@ -528,7 +557,7 @@
     var box = document.getElementById('pl_doc_detail');
     if (!box) return;
     var h = '<div class="card"><h3>文档详情 · ' + DZ.esc(d.title) + ' ' + docBadge(d.status, d.statusLabel) + '</h3>' +
-      '<div class="dz-kpi-row">' +
+      '<div class="dz-kpi-row is-compact">' +
         DZ.kpi('所属知识库', d.kbName || '—', '', '') +
         DZ.kpi('知识类型', d.docType || '—', '', '') +
         DZ.kpi('来源方式', d.sourceLabel || '—', '', '') +
@@ -782,7 +811,7 @@
     var logs = run.logs || [];
 
     var h = '<div class="card">' + DZ.sectionTitle('当前/最近发布作业');
-    h += '<div class="dz-kpi-row">' +
+    h += '<div class="dz-kpi-row is-compact">' +
       DZ.kpi('作业状态', statusText(run.status), (TRIGGER_LABEL[run.trigger] || run.trigger || '—'), success ? 'ok' : (failed ? 'bad' : running ? 'warn' : '')) +
       DZ.kpi('重建模式', MODE_LABEL[run.mode] || run.mode || '—', TRIGGER_LABEL[run.trigger] || '—') +
       DZ.kpi('变更文档', (run.changedDocs != null ? run.changedDocs : '—') + ' / ' + (run.totalDocs != null ? run.totalDocs : '—'), '变更 / 总文档') +
@@ -1122,5 +1151,6 @@
      视图注册（demo_common.js 在 showView 时触发）
      ========================================================================== */
   window.DEMO_VIEW_INIT = window.DEMO_VIEW_INIT || {};
-  window.DEMO_VIEW_INIT['pipeline'] = function(){ pipelineInit(); };
+  window.DEMO_VIEW_INIT['pipeline'] = function(){ VIEW = 'pipeline'; viewInit(); };
+  window.DEMO_VIEW_INIT['collect']  = function(){ VIEW = 'collect';  viewInit(); };
 })();

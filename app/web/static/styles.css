@@ -12,7 +12,8 @@
   --unk:#8a93a6;  --unk-bg:#EEF1F6;  --unk-ink:#5f6b7f;
   --bg:#F4F7FD; --card:#fff; --line:#E3EBFA; --line-strong:#C9D8F5;
   --text:#243447; --muted:#6b7a93;
-  --radius:14px; --shadow:0 1px 2px rgba(32,85,215,.05), 0 4px 16px rgba(32,85,215,.04);
+  /* 扁平化：层级用 1px 边框与底色表达，不用投影（仅浮层保留投影） */
+  --radius:12px; --shadow:none;
 }
 *{box-sizing:border-box}
 html{-webkit-text-size-adjust:100%}
@@ -22,7 +23,7 @@ body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Hiragi
 /* ---------- 页眉 ---------- */
 header{background:var(--card);padding:12px 22px;display:flex;align-items:center;gap:14px;
   border-bottom:1px solid var(--line);
-  box-shadow:inset 0 3px 0 var(--brand), 0 1px 4px rgba(32,85,215,.06)}
+  box-shadow:inset 0 3px 0 var(--brand)}
 header h1{margin:0;font-size:17px;font-weight:700;color:var(--brand-deep);letter-spacing:.3px}
 header .sub{font-size:12px;color:var(--muted)}
 header select{margin-left:auto;width:150px!important;flex:none}
@@ -33,14 +34,13 @@ nav{width:200px;flex:none;background:var(--card);border-right:1px solid var(--li
 nav a{display:block;padding:9px 16px;color:var(--text);text-decoration:none;font-size:13px;
   border-radius:10px;margin-bottom:4px;transition:background .15s,color .15s}
 nav a:hover{background:var(--brand-bg);color:var(--brand-dark)}
-nav a.active{background:var(--brand);color:#fff;font-weight:600;
-  box-shadow:0 2px 8px rgba(32,85,215,.28)}
+nav a.active{background:var(--brand);color:#fff;font-weight:600}
 /* ---------- 左侧菜单：能力分组标题 ---------- */
 .nav-group{margin:14px 8px 6px;padding-left:9px;font-size:11px;font-weight:700;
   letter-spacing:.8px;color:var(--muted);
   border-left:3px solid var(--brand-border);line-height:1.2}
 .nav-group:first-of-type{margin-top:2px}
-main{flex:1;padding:24px 28px;overflow:auto;min-width:0}
+main{flex:1;padding:20px 24px;overflow:auto;min-width:0}
 
 /* ---------- 左侧菜单折叠（收缩 / 打开）---------- */
 .nav-head{display:flex;align-items:center;justify-content:space-between;gap:8px;
@@ -68,9 +68,9 @@ main{flex:1;padding:24px 28px;overflow:auto;min-width:0}
 
 /* ---------- 设置页：可引用的知识库（多选） ---------- */
 .form-narrow{max-width:560px}
-.pick-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:8px;margin:6px 0 12px}
-.pick{display:flex;align-items:center;gap:8px;margin:0;padding:9px 12px;cursor:pointer;
-  border:1px solid var(--line-strong);border-radius:10px;background:#fff;
+.pick-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:6px;margin:6px 0 10px}
+.pick{display:flex;align-items:center;gap:8px;margin:0;padding:8px 11px;cursor:pointer;
+  border:1px solid var(--line-strong);border-radius:8px;background:#fff;
   font-size:13px;font-weight:400;color:var(--text);transition:border-color .15s,background .15s}
 .pick:hover{border-color:var(--brand-border);background:var(--brand-soft)}
 .pick input{width:auto;flex:none;margin:0}
@@ -79,12 +79,12 @@ main{flex:1;padding:24px 28px;overflow:auto;min-width:0}
 
 /* ---------- 卡片 ---------- */
 .card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
-  padding:18px 20px;margin-bottom:18px;box-shadow:var(--shadow)}
-.card h3{margin:0 0 12px;font-size:15px;color:var(--brand-deep);font-weight:600;
+  padding:14px 16px;margin-bottom:12px;box-shadow:none}
+.card h3{margin:0 0 10px;font-size:14.5px;color:var(--brand-deep);font-weight:600;
   display:flex;align-items:center;gap:8px}
-.card h3::before{content:"";display:inline-block;width:4px;height:15px;border-radius:2px;
-  background:linear-gradient(180deg,var(--brand),var(--brand-border))}
-.card h4{margin:12px 0 8px;font-size:14px;color:var(--brand-deep)}
+.card h3::before{content:"";display:inline-block;width:3px;height:14px;border-radius:2px;
+  background:var(--brand)}
+.card h4{margin:10px 0 6px;font-size:13.5px;color:var(--brand-deep)}
 
 /* ---------- 表格 ---------- */
 table{width:100%;border-collapse:separate;border-spacing:0;font-size:13px}
@@ -111,7 +111,7 @@ input,select,textarea{width:100%;padding:7px 10px;border:1px solid var(--line-st
   transition:border-color .15s,box-shadow .15s}
 input:focus,select:focus,textarea:focus{outline:none;border-color:var(--brand);
   box-shadow:0 0 0 3px rgba(32,85,215,.12)}
-label{font-size:12px;color:var(--muted);display:block;margin:10px 0 3px;font-weight:500}
+label{font-size:12px;color:var(--muted);display:block;margin:8px 0 3px;font-weight:500}
 
 /* ---------- 徽章 / 状态 ---------- */
 .badge{display:inline-block;padding:2px 10px;border-radius:999px;font-size:12px;font-weight:600;white-space:nowrap}

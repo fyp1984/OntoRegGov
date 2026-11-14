@@ -6,9 +6,9 @@
 <meta name="theme-color" content="#2055D7">
 <title>金融行业数据安全知识库和智能体平台</title>
 <link rel="icon" href="/favicon.png">
-<link rel="stylesheet" href="/styles.css?v=20261114a">
+<link rel="stylesheet" href="/styles.css?v=20261114d">
 <link rel="stylesheet" href="/kb_site.css?v=20261114b">
-<link rel="stylesheet" href="/demo.css?v=20261114a">
+<link rel="stylesheet" href="/demo.css?v=20261114g">
 </head>
 <body>
 <header>
@@ -37,8 +37,7 @@
     <button class="nav-toggle" id="nav_toggle" onclick="navToggle()" title="折叠左侧菜单">«</button>
   </div>
   <div class="nav-group">自查与报告</div>
-  <a data-v="selfcheck">合规自查</a>
-  <a data-v="dsc">安全自查</a>
+  <a data-v="dsc">合规自查</a>
   <a data-v="rep">报告与看板</a>
   <div class="nav-group">诊断与治理</div>
   <a data-v="diag">现状诊断</a>
@@ -46,12 +45,14 @@
   <a data-v="issues">安全治理</a>
   <div class="nav-group">知识底座</div>
   <a data-v="kbdash" class="active">知识库</a>
+  <a data-v="collect">知识采集</a>
   <a data-v="pipeline">知识发布</a>
   <div class="nav-group">能力与接入</div>
   <a data-v="scenario">场景包</a>
   <a data-v="plugin">工具插件</a>
   <div class="nav-group">平台与治理</div>
   <a data-v="gov">权限与组织</a>
+  <a data-v="perm">权限策略与审计</a>
   <a data-v="dsk">运行驾驶舱</a>
   <a data-v="frame">治理框架</a>
 </nav>
@@ -87,7 +88,7 @@
   </section>
 
   <section id="selfcheck" class="view hidden">
-    <div class="card"><h3>合规自查 · 智能体检查</h3>
+    <div class="card"><h3>智能预检 · 智能体检查</h3>
       <p class="muted">选择一份监管合规文件作为检查依据，指定被检查文件目录（本地或共享盘），
         由后端智能体依据该文件全部检查项的检查清单、检查方法与三档判定要点逐项智能研判。</p>
       <div class="row">
@@ -185,6 +186,7 @@
   </section>
 
   <section id="dsk" class="view hidden"><div id="dsk_root"></div></section>
+  <section id="collect" class="view hidden"><div id="collect_root"></div></section>
   <section id="pipeline" class="view hidden"><div id="pipeline_root"></div></section>
   <section id="dsc" class="view hidden"><div id="dsc_root"></div></section>
   <section id="rep" class="view hidden"><div id="rep_root"></div></section>
@@ -192,6 +194,7 @@
   <section id="ledger" class="view hidden"><div id="ledger_root"></div></section>
   <section id="issues" class="view hidden"><div id="issues_root"></div></section>
   <section id="gov" class="view hidden"><div id="gov_root"></div></section>
+  <section id="perm" class="view hidden"><div id="perm_root"></div></section>
   <section id="scenario" class="view hidden"><div id="scenario_root"></div></section>
   <section id="plugin" class="view hidden"><div id="plugin_root"></div></section>
   <section id="frame" class="view hidden"><div id="frame_root"></div></section>
@@ -199,17 +202,17 @@
 </div>
 <script src="/kb_site.js?v=20261114b"></script>
 <script src="/app.js?v=20261114a"></script>
-<script src="/demo_common.js?v=20261114a"></script>
-<script src="/demo_console.js?v=20261112i"></script>
-<script src="/demo_pipeline.js?v=20261114a"></script>
-<script src="/demo_selfcheck.js?v=20261114a"></script>
-<script src="/demo_reports.js?v=20261114a"></script>
-<script src="/demo_admin.js?v=20261114a"></script>
-<script src="/demo_scenario.js?v=20261114a"></script>
-<script src="/demo_plugin.js?v=20261114a"></script>
-<script src="/demo_diag.js?v=20261114a"></script>
-<script src="/demo_ledger.js?v=20261114a"></script>
-<script src="/demo_issues.js?v=20261114a"></script>
-<script src="/demo_frame.js?v=20261113b"></script>
+<script src="/demo_common.js?v=20261114d"></script>
+<script src="/demo_console.js?v=20261114d"></script>
+<script src="/demo_pipeline.js?v=20261114e"></script>
+<script src="/demo_selfcheck.js?v=20261114f"></script>
+<script src="/demo_reports.js?v=20261114e"></script>
+<script src="/demo_admin.js?v=20261114f"></script>
+<script src="/demo_scenario.js?v=20261114d"></script>
+<script src="/demo_plugin.js?v=20261114f"></script>
+<script src="/demo_diag.js?v=20261114d"></script>
+<script src="/demo_ledger.js?v=20261114e"></script>
+<script src="/demo_issues.js?v=20261114e"></script>
+<script src="/demo_frame.js?v=20261114d"></script>
 </body>
 </html>

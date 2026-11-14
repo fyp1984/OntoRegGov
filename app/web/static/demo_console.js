@@ -123,10 +123,11 @@
     if (!r) { return; }
     r.innerHTML =
       '<div class="dz-toolbar" id="dsk_toolbar" role="toolbar" aria-label="运行驾驶舱工具栏">' + DZ.skeleton(1) + '</div>' +
-      '<div class="dz-kpi-row" id="dsk_kpi" aria-label="关键指标">' + DZ.skeleton(2) + '</div>' +
+      '<div class="dz-kpi-row is-compact" id="dsk_kpi" aria-label="关键指标">' + DZ.skeleton(2) + '</div>' +
       '<div id="dsk_tabs"></div>' +
       // 页签一：运行总览（模块健康与运行保障 + 知识发布现状）
       '<div class="dz-pane" data-pane="overview">' +
+        DZ.guide('<b>运行总览</b>：查看各模块健康状态与运行保障、以及知识发布现状。') +
         '<div class="grid2">' +
           '<div class="card" id="dsk_modules"><h3>模块健康与运行保障</h3>' + DZ.skeleton(3) + '</div>' +
           '<div class="card" id="dsk_publish"><h3>知识发布现状</h3>' + DZ.skeleton(2) + '</div>' +
@@ -134,10 +135,12 @@
       '</div>' +
       // 页签二：一键演示（9 幕全流程）
       '<div class="dz-pane" data-pane="demo" hidden>' +
+        DZ.guide('<b>一键演示</b>：按 9 幕全流程一键走通，用于整体演示。') +
         '<div class="card" id="dsk_scenario"><h3>一键演示 · 9 幕全流程</h3>' + DZ.skeleton(4) + '</div>' +
       '</div>' +
       // 页签三：活动留痕（跨模块活动流）
       '<div class="dz-pane" data-pane="activity" hidden>' +
+        DZ.guide('<b>活动留痕</b>：查看跨模块的最近活动流。') +
         '<div class="card" id="dsk_activity"><h3>跨模块活动流</h3>' + DZ.skeleton(5) + '</div>' +
       '</div>';
   }

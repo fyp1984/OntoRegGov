@@ -2,6 +2,7 @@
    金融行业数据安全知识库和智能体平台 · 全量功能 Demo
    安全治理（多角色互动闭环工作流） · demo_issues.js
    视图 id：issues   容器：#issues_root   菜单：安全治理（诊断与治理）
+   页签（按流程）：问题清单 / 处置详情 / 复检反馈
 
    闭环：自查发现问题 → 定级拆分 → 下发治理工单 → 部门接收 → 整改回复（附工作证明）
         → 复检反馈 → 人工核查确认 → 确认归档；并含「退回重办」分支。
@@ -39,8 +40,18 @@
     close:'确认归档', reject:'退回重办'
   };
 
+  // 页签定义（按流程排序）
+  var TABS = [
+    { key:'list',    label:'问题清单' },
+    { key:'detail',  label:'处置详情' },
+    { key:'recheck', label:'复检反馈' }
+  ];
+  // 复检反馈相关动作（归入「复检反馈」页签，其余处置动作留在「处置详情」页签）
+  var RECHECK_CODES = { recheck:1, confirm:1, close:1, reject:1 };
+
   // 视图内常驻状态（跨重入保留筛选与选中项）
   var S = {
+    tab: 'list',
     data: null, detail: null, sel: null,
     positions: [],
     f: { status:'', source:'', severity:'' },
@@ -149,50 +160,61 @@
   /* ---------------- 视图装载 ---------------- */
   function shell(){
     return '' +
-      '<div class="dz-toolbar">' +
-        '<span style="font-weight:600;color:var(--brand-deep);font-size:14px">治理问题清单</span>' +
-        '<button id="iss_query" class="ghost" title="重新拉取治理问题数据" aria-label="查询">查询</button>' +
-        '<button id="iss_new" title="手工创建待治理的问题" aria-label="新建待治理问题">新建待治理问题</button>' +
-        '<span class="muted" id="iss_meta" style="margin-left:auto"></span>' +
-      '</div>' +
+      '<div id="is_tabs"></div>' +
       '<div id="iss_msg"></div>' +
-      '<div id="iss_form"></div>' +
-      '<div id="iss_kpis" class="dz-kpi-row"></div>' +
-      '<div id="iss_chips" class="dz-chipbar"></div>' +
-      '<div id="iss_split">' + DZ.skeleton(5) + '</div>';
+      '<div id="is_pane" class="dz-pane"></div>';
   }
 
   function mount(){
     var r = rootEl();
     if (!r) return;
     r.innerHTML = shell();
-
-    var qb = q('#iss_query');
-    if (qb) qb.onclick = function(){ load(true); };
-    var nb = q('#iss_new');
-    if (nb) nb.onclick = function(){
-      S.mode = (S.mode === 'create' ? 'none' : 'create');
-      S.action = null;
-      if (S.mode === 'create') setMsg('');
-      renderForm();
-    };
-
+    renderTabs();
     load(false);
+  }
+
+  /* ---------------- 页签 ---------------- */
+  function renderTabs(){
+    DZ.tabs('#is_tabs', TABS.map(function(t){ return { key:t.key, label:t.label }; }), S.tab, function(k){
+      S.tab = k;
+      renderPane();
+    });
+  }
+
+  function switchTab(k){
+    S.tab = k;
+    renderTabs();
+    renderPane();
+  }
+
+  function renderPane(){
+    var box = q('#is_pane');
+    if (!box) return;
+    if (S.tab === 'detail'){
+      box.innerHTML = '<div id="iss_detail"></div>';
+      loadDetailInto('#iss_detail', detailBodyHtml);
+    } else if (S.tab === 'recheck'){
+      box.innerHTML = '<div id="iss_recheck"></div>';
+      loadDetailInto('#iss_recheck', recheckBodyHtml);
+    } else {
+      box.innerHTML = '<div id="iss_listpane"></div>';
+      renderListPane();
+    }
   }
 
   /* ---------------- 取数 ---------------- */
   async function load(force){
     if (S.data && !force){ renderAll(); return; }
-    var split = q('#iss_split');
-    if (split) split.innerHTML = DZ.skeleton(5);
+    if (!S.data) renderPane();     // 首次进入先渲染骨架屏占位
 
     var out = await Promise.all([DZ.get(API.list), DZ.get(API.positions)]);
     var res = out[0], pos = out[1];
 
     if (!res || res.error){
       setMsg('');
-      if (split){
-        split.innerHTML = DZ.banner('bad', '治理问题数据加载失败：' + errMsg(res), function(){ load(true); });
+      var box = q('#is_pane');
+      if (box){
+        box.innerHTML = DZ.banner('bad', '治理问题数据加载失败：' + errMsg(res), function(){ load(true); });
       }
       var meta0 = q('#iss_meta'); if (meta0) meta0.textContent = '';
       return;
@@ -206,11 +228,8 @@
   }
 
   function renderAll(){
-    renderMeta();
-    renderKpis();
-    renderChips();
-    renderForm();
-    renderSplit();
+    renderTabs();
+    renderPane();
   }
 
   function renderMeta(){
@@ -232,33 +251,51 @@
       DZ.kpi('待核查确认', DZ.number(bs.pending_confirm || 0), '等待管理部门核查');
   }
 
-  /* ---------------- 状态分布（可点击筛选） ---------------- */
-  function renderChips(){
-    var box = q('#iss_chips');
+  /* ---------------- 问题清单页签 ---------------- */
+  function renderListPane(){
+    var box = q('#iss_listpane');
     if (!box) return;
-    var s = (S.data && S.data.summary) || {};
-    var bs = s.byStatus || {};
-    var flow = (S.data && S.data.flow) || [];
+    if (!S.data){ box.innerHTML = DZ.skeleton(5); return; }
+    var list = filtered();
 
-    var parts = ['<button class="dz-chip' + (S.f.status === '' ? ' on' : '') + '" data-st="" ' +
-      'title="查看全部状态" aria-label="全部状态">全部 ' + DZ.number(s.total || 0) + '</button>'];
-    flow.forEach(function(x){
-      parts.push('<button class="dz-chip' + (S.f.status === x.status ? ' on' : '') + '" ' +
-        'data-st="' + DZ.esc(x.status) + '" title="筛选：' + DZ.esc(x.label) + '" aria-label="' + DZ.esc(x.label) + '">' +
-        DZ.esc(x.label) + ' ' + DZ.number(bs[x.status] || 0) + '</button>');
-    });
-    box.innerHTML = parts.join('');
+    box.innerHTML =
+      DZ.guide('<b>安全治理闭环</b>：登记 → 定级 → 派单 → 接收 → 整改 → 回复 → 复检 → 会签 → 归档。' +
+        '点选下方清单中的任一问题即可进入「处置详情」推进流转。') +
+      '<div id="iss_kpis" class="dz-kpi-row is-compact"></div>' +
+      '<div class="card">' +
+        '<div class="dz-card-head">' +
+          '<h3>问题清单（<span id="iss_list_count">' + list.length + '</span>）</h3>' +
+          '<div class="dz-card-actions">' +
+            '<span class="muted" id="iss_meta"></span>' +
+            '<button id="iss_query" class="ghost" title="重新拉取治理问题数据" aria-label="查询">查询</button>' +
+            '<button id="iss_new" title="手工创建待治理的问题" aria-label="新建待治理问题">新建待治理问题</button>' +
+          '</div>' +
+        '</div>' +
+        '<div id="iss_form"></div>' +
+        filterBar() +
+        '<div id="iss_list"></div>' +
+      '</div>';
 
-    each('#iss_chips .dz-chip', function(c){
-      c.onclick = function(){
-        S.f.status = c.getAttribute('data-st') || '';
-        renderChips();
-        renderSplit();
-      };
-    });
+    bindListPane();
+    renderMeta();
+    renderKpis();
+    renderForm();
+    renderList(list);
   }
 
-  /* ---------------- 左列表 / 右详情 ---------------- */
+  function bindListPane(){
+    var qb = q('#iss_query');
+    if (qb) qb.onclick = function(){ load(true); };
+    var nb = q('#iss_new');
+    if (nb) nb.onclick = function(){
+      S.mode = (S.mode === 'create' ? 'none' : 'create');
+      S.action = null;
+      if (S.mode === 'create') setMsg('');
+      renderForm();
+    };
+    bindFilters();
+  }
+
   function filtered(){
     var all = (S.data && S.data.issues) || [];
     return all.filter(function(it){
@@ -271,8 +308,13 @@
 
   function filterBar(){
     var flow = (S.data && S.data.flow) || [];
-    var stOpts = '<option value="">全部状态</option>' + flow.map(function(x){
-      return '<option value="' + DZ.esc(x.status) + '"' + (S.f.status === x.status ? ' selected' : '') + '>' + DZ.esc(x.label) + '</option>';
+    var sum = (S.data && S.data.summary) || {};
+    var bs = sum.byStatus || {};
+    // 状态分布直接并入下拉选项文案（「全部状态（6）」/「整改中（2）」），
+    // 取代原先独立的一整行状态胶囊，减少一条横向元素、缩短页面篇幅。
+    var stOpts = '<option value="">全部状态（' + DZ.number(sum.total || 0) + '）</option>' + flow.map(function(x){
+      return '<option value="' + DZ.esc(x.status) + '"' + (S.f.status === x.status ? ' selected' : '') + '>' +
+        DZ.esc(x.label) + '（' + DZ.number(bs[x.status] || 0) + '）</option>';
     }).join('');
     var srcOpts = '<option value="">全部来源</option>' + sources().map(function(s){
       return '<option value="' + DZ.esc(s) + '"' + (S.f.source === s ? ' selected' : '') + '>' + DZ.esc(s) + '</option>';
@@ -280,42 +322,49 @@
     var sevOpts = '<option value="">全部严重程度</option>' + severities().map(function(s){
       return '<option value="' + DZ.esc(s.value) + '"' + (S.f.severity === s.value ? ' selected' : '') + '>' + DZ.esc(s.label) + '</option>';
     }).join('');
-    return '<div class="row" style="gap:8px;margin-bottom:10px">' +
-      '<select id="iss_f_status" title="按状态筛选" aria-label="按状态筛选">' + stOpts + '</select>' +
-      '<select id="iss_f_source" title="按来源筛选" aria-label="按来源筛选">' + srcOpts + '</select>' +
-      '<select id="iss_f_sev" title="按严重程度筛选" aria-label="按严重程度筛选">' + sevOpts + '</select>' +
-    '</div>';
+    var dirty = S.f.status || S.f.source || S.f.severity;
+    return DZ.filterBar([
+      { label: '状态', html: '<select id="iss_f_status" title="按状态筛选" aria-label="按状态筛选">' + stOpts + '</select>' },
+      { label: '来源', html: '<select id="iss_f_source" title="按来源筛选" aria-label="按来源筛选">' + srcOpts + '</select>' },
+      { label: '严重程度', html: '<select id="iss_f_sev" title="按严重程度筛选" aria-label="按严重程度筛选">' + sevOpts + '</select>' }
+    ], {
+      aria: '问题清单筛选',
+      end: '<span class="dz-filterbar-note">共 ' + filtered().length + ' 条</span>' +
+        (dirty ? '<button class="ghost" id="iss_f_reset" title="清除全部筛选条件" aria-label="重置筛选">重置</button>' : '')
+    });
   }
 
   function bindFilters(){
     var a = q('#iss_f_status');
-    if (a) a.onchange = function(){ S.f.status = a.value; renderChips(); renderSplit(); };
+    if (a) a.onchange = function(){ S.f.status = a.value; renderList(filtered()); refreshFilterBar(); };
     var b = q('#iss_f_source');
-    if (b) b.onchange = function(){ S.f.source = b.value; renderSplit(); };
+    if (b) b.onchange = function(){ S.f.source = b.value; renderList(filtered()); refreshFilterBar(); };
     var c = q('#iss_f_sev');
-    if (c) c.onchange = function(){ S.f.severity = c.value; renderSplit(); };
+    if (c) c.onchange = function(){ S.f.severity = c.value; renderList(filtered()); refreshFilterBar(); };
+    var r = q('#iss_f_reset');
+    if (r) r.onclick = function(){
+      S.f.status = ''; S.f.source = ''; S.f.severity = '';
+      renderList(filtered()); refreshFilterBar();
+    };
   }
 
-  function renderSplit(){
-    var box = q('#iss_split');
-    if (!box) return;
-    var list = filtered();
-    box.innerHTML = '<div class="dz-split">' +
-      '<div class="dz-side"><div class="dz-sticky"><div class="card">' +
-        '<h3>问题清单（' + list.length + '）</h3>' +
-        filterBar() +
-        '<div id="iss_list"></div>' +
-      '</div></div></div>' +
-      '<div class="dz-main" id="iss_detail"></div>' +
-    '</div>';
+  // 筛选条件变化后原地重刷筛选行（保持焦点不跳屏，避免整页重绘）
+  function refreshFilterBar(){
+    var card = q('#iss_listpane') && q('#iss_listpane').querySelector('.card');
+    if (!card) return;
+    var bar = card.querySelector('.dz-filterbar');
+    if (!bar) return;
+    var tmp = document.createElement('div');
+    tmp.innerHTML = filterBar();
+    bar.parentNode.replaceChild(tmp.firstChild, bar);
     bindFilters();
-    renderList(list);
-    renderDetail();
   }
 
   function renderList(list){
     var box = q('#iss_list');
     if (!box) return;
+    var cnt = q('#iss_list_count');
+    if (cnt) cnt.textContent = list.length;
     if (!list.length){
       box.innerHTML = DZ.empty('当前筛选条件下暂无治理问题');
       return;
@@ -345,42 +394,66 @@
     '</div>';
   }
 
+  // 清单点选 → 自动切到「处置详情」页签
   function selectIssue(id){
     S.sel = id;
     if (!S.detail || S.detail.issueId !== id){ S.detail = null; }
     S.mode = 'none'; S.action = null;
-    renderList(filtered());
-    renderDetail();
+    switchTab('detail');
   }
 
-  async function renderDetail(){
-    var main = q('#iss_detail');
+  /* ---------------- 处置详情 / 复检反馈 页签（共享选中项） ---------------- */
+  function backBar(){
+    return '<div class="dz-actions" style="justify-content:flex-start;margin-bottom:10px">' +
+      '<button class="ghost" id="iss_back_list" title="返回问题清单" aria-label="返回问题清单">返回问题清单</button>' +
+    '</div>';
+  }
+
+  function loadDetailInto(sel, buildHtml){
+    var main = q(sel);
     if (!main) return;
     if (!S.sel){
-      main.innerHTML = DZ.empty('请选择左侧问题查看详情');
+      main.innerHTML = DZ.empty('请先在「问题清单」中选择一个问题查看处置详情');
       return;
     }
     if (S.detail && S.detail.issueId === S.sel){
-      renderDetailHtml();
+      main.innerHTML = buildHtml(S.detail);
+      afterDetailRender(sel);
       return;
     }
     var id = S.sel;
     main.innerHTML = DZ.skeleton(4);
-    var r = await DZ.get(API.detail(id));
-    if (S.sel !== id) return;   // 已切换选中项，丢弃本次结果
-    if (!r || r.error){
-      main.innerHTML = DZ.banner('bad', '问题详情加载失败：' + errMsg(r), function(){ S.detail = null; renderDetail(); });
-      return;
-    }
-    S.detail = r;
-    renderDetailHtml();
+    DZ.get(API.detail(id)).then(function(r){
+      if (S.sel !== id) return;   // 已切换选中项，丢弃本次结果
+      if (!r || r.error){
+        main.innerHTML = DZ.banner('bad', '问题详情加载失败：' + errMsg(r), function(){ S.detail = null; renderPane(); });
+        return;
+      }
+      S.detail = r;
+      main.innerHTML = buildHtml(r);
+      afterDetailRender(sel);
+    });
   }
 
-  function renderDetailHtml(){
-    var main = q('#iss_detail');
-    if (!main || !S.detail) return;
-    var it = S.detail;
+  function afterDetailRender(sel){
+    each(sel + ' [data-act]', function(b){
+      b.onclick = function(){ openAction(b.getAttribute('data-act')); };
+    });
+    var back = q('#iss_back_list');
+    if (back) back.onclick = function(){ switchTab('list'); };
+    renderActionForm();
+  }
 
+  function actButtons(acts, emptyHint){
+    return acts.length ? acts.map(function(a){
+      var nm = actionName(a);
+      return '<button data-act="' + DZ.esc(a) + '" title="' + DZ.esc(nm) + '" aria-label="' + DZ.esc(nm) + '">' +
+        DZ.esc(nm) + '</button>';
+    }).join(' ') : '<span class="muted">' + emptyHint + '</span>';
+  }
+
+  // 处置详情：状态流转 / 流转记录 / 证据与工作证明 / 可执行动作（处置类）
+  function detailBodyHtml(it){
     // 状态机流转条
     var flow = (S.data && S.data.flow) || [];
     var cur = -1;
@@ -415,16 +488,14 @@
               : '<div style="height:8px"></div>');
     }).join('') : '<div class="muted">暂无佐证材料</div>';
 
-    // 可执行动作
-    var acts = it.allowedActions || [];
-    var actBtns = acts.length ? acts.map(function(a){
-      var nm = actionName(a);
-      return '<button data-act="' + DZ.esc(a) + '" title="' + DZ.esc(nm) + '" aria-label="' + DZ.esc(nm) + '">' +
-        DZ.esc(nm) + '</button>';
-    }).join(' ') : '<span class="muted">' +
-      (it.status === 'closed' ? '该问题已确认归档，流程已结束' : '当前状态无可执行动作') + '</span>';
+    // 可执行动作（处置类：不含复检反馈相关动作）
+    var acts = (it.allowedActions || []).filter(function(a){ return !RECHECK_CODES[a]; });
+    var actBtns = actButtons(acts, it.status === 'closed'
+      ? '该问题已确认归档，流程已结束'
+      : '当前无可执行的处置动作，请前往「复检反馈」页签');
 
-    main.innerHTML =
+    return '' +
+      backBar() +
       '<div class="card">' +
         '<h3>' + DZ.esc(it.issueNo) + ' ' + DZ.esc(it.title) + ' ' + statusBadge(it) + '</h3>' +
         metricText('问题来源', it.source) +
@@ -434,7 +505,6 @@
         metricText('责任岗位', it.positionName || '未指定') +
         metricKV('整改期限', slaText(it)) +
         metricText('整改计划', it.plan) +
-        metricText('复检结论', it.recheckResult) +
       '</div>' +
       '<div class="card">' +
         '<h3>状态流转</h3>' +
@@ -454,11 +524,33 @@
         '<div id="iss_action_msg"></div>' +
         '<div id="iss_action_form"></div>' +
       '</div>';
+  }
 
-    each('#iss_detail [data-act]', function(b){
-      b.onclick = function(){ openAction(b.getAttribute('data-act')); };
-    });
-    renderActionForm();
+  // 复检反馈：复检结论 + 复检/核查/归档类动作
+  function recheckBodyHtml(it){
+    var acts = (it.allowedActions || []).filter(function(a){ return RECHECK_CODES[a]; });
+    var actBtns = actButtons(acts, it.status === 'closed'
+      ? '该问题已确认归档，流程已结束'
+      : '当前状态无可执行的复检反馈动作');
+
+    return '' +
+      backBar() +
+      '<div class="card">' +
+        '<h3>' + DZ.esc(it.issueNo) + ' ' + DZ.esc(it.title) + ' ' + statusBadge(it) + '</h3>' +
+        metricText('问题来源', it.source) +
+        metricText('严重程度', it.severityLabel) +
+        metricText('责任部门', it.deptName || '未指定') +
+        metricText('责任岗位', it.positionName || '未指定') +
+        metricKV('整改期限', slaText(it)) +
+        metricText('复检结论', it.recheckResult) +
+      '</div>' +
+      '<div class="card">' +
+        '<h3>复检反馈</h3>' +
+        '<div class="muted" style="margin-bottom:8px">提交复检反馈，并进行人工核查确认与归档（含退回重办分支）。</div>' +
+        '<div class="dz-actions" style="justify-content:flex-start">' + actBtns + '</div>' +
+        '<div id="iss_action_msg"></div>' +
+        '<div id="iss_action_form"></div>' +
+      '</div>';
   }
 
   /* ---------------- 动作表单 ---------------- */
@@ -656,7 +748,6 @@
     S.f.status = '';        // 复位状态筛选，确保新问题可见
     S.detail = null;
     S.sel = r.issueId || null;
-    renderForm();
     DZ.toast('待治理问题已创建（' + (r.issueNo || '') + '）', 'ok');
     await load(true);
   }
