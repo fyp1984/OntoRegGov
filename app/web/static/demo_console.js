@@ -1,6 +1,6 @@
 /* ============================================================
    运行驾驶舱（dsk）—— demo_console.js
-   承载：身份切换 / 全局 KPI / 模块健康与产品红线 / 知识发布现状 /
+   承载：身份切换 / 全局 KPI / 模块健康与运行保障 / 知识发布现状 /
         一键演示（9 幕全流程）/ 跨模块活动流。
    页签：运行总览 ｜ 一键演示 ｜ 活动留痕。
    严格只用 window.DZ.* 公共函数与 dz- / 现有 class；所有颜色圆角走 CSS 变量。
@@ -50,11 +50,11 @@
     fail:['bad','不符合'], supplement:['warn','需补充']
   };
 
-  // 三条产品红线（架构不变量）：只做跳转，不复述实现细节
+  // 运行保障项：只做跳转，不复述实现细节
   const REDLINES = [
-    { no:1, view:'kbdash',   label:'事实源单点',           hint:'平台对知识库只读消费，写入一律经官方 API 投递，不直连底层存储' },
-    { no:2, view:'pipeline', label:'静态优先 + 变更驱动重建', hint:'静态优先渲染，知识变更触发增量重建并整版切换当前版本' },
-    { no:3, view:'dsc',      label:'运行态隔离',           hint:'运行数据写入独立运行库，不回流知识态' }
+    { no:1, view:'kbdash',   label:'知识来源可辨' },
+    { no:2, view:'pipeline', label:'知识变更可追溯' },
+    { no:3, view:'dsc',      label:'运行数据可隔离' }
   ];
 
   // 模块级状态（跨多次进入视图保留）
@@ -70,18 +70,6 @@
   };
 
   function $(id){ return document.getElementById(id); }
-
-  // 取子串首字作为头像文字
-  function initials(name){
-    const s = String(name == null ? '' : name).trim();
-    return s ? s.charAt(0) : '?';
-  }
-
-  function roleShort(roles){
-    if (!roles || !roles.length) { return '无角色'; }
-    const first = ROLE_LABEL[roles[0]] || roles[0];
-    return roles.length > 1 ? (first + ' +' + (roles.length - 1)) : first;
-  }
 
   // 相对时间（后端时间戳为本地无时区 ISO，可直接 Date 解析）
   function relTime(ts){
@@ -137,14 +125,14 @@
       '<div class="dz-toolbar" id="dsk_toolbar" role="toolbar" aria-label="运行驾驶舱工具栏">' + DZ.skeleton(1) + '</div>' +
       '<div class="dz-kpi-row" id="dsk_kpi" aria-label="关键指标">' + DZ.skeleton(2) + '</div>' +
       '<div id="dsk_tabs"></div>' +
-      // 页签一：运行总览（模块健康与产品红线 + 知识发布现状）
+      // 页签一：运行总览（模块健康与运行保障 + 知识发布现状）
       '<div class="dz-pane" data-pane="overview">' +
         '<div class="grid2">' +
-          '<div class="card" id="dsk_modules"><h3>模块健康与产品红线</h3>' + DZ.skeleton(3) + '</div>' +
+          '<div class="card" id="dsk_modules"><h3>模块健康与运行保障</h3>' + DZ.skeleton(3) + '</div>' +
           '<div class="card" id="dsk_publish"><h3>知识发布现状</h3>' + DZ.skeleton(2) + '</div>' +
         '</div>' +
       '</div>' +
-      // 页签二：一键演示（9 幕端到端）
+      // 页签二：一键演示（9 幕全流程）
       '<div class="dz-pane" data-pane="demo" hidden>' +
         '<div class="card" id="dsk_scenario"><h3>一键演示 · 9 幕全流程</h3>' + DZ.skeleton(4) + '</div>' +
       '</div>' +
@@ -168,67 +156,23 @@
     buildTabs();
   }
 
-  // ===================== 顶部工具栏（当前身份 + 演示动作） =====================
+  // ===================== 顶部工具栏（演示动作；身份信息统一收口右上角账户入口） =====================
   function renderToolbar(){
     const el = $('dsk_toolbar');
     if (!el) { return; }
-    const actions = '<button id="dsk_demo_go" title="打开一键演示并逐步执行 9 幕全流程" aria-label="一键演示">一键演示</button>' +
-      '<button class="ghost" id="dsk_reset" title="幂等重播全部合成脱敏演示数据" aria-label="重置演示数据">重置演示数据</button>';
-    if (S.sessionError){
-      el.innerHTML = DZ.banner('bad', '会话信息加载失败：' + S.sessionError, loadSession) + actions;
-      bindToolbar();
-      return;
-    }
-    if (!S.session){
-      el.innerHTML = DZ.skeleton(1) + actions;
-      bindToolbar();
-      return;
-    }
-    const s = S.session;
-    const roles = (s.roles || []).map(function(r){ return DZ.pill(ROLE_LABEL[r] || r); }).join(' ') || '<span class="muted">无角色</span>';
-    const orgTxt = s.org ? (s.org.name + ' · ' + s.org.level) : '未绑定机构';
-    const opts = S.users.map(function(u){
-      const sel = (u.account === s.account) ? ' selected' : '';
-      const dis = (u.status !== 'active') ? ' disabled' : '';
-      const label = u.displayName + '（' + roleShort(u.roles) + ' · ' + (u.orgNodeName || '—') + '）' + (u.status !== 'active' ? '［已停用］' : '');
-      return '<option value="' + DZ.esc(u.account) + '"' + sel + dis + '>' + DZ.esc(label) + '</option>';
-    }).join('');
-
     el.innerHTML =
-      '<span class="dz-avatar lg" title="当前会话：' + DZ.esc(s.displayName + '（' + orgTxt + '）') + '" aria-label="当前会话身份">' + DZ.esc(initials(s.displayName)) + '</span>' +
-      '<span><b>' + DZ.esc(s.displayName || '—') + '</b> <span class="muted" title="账号">' + DZ.esc(s.account || '') + '</span></span>' +
-      '<span class="dz-srcbar" title="角色">' + roles + '</span>' +
-      '<span class="muted" title="机构 / 可见层级">' + DZ.esc(orgTxt) + ' · 可见 ' + DZ.esc(s.levelVisibility || '—') + '</span>' +
-      '<label class="muted" for="dsk_actor" style="margin-left:auto">切换身份</label>' +
-      '<select id="dsk_actor" title="切换演示身份（模拟 SSO 登录）；切换后整页重载，用于演示 L0/L1/L2/L3 权限与可见范围差异" aria-label="切换演示身份">' + opts + '</select>' +
-      actions;
-
+      '<button id="dsk_demo_go" title="打开一键演示并逐步执行 9 幕全流程" aria-label="一键演示">一键演示</button>' +
+      '<button class="ghost" id="dsk_reset" title="幂等重播全部合成脱敏演示数据" aria-label="重置演示数据">重置演示数据</button>';
     bindToolbar();
   }
 
   function bindToolbar(){
-    DZ.on('#dsk_actor', 'change', function(){ switchActor(this.value); });
     DZ.on('#dsk_demo_go', 'click', function(){
       switchTab('demo');
       const box = $('dsk_scenario');
       if (box && typeof box.scrollIntoView === 'function'){ box.scrollIntoView({ block:'nearest' }); }
     });
     DZ.on('#dsk_reset', 'click', doReset);
-  }
-
-  async function switchActor(account){
-    const u = S.users.filter(function(x){ return x.account === account; })[0];
-    if (!u) { return; }
-    if (u.status !== 'active'){ DZ.toast('该账号已停用，无法切换', 'bad'); renderToolbar(); return; }
-    const r = await DZ.post('/api/auth/login', { account: account });
-    if (!r || r.error){
-      DZ.toast('登录失败：' + ((r && r.error && r.error.message) || '未知错误'), 'bad');
-      renderToolbar();
-      return;
-    }
-    DZ.toast('已切换身份：' + ((r.session && r.session.displayName) || account), 'ok');
-    // 切换后整页视图重载，体现权限与可见范围差异
-    setTimeout(function(){ try { location.reload(); } catch(e){ /* 忽略 */ } }, 650);
   }
 
   async function doReset(){
@@ -407,13 +351,13 @@
     DZ.on('#dsk_pub_go', 'click', function(){ goView('pipeline'); });
   }
 
-  // ===================== 模块健康与产品红线 =====================
+  // ===================== 模块健康与运行保障 =====================
   function renderModules(){
     const el = $('dsk_modules');
     if (!el) { return; }
     const o = S.overview;
     if (o && o.error){
-      el.innerHTML = '<h3>模块健康与产品红线</h3>' +
+      el.innerHTML = '<h3>模块健康与运行保障</h3>' +
         DZ.banner('bad', '取数失败：' + (o.error.message || '未知错误'), loadOverview);
       return;
     }
@@ -444,15 +388,15 @@
     }
 
     const rl = REDLINES.map(function(x){
-      return '<div class="dz-metric"><span class="dz-metric-k">红线' + x.no + ' · ' + DZ.esc(x.label) + '</span>' +
-        '<span class="dz-metric-v">' + DZ.badge('ok', '已生效') +
-        ' <button class="ghost" data-view="' + DZ.esc(x.view) + '" title="' + DZ.esc(x.hint) + '" ' +
+      return '<div class="dz-metric"><span class="dz-metric-k">' + DZ.esc(x.label) + '</span>' +
+        '<span class="dz-metric-v">' + DZ.badge('ok', '正常') +
+        ' <button class="ghost" data-view="' + DZ.esc(x.view) + '" ' +
         'aria-label="查看：' + DZ.esc(x.label) + '">查看</button></span></div>';
     }).join('');
 
-    el.innerHTML = '<h3>模块健康与产品红线</h3>' +
+    el.innerHTML = '<h3>模块健康与运行保障</h3>' +
       '<h4>模块健康</h4>' + health + rates +
-      '<h4>产品红线</h4>' + rl;
+      '<h4>运行保障</h4>' + rl;
 
     DZ.on('#dsk_modules button[data-view]', 'click', function(){ goView(this.getAttribute('data-view')); });
   }

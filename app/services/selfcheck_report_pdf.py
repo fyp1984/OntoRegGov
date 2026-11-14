@@ -70,7 +70,7 @@ def build_pdf(run: dict, summary: dict) -> bytes:
             f"证据目录：{_esc(run.get('dir'))}　｜　"
             f"开始：{_esc((run.get('startedAt') or '').replace('T', ' '))}　"
             f"结束：{_esc((run.get('finishedAt') or '').replace('T', ' '))}<br/>"
-            f"检查方式：OpenClaw 智能体（agent: {_esc(run.get('agentId'))}）自动研判　｜　"
+            f"检查方式：合规自查智能体（编号 {_esc(run.get('agentId'))}）自动研判　｜　"
             f"文件总数：{run.get('fileCount', 0)}　｜　报告生成：{datetime.now().strftime('%Y-%m-%d %H:%M')}")
     story.append(Paragraph(meta, st["sub"]))
     story.append(Spacer(1, 8))
@@ -166,7 +166,7 @@ def build_pdf(run: dict, summary: dict) -> bytes:
     # 汇总
     story.append(Paragraph("二、汇总说明", st["h2"]))
     story.append(Paragraph(
-        "本报告由 OpenClaw 合规自查智能体依据所选监管文件的检查清单、检查方法与三档判定要点生成。"
+        "本报告由合规自查智能体依据所选监管文件的检查清单、检查方法与三档判定要点生成。"
         "智能体自主完成证据取证与研判：自行判断相关文件、读取文本与图片（视觉识别）、"
         "调用取证工具逐字抽取 office 文档与音频转写（未经加工），再逐检查项给出结论。"
         "判定口径：任一要素不符合→检查项不符合；存在证据缺失→证据缺失；"

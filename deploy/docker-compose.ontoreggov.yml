@@ -62,7 +62,7 @@ services:
   # ——— 形态二：完整形态（接入本机 OrbStack 既有底座） ———
   ontoreggov-app:
     <<: *app-common
-    image: ontoreggov-app:1.17.0
+    image: ontoreggov-app:1.19.0
     container_name: ontoreggov-app
     profiles: ["full"]
     environment:

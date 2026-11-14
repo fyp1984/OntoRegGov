@@ -201,16 +201,30 @@
     'admin.doc.register':'登记文号','admin.doc.confirm':'确认文号结构','admin.user.status':'启用/停用账号',
     'admin.org.create':'新增组织节点','admin.rule.update':'更新分配规则','admin.audit.export':'导出审计记录',
     'settings.retention.update':'更新数据保存策略','settings.retention.reset':'恢复默认数据保存策略',
-    'scenario.create':'创建场景包','scenario.launch':'启动场景包','plugin.invoke':'插件调用',
+    'scenario.create':'创建场景包','scenario.launch':'启动场景包','scenario.update':'更新场景包',
+    'plugin.invoke':'插件调用','plugin.toggle':'启停插件','plugin.config.save':'保存插件配置',
+    'plugin.install':'插件装载','plugin.uninstall':'卸载插件','plugin.remote.fetch':'从服务端装载插件',
     'diag.assessment.create':'创建诊断批次','diag.answer.save':'保存诊断作答','diag.assessment.submit':'提交现状诊断',
-    'ledger.row.create':'登记对账行','ledger.row.update':'更新对账行','ledger.row.delete':'移除对账行',
+    'diag.upload':'上传诊断输入材料','diag.item.revise':'修订诊断条款判定',
+    'diag.input.upload':'上传诊断输入材料','diag.input.delete':'移除诊断输入材料','diag.generate':'自动生成诊断报告',
+    'ledger.row.create':'登记台账资产','ledger.row.update':'更新台账资产','ledger.row.delete':'移除台账资产',
+    'ledger.kb.upload':'资产入库知识库','ledger.kb.sync':'资产台账同步知识库',
+    'asset.create':'登记资产','asset.update':'更新资产','asset.delete':'移除资产','asset.archive':'归档资产',
+    'asset.kb.upload':'资产入库知识库','asset.kb.update':'资产知识库升版','asset.sync':'资产台账同步知识库',
+    'kb.doc.create':'新建知识文档','kb.doc.publish':'提交知识发布','kb.doc.review':'知识专家审核',
+    'kb.doc.version':'知识文档升版','kb.doc.call':'知识被调用',
+    'admin.menu.perm.save':'保存菜单操作权限','admin.data.scope.save':'保存数据可见范围',
+    'admin.sso.save':'保存单点登录配置','scenario.detail.save':'保存场景包明细',
+    'issue.create':'登记治理问题','issue.triage':'问题定级拆分','issue.dispatch':'下发处置工单',
+    'issue.accept':'接收处置工单','issue.respond':'提交整改回复','issue.recheck':'提交复检反馈',
+    'issue.confirm':'核查确认','issue.close':'归档关闭','issue.reject':'退回重办',
+    'gov.issue.create':'登记治理问题','gov.issue.triage':'问题定级拆分','gov.issue.dispatch':'下发处置工单',
+    'gov.issue.accept':'接收处置工单','gov.issue.start':'启动整改','gov.issue.respond':'提交整改回复',
+    'gov.issue.recheck':'提交复检反馈','gov.issue.confirm':'提交核查确认','gov.issue.close':'确认归档',
+    'gov.issue.reject':'退回重办',
     'issue.disposal.create':'创建处置工单','issue.disposal.assign':'指派处置责任','issue.disposal.advance':'推进处置工单',
     'issue.disposal.close':'关闭处置工单','issue.disposal.delete':'移除处置工单',
-    'frame.case.create':'新建闭合链案件','frame.ring.record':'登记闭合链环节',
-    'arch.module.create':'登记层模块','arch.module.update':'更新层模块','arch.module.delete':'移除层模块',
-    'capability.instance.create':'登记能力实例','capability.instance.update':'更新能力实例','capability.instance.delete':'移除能力实例',
-    'path.gate.check':'判定转段判据','path.stage.advance':'实施阶段转段',
-    'asset.create':'登记留存资产','asset.archive':'归档留存资产','asset.delete':'移除留存资产'
+    'frame.case.create':'新建闭合链案件','frame.ring.record':'登记闭合链环节'
   };
   DZ.actionLabel = function(code){ return ACTION_LABEL[code] || code || '—'; };
   // 反向查：把界面上的中文动作名还原为后端动作码（用于审计筛选）
@@ -278,22 +292,19 @@
   // 视图元信息：所属分组（与左侧菜单分组一致）+ 页面标题。
   // 门楣只承载"当前位置"这一导航信息：不放模块编号，也不放功能介绍文字。
   const VIEW_META = {
+    selfcheck:{group:'自查与报告', title:'合规自查'},
     dsc:      {group:'自查与报告', title:'安全自查'},
     rep:      {group:'自查与报告', title:'报告与看板'},
     diag:     {group:'诊断与治理', title:'现状诊断'},
-    ledger:   {group:'诊断与治理', title:'应用与业务层台账'},
-    issues:   {group:'诊断与治理', title:'逐类问题处置'},
-    rem:      {group:'整改闭环', title:'整改与复检'},
+    ledger:   {group:'诊断与治理', title:'资产台账'},
+    issues:   {group:'诊断与治理', title:'安全治理'},
     kbdash:   {group:'知识底座', title:'知识库'},
     pipeline: {group:'知识底座', title:'知识发布'},
-    ext:      {group:'能力与接入', title:'场景与插件'},
-    capability: {group:'能力与接入', title:'能力域目录'},
+    scenario: {group:'能力与接入', title:'场景包'},
+    plugin:   {group:'能力与接入', title:'工具插件'},
     gov:      {group:'平台与治理', title:'权限与组织'},
     dsk:      {group:'平台与治理', title:'运行驾驶舱'},
-    frame:    {group:'平台与治理', title:'治理框架'},
-    arch:     {group:'平台与治理', title:'平台架构'},
-    path:     {group:'实施与资产', title:'实施路径'},
-    assets:   {group:'实施与资产', title:'留存资产'}
+    frame:    {group:'平台与治理', title:'治理框架'}
   };
   DZ.VIEW_META = VIEW_META;
 
@@ -365,6 +376,189 @@
   } else {
     injectInitialPageHead();
   }
+
+  /* ==========================================================================
+     全局登录用户入口（页眉右上角头像）
+     - 入口常驻页眉右侧：头像 + 昵称 + 所属组织/角色；点击展开账户弹层。
+     - 弹层内容：账号信息 / 所属组织 / 岗位 / 角色 / 数据可见范围 / 功能权限。
+     - 演示态支持切换账号（等价于以该身份登录），切换后回到原视图重载。
+     设计取向：身份与范围信息不再平铺在业务页面里，统一收口到该入口。
+     ========================================================================== */
+  (function(){
+    const S = { session:null, users:[], roles:{}, caps:{}, open:false, loaded:false, busy:false };
+
+    function el(id){ return document.getElementById(id); }
+
+    const SCOPE_TEXT = {
+      L0:'本级及全辖（总行）', L1:'本级及辖内', L2:'本级及下级', L3:'本级（网点）'
+    };
+    const STATUS_TEXT = { active:'启用', disabled:'停用' };
+
+    function initial(name){
+      const s = String(name || '').trim();
+      return s ? s.slice(0, 1) : '—';
+    }
+    function roleLabels(ids){
+      return (ids || []).map(function(r){ return S.roles[r] || r; });
+    }
+    function scopeText(){
+      const s = S.session || {};
+      if (!s.authenticated) return '未登录';
+      if (!s.org) return '未绑定组织（按全量数据可见）';
+      const lv = s.org.level;
+      return (s.org.name || '—') + ' · ' + (SCOPE_TEXT[lv] || '本级');
+    }
+
+    async function loadRefs(){
+      if (Object.keys(S.roles).length) return;
+      const [rl, cp] = await Promise.all([
+        DZ.get('/api/admin/roles', { delay:false }),
+        DZ.get('/api/admin/capabilities', { delay:false })
+      ]);
+      if (rl && rl.roles) rl.roles.forEach(function(r){ S.roles[r.roleId] = r.name; });
+      if (cp && cp.capabilities) cp.capabilities.forEach(function(c){ S.caps[c.key] = c.label; });
+    }
+
+    async function load(){
+      const [sess, us] = await Promise.all([
+        DZ.get('/api/auth/session', { delay:false }),
+        DZ.get('/api/admin/users', { delay:false })
+      ]);
+      if (us && !us.error) S.users = us.users || [];
+      if (sess && !sess.error) S.session = sess;
+      await loadRefs();
+      S.loaded = true;
+      renderTrigger();
+      if (S.open) renderPanel();
+    }
+
+    function renderTrigger(){
+      const s = S.session || {};
+      const av = el('user_avatar'), nm = el('user_trigger_name'), sub = el('user_trigger_sub');
+      if (av) av.textContent = initial(s.displayName || s.account);
+      if (nm) nm.textContent = s.displayName || s.account || '未登录';
+      if (sub){
+        const rl = roleLabels(s.roles);
+        sub.textContent = ((s.org && s.org.name) ? s.org.name : '未绑定组织') +
+          (rl.length ? ' · ' + rl.join('/') : '');
+      }
+    }
+
+    function metric(k, v){
+      return '<div class="dz-metric"><span class="dz-metric-k">' + DZ.esc(k) +
+        '</span><span class="dz-metric-v">' + v + '</span></div>';
+    }
+
+    function renderPanel(){
+      const box = el('user_panel');
+      if (!box) return;
+      const s = S.session || {};
+      if (!S.loaded){
+        box.innerHTML = '<div class="user-panel-body">' + DZ.skeleton(3) + '</div>';
+        return;
+      }
+      const rl = roleLabels(s.roles);
+      const caps = (s.capabilities || []).map(function(c){ return S.caps[c] || c; });
+      const opt = S.users.map(function(u){
+        return '<option value="' + DZ.esc(u.account) + '"' + (u.account === s.account ? ' selected' : '') +
+          (u.status !== 'active' ? ' disabled' : '') + '>' + DZ.esc(u.displayName || u.account) +
+          '（' + DZ.esc(u.account) + '）' + (u.status !== 'active' ? ' · 停用' : '') + '</option>';
+      }).join('');
+      box.innerHTML =
+        '<div class="user-panel-head">' +
+          '<span class="dz-avatar lg">' + DZ.esc(initial(s.displayName || s.account)) + '</span>' +
+          '<div class="user-panel-id">' +
+            '<div class="user-panel-name">' + DZ.esc(s.displayName || s.account || '未登录') + '</div>' +
+            '<div class="muted">账号 ' + DZ.esc(s.account || '—') + '</div>' +
+          '</div>' +
+          DZ.badge(s.status === 'disabled' ? 'unk' : 'ok', STATUS_TEXT[s.status] || (s.authenticated ? '启用' : '未登录')) +
+        '</div>' +
+        '<div class="user-panel-body">' +
+          metric('所属组织', DZ.esc((s.org && s.org.name) || '—') +
+            (s.org && s.org.level ? ' <span class="pill">' + DZ.esc(s.org.level) + '</span>' : '')) +
+          metric('岗位', s.position ? DZ.pill(s.position) : '<span class="muted">—</span>') +
+          metric('角色', rl.length ? rl.map(function(x){ return DZ.pill(x); }).join(' ') : '<span class="muted">—</span>') +
+          metric('数据可见范围', DZ.esc(scopeText())) +
+          '<div class="user-panel-caps">' +
+            '<div class="user-panel-caps-title">功能权限（' + caps.length + '）</div>' +
+            '<div class="user-panel-cap-list">' +
+              (caps.length ? caps.map(function(x){ return '<span class="dz-tag-soft">' + DZ.esc(x) + '</span>'; }).join('')
+                           : '<span class="muted">—</span>') +
+            '</div>' +
+          '</div>' +
+        '</div>' +
+        '<div class="user-panel-foot">' +
+          '<label>切换演示账号</label>' +
+          '<select id="user_switch" title="切换演示账号" aria-label="切换演示账号">' + opt + '</select>' +
+          '<div class="row" style="margin-top:10px">' +
+            '<button class="ghost" id="user_logout" title="退出登录">退出登录</button>' +
+            '<button class="ghost" id="user_close" title="收起">收起</button>' +
+          '</div>' +
+        '</div>';
+      const sw = el('user_switch');
+      if (sw) sw.onchange = function(){ switchAccount(sw.value); };
+      const lo = el('user_logout');
+      if (lo) lo.onclick = logout;
+      const cl = el('user_close');
+      if (cl) cl.onclick = function(){ toggle(false); };
+    }
+
+    async function switchAccount(account){
+      if (S.busy || !account) return;
+      S.busy = true;
+      const r = await DZ.post('/api/auth/login', { account: account });
+      S.busy = false;
+      if (!r || r.error){
+        DZ.toast('切换失败：' + ((r && r.error && r.error.message) || '接口不可达'), 'bad');
+        return;
+      }
+      try { sessionStorage.setItem('dz_view', currentView()); } catch(e){}
+      DZ.toast('已切换为 ' + ((r.session && r.session.displayName) || account), 'ok');
+      setTimeout(function(){ location.reload(); }, 500);
+    }
+
+    async function logout(){
+      await DZ.post('/api/auth/logout', {});
+      try { sessionStorage.removeItem('dz_view'); } catch(e){}
+      location.reload();
+    }
+
+    function currentView(){
+      const a = document.querySelector('#nav a.active');
+      return (a && a.getAttribute('data-v')) || 'kbdash';
+    }
+
+    function toggle(force){
+      const box = el('user_panel'), btn = el('user_trigger');
+      if (!box) return;
+      S.open = (force == null) ? !S.open : !!force;
+      box.classList.toggle('hidden', !S.open);
+      if (btn) btn.setAttribute('aria-expanded', S.open ? 'true' : 'false');
+      if (S.open){ renderPanel(); if (!S.loaded) load(); }
+    }
+
+    DZ.refreshUserMenu = load;
+
+    function bind(){
+      const btn = el('user_trigger');
+      if (btn) btn.onclick = function(e){ e.stopPropagation(); toggle(); };
+      document.addEventListener('click', function(e){
+        if (!S.open) return;
+        const wrap = el('header_user');
+        if (wrap && !wrap.contains(e.target)) toggle(false);
+      });
+      document.addEventListener('keydown', function(e){ if (e.key === 'Escape') toggle(false); });
+      // 切换账号后回到原视图（刷新后恢复）
+      try {
+        const v = sessionStorage.getItem('dz_view');
+        if (v && document.getElementById(v) && typeof window.showView === 'function') window.showView(v);
+      } catch(e){}
+      // 切换视图不打断账户弹层；仅在载入时拉一次身份信息。
+      load();
+    }
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bind);
+    else bind();
+  })();
 
   // ---------- 全局兜底：避免白屏 ----------
   window.addEventListener('error', function(e){

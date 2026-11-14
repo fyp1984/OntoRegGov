@@ -29,8 +29,7 @@
     return '' +
       '<div class="dz-toolbar">' +
         '<button class="ghost" id="frame_newcase" title="新建一个闭合链案件" aria-label="新建闭合链案件">新建闭合链案件</button>' +
-        '<button class="ghost" id="frame_refresh" title="重新拉取治理框架数据" aria-label="刷新治理框架">刷新</button>' +
-        '<span class="muted">闭合链把「问题 → 依据 → 责任 → 控制 → 证据 → 整改验收」串成一条回到下一轮的回路；逐环登记结论与证据。</span>' +
+        '<button class="ghost" id="frame_refresh" title="重新查询治理框架数据" aria-label="查询治理框架数据">查询</button>' +
       '</div>' +
       '<div id="frame_msg"></div>' +
       '<div id="frame_form"></div>' +
@@ -191,8 +190,7 @@
             '<div class="dz-node-title">' + DZ.esc(c.no) + '．' + DZ.esc(c.name) + '</div>' +
             '<div class="dz-mini">' + DZ.esc(c.desc) + '</div>' +
           '</div>';
-      }).join('') + '</div>' +
-      '<div class="muted">每一环都要留下上一环的结果，下一环才接得住；最后一环回到下一轮。</div>';
+      }).join('') + '</div>';
   }
 
   function ringTrail(c, chain) {

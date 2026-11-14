@@ -6,14 +6,28 @@
 <meta name="theme-color" content="#2055D7">
 <title>金融行业数据安全知识库和智能体平台</title>
 <link rel="icon" href="/favicon.png">
-<link rel="stylesheet" href="/styles.css?v=20261107a">
+<link rel="stylesheet" href="/styles.css?v=20261114a">
 <link rel="stylesheet" href="/kb_site.css?v=20261106e">
-<link rel="stylesheet" href="/demo.css?v=20261112g">
+<link rel="stylesheet" href="/demo.css?v=20261114a">
 </head>
 <body>
 <header>
   <div>
     <h1>金融行业数据安全知识库和智能体平台</h1>
+  </div>
+  <div class="header-user" id="header_user">
+    <!-- 右上角登录用户入口：头像 + 昵称；点击展开账户弹层（账号/组织/岗位/角色/权限） -->
+    <button class="user-trigger" id="user_trigger" type="button"
+            aria-haspopup="menu" aria-expanded="false" aria-controls="user_panel"
+            title="账户与权限">
+      <span class="dz-avatar" id="user_avatar">—</span>
+      <span class="user-trigger-text">
+        <b id="user_trigger_name">加载中…</b>
+        <span id="user_trigger_sub" class="muted">—</span>
+      </span>
+      <svg class="user-caret" viewBox="0 0 20 20" aria-hidden="true"><path d="M5 7l5 5 5-5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
+    <div class="user-panel hidden" id="user_panel" role="menu" aria-label="账户与权限"></div>
   </div>
 </header>
 <div class="wrap">
@@ -28,24 +42,18 @@
   <a data-v="rep">报告与看板</a>
   <div class="nav-group">诊断与治理</div>
   <a data-v="diag">现状诊断</a>
-  <a data-v="ledger">应用与业务层台账</a>
-  <a data-v="issues">逐类问题处置</a>
-  <div class="nav-group">整改闭环</div>
-  <a data-v="rem">整改与复检</a>
+  <a data-v="ledger">资产台账</a>
+  <a data-v="issues">安全治理</a>
   <div class="nav-group">知识底座</div>
   <a data-v="kbdash" class="active">知识库</a>
   <a data-v="pipeline">知识发布</a>
   <div class="nav-group">能力与接入</div>
-  <a data-v="ext">场景与插件</a>
-  <a data-v="capability">能力域目录</a>
+  <a data-v="scenario">场景包</a>
+  <a data-v="plugin">工具插件</a>
   <div class="nav-group">平台与治理</div>
   <a data-v="gov">权限与组织</a>
   <a data-v="dsk">运行驾驶舱</a>
   <a data-v="frame">治理框架</a>
-  <a data-v="arch">平台架构</a>
-  <div class="nav-group">实施与资产</div>
-  <a data-v="path">实施路径</a>
-  <a data-v="assets">留存资产</a>
 </nav>
 <button class="nav-open" id="nav_open" onclick="navToggle()" title="展开左侧菜单">»</button>
 <button class="settings-gear" id="settings_gear" onclick="openSettings()" title="设置" aria-label="设置">
@@ -69,9 +77,9 @@
       <div id="kb_meta" class="muted" style="margin:-8px 0 12px"></div>
       <div class="page" id="kb_app"></div>
       <div class="kb-foot">
-        <span class="f-brand">数据安全知识库</span> · <span class="f-brand">中金安服</span> 出品
+        <span class="f-brand">金融行业数据安全知识库和智能体平台</span> 出品
         · 版本 <span class="f-ver" id="kb_ver">—</span>
-        · 内容以 CC BY-SA 4.0 发布
+        · 内容仅用于演示与内部学习交流
         · 知识由知识库平台实时提供
         · 生成于 <span id="kb_genat">—</span>
       </div>
@@ -79,9 +87,9 @@
   </section>
 
   <section id="selfcheck" class="view hidden">
-    <div class="card"><h3>合规自查 · 智能体检查（OpenClaw Agent）</h3>
+    <div class="card"><h3>合规自查 · 智能体检查</h3>
       <p class="muted">选择一份监管合规文件作为检查依据，指定被检查文件目录（本地或共享盘），
-        由后端 OpenClaw 智能体依据该文件全部检查项的检查清单、检查方法与三档判定要点逐项智能研判。</p>
+        由后端智能体依据该文件全部检查项的检查清单、检查方法与三档判定要点逐项智能研判。</p>
       <div class="row">
         <select id="sc_doc" onchange="scLoadTitles()" style="min-width:340px">
           <option value="jg24">金规〔2024〕24号（银行保险数据安全办法）</option>
@@ -136,15 +144,15 @@
       </div>
     </div>
 
-    <div class="card"><h3>LLM 配置（OpenAI 兼容）</h3>
-      <p class="muted">保存后立即生效，无需重启；未配置 API Key 时自动降级为规则抽取。</p>
+    <div class="card"><h3>模型服务配置</h3>
+      <p class="muted">保存后立即生效，无需重启；未配置访问密钥时自动降级为规则抽取。</p>
       <div class="form-narrow">
-        <label>Base URL</label>
-        <input id="llm_base" placeholder="如 https://api.openai.com/v1（本地网关亦可）">
-        <label>API Key</label>
-        <input id="llm_key" type="password" placeholder="已设置的 Key 不回显；留空=保留当前 Key" autocomplete="off">
-        <label>Model</label>
-        <input id="llm_model" placeholder="如 gpt-4o-mini">
+        <label>服务地址</label>
+        <input id="llm_base" placeholder="如 https://网关地址/v1（本地网关亦可）">
+        <label>访问密钥</label>
+        <input id="llm_key" type="password" placeholder="已设置的密钥不回显；留空=保留当前密钥" autocomplete="off">
+        <label>模型</label>
+        <input id="llm_model" placeholder="如 模型名称">
         <div class="row" style="margin-top:12px">
           <button onclick="llmTest()">测试连通</button>
           <button class="ghost" onclick="llmSave()">保存配置</button>
@@ -153,7 +161,7 @@
       </div>
     </div>
 
-    <div class="card"><h3>运行状态</h3>
+    <div class="card"><h3>取数来源状态</h3>
       <div id="src_status" class="muted">加载中…</div>
     </div>
 
@@ -167,10 +175,10 @@
       </div>
     </div>
 
-    <div class="card"><h3>数据刷新</h3>
-      <p class="muted">知识库内容更新后，前端默认 30 秒内自动生效；如需立即拉取最新，请点击刷新。</p>
+    <div class="card"><h3>数据同步</h3>
+      <p class="muted">知识库内容更新后，前端默认 30 秒内自动生效；如需立即拉取最新，请点击查询。</p>
       <div class="row">
-        <button onclick="kbRefreshData()">刷新数据</button>
+        <button onclick="kbRefreshData()">查询最新数据</button>
         <span id="kb_refresh_status" class="muted"></span>
       </div>
     </div>
@@ -179,39 +187,29 @@
   <section id="dsk" class="view hidden"><div id="dsk_root"></div></section>
   <section id="pipeline" class="view hidden"><div id="pipeline_root"></div></section>
   <section id="dsc" class="view hidden"><div id="dsc_root"></div></section>
-  <section id="rem" class="view hidden"><div id="rem_root"></div></section>
   <section id="rep" class="view hidden"><div id="rep_root"></div></section>
   <section id="diag" class="view hidden"><div id="diag_root"></div></section>
   <section id="ledger" class="view hidden"><div id="ledger_root"></div></section>
   <section id="issues" class="view hidden"><div id="issues_root"></div></section>
   <section id="gov" class="view hidden"><div id="gov_root"></div></section>
-  <section id="ext" class="view hidden"><div id="ext_root"></div></section>
+  <section id="scenario" class="view hidden"><div id="scenario_root"></div></section>
+  <section id="plugin" class="view hidden"><div id="plugin_root"></div></section>
   <section id="frame" class="view hidden"><div id="frame_root"></div></section>
-  <section id="arch" class="view hidden"><div id="arch_root"></div></section>
-  <section id="capability" class="view hidden"><div id="capability_root"></div></section>
-  <section id="path" class="view hidden"><div id="path_root"></div></section>
-  <section id="assets" class="view hidden"><div id="assets_root"></div></section>
 </main>
 </div>
 <script src="/kb_site.js?v=20261113g"></script>
-<script src="/app.js?v=20261113h"></script>
-<script src="/demo_common.js?v=20261113e"></script>
-<script src="/app.js?v=20261112c"></script>
-<script src="/demo_common.js?v=20261113f"></script>
+<script src="/app.js?v=20261114a"></script>
+<script src="/demo_common.js?v=20261114a"></script>
 <script src="/demo_console.js?v=20261112i"></script>
-<script src="/demo_pipeline.js?v=20261112k"></script>
-<script src="/demo_selfcheck.js?v=20261112j"></script>
-<script src="/demo_governance.js?v=20261112h"></script>
-<script src="/demo_reports.js?v=20261113e"></script>
-<script src="/demo_admin.js?v=20261112k"></script>
-<script src="/demo_ext.js?v=20261112k"></script>
-<script src="/demo_diag.js?v=20261113f"></script>
-<script src="/demo_ledger.js?v=20261113f"></script>
-<script src="/demo_issues.js?v=20261113f"></script>
+<script src="/demo_pipeline.js?v=20261114a"></script>
+<script src="/demo_selfcheck.js?v=20261114a"></script>
+<script src="/demo_reports.js?v=20261114a"></script>
+<script src="/demo_admin.js?v=20261114a"></script>
+<script src="/demo_scenario.js?v=20261114a"></script>
+<script src="/demo_plugin.js?v=20261114a"></script>
+<script src="/demo_diag.js?v=20261114a"></script>
+<script src="/demo_ledger.js?v=20261114a"></script>
+<script src="/demo_issues.js?v=20261114a"></script>
 <script src="/demo_frame.js?v=20261113b"></script>
-<script src="/demo_arch.js?v=20261113b"></script>
-<script src="/demo_capability.js?v=20261113c"></script>
-<script src="/demo_path.js?v=20261113d"></script>
-<script src="/demo_assets.js?v=20261113e"></script>
 </body>
 </html>

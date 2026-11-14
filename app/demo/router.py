@@ -302,11 +302,11 @@ def demo_reset():
 
 SCENARIO_STEPS = [
     {"step": 0, "title": "知识取数：实时知识库优先 + 多源降级",
-     "desc": "展示取数来源与知识问答的统一信封（实时知识库 → 权威正本图 → 结构化投影 → 运行台账 逐级回落）"},
+     "desc": "展示取数来源与知识问答的统一结果"},
     {"step": 1, "title": "知识发布：变更感知 → 增量重建 → 质量校验 → 整版发布",
      "desc": "发起一次增量重建，观察分阶段推进与版本目录切换"},
     {"step": 2, "title": "行业建档：行业档案与行业化清单",
-     "desc": "按行业/条线取清单模板（含 snapshotVersion + 六维摘要）"},
+     "desc": "按行业/条线取清单模板（含清单版本与六维摘要）"},
     {"step": 3, "title": "自查任务：下发与单项登记",
      "desc": "创建任务，登记四录入项（制度/证据/实际值/备注）"},
     {"step": 4, "title": "责任分配：预览 → 覆盖 → 下发",
@@ -316,7 +316,7 @@ SCENARIO_STEPS = [
     {"step": 6, "title": "判定与报告：三色判定 + 计分依据 + 报告导出",
      "desc": "按最差项聚合出结论，导出行业版报告"},
     {"step": 7, "title": "整改与复检：问题整改 → 复跑同一检查项 → 前后对比",
-     "desc": "登记整改并复检，导出复检前后对比（对应 PRD §2.7 走查幕7）"},
+     "desc": "登记整改并复检，导出复检前后对比"},
     {"step": 8, "title": "回流审核：缺口提案 + 人工确认",
      "desc": "提案审核（审核人 ≠ 提出人）+ 人工确认决策"},
 ]
@@ -792,6 +792,30 @@ def selfcheck_industries():
                     "docFocus": _jloads(r["doc_focus_json"], {}).get("docFocus", []),
                     "reportTemplate": r["report_template"]})
     return {"industries": out}
+
+
+@router.post("/selfcheck/industries")
+def selfcheck_industry_create(body: dict = Body(default=None)):
+    body = body or {}
+    industry = (body.get("industry") or "").strip()
+    name = (body.get("name") or "").strip()
+    if not industry or not name:
+        return _err("VALIDATION_FAILED", "行业代码与行业名称必填", 422)
+    if store.q1("SELECT profile_id FROM industry_profile WHERE industry=?", (industry,)):
+        return _err("VALIDATION_FAILED", f"行业代码「{industry}」已存在，请更换", 422)
+    pid = "ip-live-" + uuid.uuid4().hex[:6]
+    lines = [x for x in (body.get("lines") or []) if isinstance(x, dict) and x.get("code")]
+    store.insert("industry_profile", {
+        "profile_id": pid, "industry": industry, "name": name,
+        "org_types_json": json.dumps(body.get("orgTypes") or [], ensure_ascii=False),
+        "lines_json": json.dumps({"lines": lines}, ensure_ascii=False),
+        "sensitive_types_json": json.dumps({"sensitiveTypes": body.get("sensitiveTypes") or []},
+                                           ensure_ascii=False),
+        "doc_focus_json": json.dumps({"docFocus": body.get("docFocus") or []}, ensure_ascii=False),
+        "report_template": body.get("reportTemplate") or "标准自查报告模板"})
+    _audit(_current_account(), "selfcheck.industry.create", pid,
+           {"industry": industry, "name": name, "lines": len(lines)})
+    return {"profileId": pid, "industry": industry, "name": name, "lineCount": len(lines)}
 
 
 @router.get("/selfcheck/templates")
@@ -2029,8 +2053,6 @@ def plugin_invocations(limit: int = 50):
 _RESULT_LABEL = {"aligned": "已对上", "partial": "部分对上", "missing": "未对上"}
 _LEDGER_RESULTS = ["aligned", "partial", "missing"]
 _LEDGER_LEVELS = ["敏感", "重要", "内部"]
-_ASSET_CATEGORIES = ["台账", "自查报告", "方法与模板", "已确认结果"]
-_ASSET_ACTIVE, _ASSET_ARCHIVED = "在册", "已归档"
 _ISSUE_FLOW = ["open", "assigned", "in_progress", "recheck", "closed"]
 _ISSUE_LABEL = {"open": "待处理", "assigned": "已指派", "in_progress": "整改中",
                 "recheck": "待复检", "closed": "已关闭"}
@@ -2374,15 +2396,12 @@ def issue_disposal_delete(disposal_id: str):
 
 
 # ===========================================================================
-# 5.13 三层治理框架（闭合链）/ 知识底座五层架构（层模块接入登记）
+# 5.13 三层治理框架（闭合链）
 # ---------------------------------------------------------------------------
-# 第八轮扩展（差距对照表 §8 附十）：由静态只读升级为可写作业。
-# 读来自 DB（frame_chain_case / frame_ring_record / arch_module），写落库并留审计；
+# 读来自 DB（frame_chain_case / frame_ring_record），写落库并留审计；
 # 校验失败统一返回 VALIDATION_FAILED。口径：合成脱敏、全代号化；无机构真名、
 # 无绝对路径、无条目数承诺、无厂商与产品名称。
 # ===========================================================================
-_ARCH_ACCESS_MODES = list(seed.CAPABILITY_ACCESS_MODES)
-_ARCH_STATUS_LABEL = {"active": "已接入", "suspended": "已停用"}
 _CASE_STATUS_LABEL = {"in_progress": "推进中", "closed": "已闭环"}
 
 
@@ -2402,14 +2421,6 @@ def _owner_name(acc: str) -> str:
     """账号 → 展示名（缺失回退账号）。"""
     row = store.q1("SELECT display_name FROM user_account WHERE account=?", (acc,))
     return row["display_name"] if row else (acc or "")
-
-
-def _arch_module(r: dict) -> dict:
-    return {"moduleId": r["module_id"], "layerNo": r["layer_no"], "layerName": r["layer_name"],
-            "name": r["name"], "accessMode": r["access_mode"],
-            "boundCapability": r["bound_capability"] or "", "status": r["status"],
-            "statusLabel": _ARCH_STATUS_LABEL.get(r["status"], r["status"]),
-            "owner": _owner_name(r["owner"]), "createdAt": r["created_at"]}
 
 
 @router.get("/governance/frame")
@@ -2487,368 +2498,1366 @@ def frame_ring_record(case_id: str, body: dict = Body(default=None)):
             "closed": ring_no >= len(chain)}
 
 
-@router.get("/architecture/layers")
-def architecture_layers():
-    layers = seed.ARCH_LAYERS
-    rows = store.q("SELECT * FROM arch_module ORDER BY layer_no, module_id")
-    modules = [_arch_module(r) for r in rows]
-    bound = len([m for m in modules if m["boundCapability"]])
-    return {"layers": layers, "modules": modules, "accessModes": _ARCH_ACCESS_MODES,
-            "summary": {"layers": len(layers), "modules": len(modules), "bound": bound},
-            "fetchedAt": _now()}
-
-
-@router.post("/architecture/modules")
-def arch_module_create(body: dict = Body(default=None)):
-    body = body or {}
-    layer_no = body.get("layerNo")
-    name = (body.get("name") or "").strip()
-    access_mode = (body.get("accessMode") or "").strip()
-    layer = next((L for L in seed.ARCH_LAYERS if L["no"] == layer_no), None)
-    if layer is None:
-        return _err("VALIDATION_FAILED", "所属层级不存在", 422)
-    if not name:
-        return _err("VALIDATION_FAILED", "模块名称必填", 422)
-    if access_mode not in _ARCH_ACCESS_MODES:
-        return _err("VALIDATION_FAILED",
-                    "接入方式须为：" + " / ".join(_ARCH_ACCESS_MODES), 422)
-    dup = store.q1("SELECT module_id FROM arch_module WHERE layer_no=? AND name=?",
-                   (layer_no, name))
-    if dup:
-        return _err("VALIDATION_FAILED", f"「{layer['name']}」下已存在同名模块", 422)
-    actor = _actor(body)
-    mid = "am-" + uuid.uuid4().hex[:8]
-    store.insert("arch_module", {
-        "module_id": mid, "layer_no": layer_no, "layer_name": layer["name"], "name": name,
-        "access_mode": access_mode, "bound_capability": (body.get("boundCapability") or "").strip(),
-        "status": "active", "owner": actor, "created_by": actor,
-        "created_at": _now(), "updated_at": _now()})
-    _audit(actor, "arch.module.create", mid, {"layerNo": layer_no, "accessMode": access_mode})
-    return {"ok": True, "moduleId": mid}
-
-
-@router.patch("/architecture/modules/{module_id}")
-def arch_module_update(module_id: str, body: dict = Body(default=None)):
-    body = body or {}
-    r = store.q1("SELECT * FROM arch_module WHERE module_id=?", (module_id,))
-    if not r:
-        return _err("NOT_FOUND", "模块不存在", 404)
-    sets, args = [], []
-    if "accessMode" in body:
-        am = (body.get("accessMode") or "").strip()
-        if am not in _ARCH_ACCESS_MODES:
-            return _err("VALIDATION_FAILED",
-                        "接入方式须为：" + " / ".join(_ARCH_ACCESS_MODES), 422)
-        sets.append("access_mode=?"); args.append(am)
-    if "boundCapability" in body:
-        sets.append("bound_capability=?"); args.append((body.get("boundCapability") or "").strip())
-    if "status" in body:
-        st = body.get("status")
-        if st not in _ARCH_STATUS_LABEL:
-            return _err("VALIDATION_FAILED", "状态取值非法", 422)
-        sets.append("status=?"); args.append(st)
-    if not sets:
-        return _err("VALIDATION_FAILED", "未提供可更新字段", 422)
-    sets.append("updated_at=?"); args.append(_now()); args.append(module_id)
-    store.x(f"UPDATE arch_module SET {', '.join(sets)} WHERE module_id=?", tuple(args))
-    _audit(_actor(body), "arch.module.update", module_id, {k: body[k] for k in body if k != "actor"})
-    return {"ok": True, "moduleId": module_id}
-
-
-@router.delete("/architecture/modules/{module_id}")
-def arch_module_delete(module_id: str):
-    r = store.q1("SELECT module_id FROM arch_module WHERE module_id=?", (module_id,))
-    if not r:
-        return _err("NOT_FOUND", "模块不存在", 404)
-    store.x("DELETE FROM arch_module WHERE module_id=?", (module_id,))
-    _audit(_current_account(), "arch.module.delete", module_id, {})
-    return {"ok": True, "moduleId": module_id}
-
-
 # ===========================================================================
-# 5.14 十四能力域目录（能力接入登记）
+# 报告脱敏样例（只读）
 # ---------------------------------------------------------------------------
-# 第八轮扩展：能力域目录读自 seed（方法论口径），能力实例读自 DB 并可登记 /
-# 停用 / 移除；写落库并留审计，校验失败返回 VALIDATION_FAILED。
+# 静态只读演示数据，来自 seed 常量。口径：合成脱敏、全代号化；无机构真名、
+# 无绝对路径、无条目数承诺、无厂商与产品名称。
 # ===========================================================================
-_CAP_KINDS = ["分类分级", "敏感数据识别", "脱敏", "水印溯源", "接口与日志监测",
-              "加密与密钥", "导出管控", "防泄漏"]
-_CAP_STATUS_LABEL = {"active": "已接入", "suspended": "已停用"}
-
-
-def _cap_instance(r: dict) -> dict:
-    return {"instanceId": r["instance_id"], "domainNo": r["domain_no"],
-            "domainName": r["domain_name"], "name": r["name"], "kind": r["kind"],
-            "input": r["input_desc"], "output": r["output_desc"], "status": r["status"],
-            "statusLabel": _CAP_STATUS_LABEL.get(r["status"], r["status"]),
-            "owner": _owner_name(r["owner"]), "createdAt": r["created_at"]}
-
-
-@router.get("/capabilities")
-def capabilities_domains():
-    rows = store.q("SELECT * FROM capability_instance ORDER BY domain_no, instance_id")
-    insts = [_cap_instance(r) for r in rows]
-    by_dom: dict = {}
-    for it in insts:
-        by_dom.setdefault(it["domainNo"], []).append(it)
-    items = []
-    for d in seed.CAPABILITY_DOMAINS:
-        mine = by_dom.get(d["no"], [])
-        active = [x for x in mine if x["status"] == "active"]
-        items.append({**d, "instances": mine,
-                      "status": "ready" if active else "planned",
-                      "instanceCount": len(mine), "activeCount": len(active)})
-    ready = len([x for x in items if x["status"] == "ready"])
-    return {"capabilities": items, "kinds": _CAP_KINDS, "accessModes": _ARCH_ACCESS_MODES,
-            "summary": {"total": len(items), "ready": ready, "planned": len(items) - ready,
-                        "instances": len(insts),
-                        "active": len([x for x in insts if x["status"] == "active"])},
-            "fetchedAt": _now()}
-
-
-@router.post("/capabilities/instances")
-def capability_instance_create(body: dict = Body(default=None)):
-    body = body or {}
-    dom = next((d for d in seed.CAPABILITY_DOMAINS if d["no"] == body.get("domainNo")), None)
-    if dom is None:
-        return _err("VALIDATION_FAILED", "所属能力域不存在", 422)
-    name = (body.get("name") or "").strip()
-    kind = (body.get("kind") or "").strip()
-    input_desc = (body.get("input") or "").strip()
-    output_desc = (body.get("output") or "").strip()
-    if not name:
-        return _err("VALIDATION_FAILED", "能力实例名称必填", 422)
-    if kind not in _CAP_KINDS:
-        return _err("VALIDATION_FAILED", "能力类别须为：" + " / ".join(_CAP_KINDS), 422)
-    if not input_desc:
-        return _err("VALIDATION_FAILED", "输入项（调用入参）必填", 422)
-    if not output_desc:
-        return _err("VALIDATION_FAILED", "输出项（返回结果）必填", 422)
-    dup = store.q1("SELECT instance_id FROM capability_instance WHERE domain_no=? AND name=?",
-                   (dom["no"], name))
-    if dup:
-        return _err("VALIDATION_FAILED", f"「{dom['name']}」下已存在同名能力实例", 422)
-    actor = _actor(body)
-    iid = "cap-" + uuid.uuid4().hex[:8]
-    store.insert("capability_instance", {
-        "instance_id": iid, "domain_no": dom["no"], "domain_name": dom["name"], "name": name,
-        "kind": kind, "input_desc": input_desc, "output_desc": output_desc,
-        "status": "active", "owner": actor, "created_by": actor,
-        "created_at": _now(), "updated_at": _now()})
-    _audit(actor, "capability.instance.create", iid, {"domainNo": dom["no"], "kind": kind})
-    return {"ok": True, "instanceId": iid}
-
-
-@router.patch("/capabilities/instances/{instance_id}")
-def capability_instance_update(instance_id: str, body: dict = Body(default=None)):
-    body = body or {}
-    r = store.q1("SELECT * FROM capability_instance WHERE instance_id=?", (instance_id,))
-    if not r:
-        return _err("NOT_FOUND", "能力实例不存在", 404)
-    sets, args = [], []
-    if "status" in body:
-        st = body.get("status")
-        if st not in _CAP_STATUS_LABEL:
-            return _err("VALIDATION_FAILED", "状态取值非法", 422)
-        sets.append("status=?"); args.append(st)
-    if "input" in body:
-        v = (body.get("input") or "").strip()
-        if not v:
-            return _err("VALIDATION_FAILED", "输入项（调用入参）必填", 422)
-        sets.append("input_desc=?"); args.append(v)
-    if "output" in body:
-        v = (body.get("output") or "").strip()
-        if not v:
-            return _err("VALIDATION_FAILED", "输出项（返回结果）必填", 422)
-        sets.append("output_desc=?"); args.append(v)
-    if not sets:
-        return _err("VALIDATION_FAILED", "未提供可更新字段", 422)
-    sets.append("updated_at=?"); args.append(_now()); args.append(instance_id)
-    store.x(f"UPDATE capability_instance SET {', '.join(sets)} WHERE instance_id=?", tuple(args))
-    _audit(_actor(body), "capability.instance.update", instance_id,
-           {k: body[k] for k in body if k != "actor"})
-    return {"ok": True, "instanceId": instance_id}
-
-
-@router.delete("/capabilities/instances/{instance_id}")
-def capability_instance_delete(instance_id: str):
-    r = store.q1("SELECT instance_id FROM capability_instance WHERE instance_id=?", (instance_id,))
-    if not r:
-        return _err("NOT_FOUND", "能力实例不存在", 404)
-    store.x("DELETE FROM capability_instance WHERE instance_id=?", (instance_id,))
-    _audit(_current_account(), "capability.instance.delete", instance_id, {})
-    return {"ok": True, "instanceId": instance_id}
-
-
-# ===========================================================================
-# 5.15 实施路径（四阶段 × 六列 · 转段判定）
-# ---------------------------------------------------------------------------
-# 第八轮扩展：阶段状态与转段判据读自 DB（path_stage_state / path_gate_item），
-# 支持「勾选判据」与「转段」；转段前置为当前阶段判据全部判定通过。
-# ===========================================================================
-_STAGE_ORDER = [s["stage"] for s in seed.IMPLEMENTATION_PATH]
-_STAGE_STATUS_LABEL = {"pending": "未开始", "in_progress": "进行中", "done": "已完成"}
-
-
-def _gate_rec(r: dict) -> dict:
-    return {"itemId": r["item_id"], "stage": r["stage"], "seq": r["seq"], "text": r["text"],
-            "checked": bool(r["checked"]), "checkedBy": _owner_name(r["checked_by"]) if r["checked_by"] else "",
-            "checkedAt": r["checked_at"]}
-
-
-@router.get("/implementation/path")
-def implementation_path():
-    states = {s["stage"]: s for s in store.q("SELECT * FROM path_stage_state")}
-    gates = store.q("SELECT * FROM path_gate_item ORDER BY stage, seq")
-    g_by_stage: dict = {}
-    for g in gates:
-        g_by_stage.setdefault(g["stage"], []).append(_gate_rec(g))
-    stages = []
-    for s in seed.IMPLEMENTATION_PATH:
-        st = s["stage"]
-        row = states.get(st, {})
-        items = g_by_stage.get(st, [])
-        done_n = len([x for x in items if x["checked"]])
-        status = row.get("status", "pending")
-        stages.append({**s, "status": status,
-                       "statusLabel": _STAGE_STATUS_LABEL.get(status, status),
-                       "startedAt": row.get("started_at"), "finishedAt": row.get("finished_at"),
-                       "gateItems": items, "gateTotal": len(items), "gateDone": done_n,
-                       "canAdvance": status == "in_progress" and len(items) > 0 and done_n == len(items)})
-    statuses = [{"stage": s["stage"], "status": s["status"], "statusLabel": s["statusLabel"]}
-                for s in stages]
-    return {"stages": stages, "stageStatus": statuses,
-            "summary": {"stages": len(stages),
-                        "done": len([x for x in stages if x["status"] == "done"]),
-                        "inProgress": len([x for x in stages if x["status"] == "in_progress"]),
-                        "gates": len(gates),
-                        "gatesChecked": len([x for x in gates if x["checked"]])},
-            "fetchedAt": _now()}
-
-
-@router.post("/implementation/path/gates/{item_id}/check")
-def path_gate_check(item_id: str, body: dict = Body(default=None)):
-    body = body or {}
-    r = store.q1("SELECT * FROM path_gate_item WHERE item_id=?", (item_id,))
-    if not r:
-        return _err("NOT_FOUND", "转段判据不存在", 404)
-    st = store.q1("SELECT status FROM path_stage_state WHERE stage=?", (r["stage"],))
-    if not st or st["status"] != "in_progress":
-        return _err("VALIDATION_FAILED", "仅「进行中」阶段可判定转段判据", 422)
-    checked = 1 if body.get("checked", True) else 0
-    actor = _actor(body)
-    store.x("UPDATE path_gate_item SET checked=?, checked_by=?, checked_at=? WHERE item_id=?",
-            (checked, actor if checked else None, _now() if checked else None, item_id))
-    _audit(actor, "path.gate.check", item_id, {"stage": r["stage"], "checked": bool(checked)})
-    return {"ok": True, "itemId": item_id, "checked": bool(checked)}
-
-
-@router.post("/implementation/path/stages/{stage}/advance")
-def path_stage_advance(stage: str, body: dict = Body(default=None)):
-    if stage not in _STAGE_ORDER:
-        return _err("VALIDATION_FAILED", "阶段不存在", 422)
-    cur = store.q1("SELECT * FROM path_stage_state WHERE stage=?", (stage,))
-    if not cur:
-        return _err("NOT_FOUND", "阶段状态不存在", 404)
-    if cur["status"] != "in_progress":
-        return _err("VALIDATION_FAILED", "仅「进行中」阶段可转段", 422)
-    items = store.q("SELECT * FROM path_gate_item WHERE stage=? ORDER BY seq", (stage,))
-    un = [x["text"] for x in items if not x["checked"]]
-    if un:
-        return _err("VALIDATION_FAILED", f"转段判据未全部通过，还剩 {len(un)} 项未判定", 422,
-                    {"missing": un[:6]})
-    actor = _actor(body)
-    store.x("UPDATE path_stage_state SET status='done', finished_at=?, updated_by=?, "
-            "updated_at=? WHERE stage=?", (_now(), actor, _now(), stage))
-    idx = _STAGE_ORDER.index(stage)
-    nxt = _STAGE_ORDER[idx + 1] if idx + 1 < len(_STAGE_ORDER) else None
-    if nxt:
-        store.x("UPDATE path_stage_state SET status='in_progress', started_at=?, updated_by=?, "
-                "updated_at=? WHERE stage=? AND status='pending'",
-                (_now(), actor, _now(), nxt))
-    _audit(actor, "path.stage.advance", stage, {"next": nxt or ""})
-    return {"ok": True, "stage": stage, "nextStage": nxt, "allDone": nxt is None}
-
-
-# ===========================================================================
-# 5.16 留存资产（登记 / 归档）与报告脱敏样例（只读）
-# ---------------------------------------------------------------------------
-# 第八轮扩展：留存资产读自 DB（retained_asset_record），支持登记、归档与移除；
-# 报告样例保持只读。写落库并留审计，校验失败返回 VALIDATION_FAILED。
-# ===========================================================================
-_ASSET_STATUS_LABEL = {"在册": "在册", "已归档": "已归档"}
-
-
-def _asset_rec(r: dict) -> dict:
-    return {"assetId": r["asset_id"], "name": r["name"], "category": r["category"],
-            "sourceStage": r["source_stage"], "ref": r["ref"] or "", "status": r["status"],
-            "statusLabel": _ASSET_STATUS_LABEL.get(r["status"], r["status"]),
-            "owner": _owner_name(r["owner"]), "createdAt": r["created_at"],
-            "archivedAt": r["archived_at"]}
-
-
-@router.get("/assets")
-def retained_assets():
-    rows = store.q("SELECT * FROM retained_asset_record ORDER BY created_at, asset_id")
-    items = [_asset_rec(r) for r in rows]
-    stage_names = ["现状诊断", "首轮自查", "逐轮交付", "每轮复核后"]
-    return {"assets": items, "categories": _ASSET_CATEGORIES, "sourceStages": stage_names,
-            "summary": {"total": len(items),
-                        "active": len([x for x in items if x["status"] == _ASSET_ACTIVE]),
-                        "archived": len([x for x in items if x["status"] == _ASSET_ARCHIVED])},
-            "fetchedAt": _now()}
-
-
-@router.post("/assets")
-def asset_create(body: dict = Body(default=None)):
-    body = body or {}
-    name = (body.get("name") or "").strip()
-    category = (body.get("category") or "").strip()
-    if not name:
-        return _err("VALIDATION_FAILED", "资产名称必填", 422)
-    if category not in _ASSET_CATEGORIES:
-        return _err("VALIDATION_FAILED", "资产类别须为：" + " / ".join(_ASSET_CATEGORIES), 422)
-    dup = store.q1("SELECT asset_id FROM retained_asset_record WHERE name=? AND status=?",
-                   (name, _ASSET_ACTIVE))
-    if dup:
-        return _err("VALIDATION_FAILED", f"在册资产中已存在同名「{name}」", 422)
-    actor = _actor(body)
-    aid = "asset-" + uuid.uuid4().hex[:8]
-    store.insert("retained_asset_record", {
-        "asset_id": aid, "name": name, "category": category,
-        "source_stage": (body.get("sourceStage") or "").strip(),
-        "ref": (body.get("ref") or "").strip(), "status": _ASSET_ACTIVE, "owner": actor,
-        "created_by": actor, "created_at": _now(), "archived_at": None, "updated_at": _now()})
-    _audit(actor, "asset.create", aid, {"category": category})
-    return {"ok": True, "assetId": aid}
-
-
-@router.post("/assets/{asset_id}/archive")
-def asset_archive(asset_id: str, body: dict = Body(default=None)):
-    r = store.q1("SELECT * FROM retained_asset_record WHERE asset_id=?", (asset_id,))
-    if not r:
-        return _err("NOT_FOUND", "留存资产不存在", 404)
-    if r["status"] == _ASSET_ARCHIVED:
-        return _err("VALIDATION_FAILED", "该资产已归档", 422)
-    actor = _actor(body or {})
-    store.x("UPDATE retained_asset_record SET status=?, archived_at=?, updated_at=? "
-            "WHERE asset_id=?", (_ASSET_ARCHIVED, _now(), _now(), asset_id))
-    _audit(actor, "asset.archive", asset_id, {"status": _ASSET_ARCHIVED})
-    return {"ok": True, "assetId": asset_id, "status": _ASSET_ARCHIVED}
-
-
-@router.delete("/assets/{asset_id}")
-def asset_delete(asset_id: str):
-    r = store.q1("SELECT asset_id FROM retained_asset_record WHERE asset_id=?", (asset_id,))
-    if not r:
-        return _err("NOT_FOUND", "留存资产不存在", 404)
-    store.x("DELETE FROM retained_asset_record WHERE asset_id=?", (asset_id,))
-    _audit(_current_account(), "asset.delete", asset_id, {})
-    return {"ok": True, "assetId": asset_id}
-
-
 @router.get("/report/sample")
 def report_sample():
     sample = seed.REPORT_SAMPLE
     return {"header": sample.get("header", {}), "five": sample.get("five", {}),
             "fetchedAt": _now()}
+
+
+# ===========================================================================
+# 5.14 安全治理闭环（多角色 / 多部门 / 多岗位 十态工作流）
+# ---------------------------------------------------------------------------
+# 闭环：登记 → 定级 → 派单 → 接收 → 整改 → 回复（佐证） → 复检 → 核查确认 → 归档。
+# 一次动作一个状态迁移，全部落库并写审计；归档时把整改结论回写知识库与资产台账。
+# 口径：合成脱敏、全代号化；校验失败统一 VALIDATION_FAILED，越权统一 FORBIDDEN。
+# ===========================================================================
+GOV_FLOW = ["open", "triaged", "dispatched", "accepted", "remediating",
+            "responded", "rechecking", "pending_confirm", "closed"]
+GOV_LABEL = {"open": "待定级", "triaged": "已定级", "dispatched": "已下发工单",
+             "accepted": "已接收", "remediating": "整改中", "responded": "已提交佐证",
+             "rechecking": "复检中", "pending_confirm": "待核查确认", "closed": "已确认归档"}
+GOV_ACTION_NAME = {"triage": "定级拆分", "dispatch": "下发处置工单", "accept": "接收工单",
+                   "start": "启动整改", "respond": "提交整改回复", "recheck": "提交复检反馈",
+                   "confirm": "提交核查确认", "close": "确认归档", "reject": "退回重办"}
+GOV_ACTION = {"triage": ("open", "triaged"), "dispatch": ("triaged", "dispatched"),
+              "accept": ("dispatched", "accepted"), "start": ("accepted", "remediating"),
+              "respond": ("remediating", "responded"), "recheck": ("responded", "rechecking"),
+              "confirm": ("rechecking", "pending_confirm"), "close": ("pending_confirm", "closed"),
+              "reject": ("rechecking", "remediating")}
+GOV_ACTION_ROLE = {"triage": ["sys_admin", "l0_lead"], "dispatch": ["sys_admin", "l0_lead"],
+                   "accept": ["l1_handle", "l2_handle", "l3_exec", "manager", "kb_ops"],
+                   "start": ["l1_handle", "l2_handle", "l3_exec", "manager", "kb_ops"],
+                   "respond": ["l1_handle", "l2_handle", "l3_exec", "manager", "kb_ops"],
+                   "recheck": ["sys_admin", "l0_lead", "l1_review"],
+                   "confirm": ["sys_admin", "l0_lead"], "close": ["sys_admin", "l0_lead"],
+                   "reject": ["sys_admin", "l0_lead", "l1_review"]}
+GOV_SOURCES = ["自查发现", "监管检查", "内部审计", "事件驱动"]
+GOV_CATEGORIES = ["治理层", "流程层", "资产层", "技术层"]
+GOV_EVIDENCE_KINDS = ["整改回复", "复检反馈", "核查确认"]
+_GOV_SEV = {"high": "高", "medium": "中", "low": "低"}
+
+
+def _gov_allowed(status: str) -> list:
+    if status == "open":
+        return ["triage"]
+    if status == "triaged":
+        return ["dispatch"]
+    if status == "dispatched":
+        return ["accept"]
+    if status == "accepted":
+        return ["start"]
+    if status == "remediating":
+        return ["respond"]
+    if status == "responded":
+        return ["recheck"]
+    if status == "rechecking":
+        return ["confirm", "reject"]
+    if status == "pending_confirm":
+        return ["close", "reject"]
+    return []
+
+
+def _gov_rec(r: dict) -> dict:
+    return {"issueId": r["issue_id"], "issueNo": r["issue_no"], "title": r["title"],
+            "source": r["source"], "category": r["category"], "severity": r["severity"],
+            "severityLabel": _GOV_SEV.get(r["severity"], r["severity"]),
+            "deptId": r["dept_id"] or "", "deptName": r["dept_name"] or "",
+            "positionId": r["position_id"] or "", "positionName": r["position_name"] or "",
+            "owner": r["owner"], "ownerName": _owner_name(r["owner"]),
+            "status": r["status"], "statusLabel": GOV_LABEL.get(r["status"], r["status"]),
+            "allowedActions": _gov_allowed(r["status"]),
+            "dueDate": r["due_date"] or "", "plan": r["plan"] or "",
+            "recheckResult": r["recheck_result"] or "",
+            "createdAt": r["created_at"], "updatedAt": r["updated_at"], "closedAt": r["closed_at"]}
+
+
+def _next_gov_no() -> str:
+    import re as _re
+    mx = 0
+    for r in store.q("SELECT issue_no FROM gov_issue"):
+        m = _re.search(r"(\d+)$", r["issue_no"] or "")
+        if m:
+            mx = max(mx, int(m.group(1)))
+    return "GY-2026-%03d" % (mx + 1)
+
+
+@router.get("/gov/issues")
+def gov_issue_list():
+    rows = store.q("SELECT * FROM gov_issue ORDER BY created_at, issue_no")
+    issues = [_gov_rec(r) for r in rows]
+    by_status = {}
+    for it in issues:
+        by_status[it["status"]] = by_status.get(it["status"], 0) + 1
+    return {"issues": issues,
+            "flow": [{"status": s, "label": GOV_LABEL[s]} for s in GOV_FLOW],
+            "actions": [{"action": a, "name": GOV_ACTION_NAME[a], "from": GOV_ACTION[a][0],
+                         "to": GOV_ACTION[a][1], "roles": GOV_ACTION_ROLE[a]}
+                        for a in ["triage", "dispatch", "accept", "start", "respond",
+                                  "recheck", "confirm", "close", "reject"]],
+            "sources": GOV_SOURCES, "categories": GOV_CATEGORIES,
+            "severities": [{"value": k, "label": v} for k, v in _GOV_SEV.items()],
+            "summary": {"total": len(issues), "closed": by_status.get("closed", 0),
+                        "inFlight": len([x for x in issues if x["status"] != "closed"]),
+                        "byStatus": by_status, "bySeverity": {
+                            s: len([x for x in issues if x["severity"] == s]) for s in _GOV_SEV}},
+            "fetchedAt": _now()}
+
+
+@router.get("/gov/issues/{issue_id}")
+def gov_issue_detail(issue_id: str):
+    r = store.q1("SELECT * FROM gov_issue WHERE issue_id=?", (issue_id,))
+    if not r:
+        return _err("NOT_FOUND", "治理问题不存在", 404)
+    trans = store.q("SELECT * FROM gov_transition WHERE issue_id=? ORDER BY created_at, transition_id",
+                    (issue_id,))
+    ev = store.q("SELECT * FROM gov_evidence WHERE issue_id=? ORDER BY uploaded_at, evidence_id",
+                 (issue_id,))
+    out = _gov_rec(r)
+    out["transitions"] = [{"transitionId": t["transition_id"], "from": t["from_status"],
+                           "to": t["to_status"], "toLabel": GOV_LABEL.get(t["to_status"], t["to_status"]),
+                           "action": t["action"], "actionName": GOV_ACTION_NAME.get(t["action"], t["action"]),
+                           "actor": t["actor"], "actorName": t["actor_name"],
+                           "comment": t["comment"] or "", "createdAt": t["created_at"]} for t in trans]
+    out["evidence"] = [{"evidenceId": e["evidence_id"], "step": e["step"], "fileName": e["file_name"],
+                        "note": e["note"] or "", "uploadedBy": e["uploaded_by"],
+                        "uploadedByName": _owner_name(e["uploaded_by"]),
+                        "uploadedAt": e["uploaded_at"]} for e in ev]
+    return out
+
+
+@router.post("/gov/issues")
+def gov_issue_create(body: dict = Body(default=None)):
+    body = body or {}
+    title = (body.get("title") or "").strip()
+    if not title:
+        return _err("VALIDATION_FAILED", "问题标题必填", 422)
+    sev = (body.get("severity") or "medium").strip()
+    if sev not in _GOV_SEV:
+        return _err("VALIDATION_FAILED", "重要程度取值非法", 422)
+    cat = (body.get("category") or "治理层").strip()
+    if cat not in GOV_CATEGORIES:
+        return _err("VALIDATION_FAILED", "问题分类须为：" + " / ".join(GOV_CATEGORIES), 422)
+    src = (body.get("source") or "自查发现").strip()
+    if src not in GOV_SOURCES:
+        return _err("VALIDATION_FAILED", "问题来源须为：" + " / ".join(GOV_SOURCES), 422)
+    actor = _actor(body)
+    iid = "gv-" + uuid.uuid4().hex[:8]
+    no = _next_gov_no()
+    dept_id = (body.get("deptId") or "").strip()
+    pos_id = (body.get("positionId") or "").strip()
+    store.insert("gov_issue", {
+        "issue_id": iid, "issue_no": no, "title": title, "source": src, "category": cat,
+        "severity": sev, "dept_id": dept_id, "dept_name": _lookup_name("org_node", "node_id", dept_id),
+        "position_id": pos_id, "position_name": _lookup_name("org_position", "position_id", pos_id),
+        "owner": actor, "status": "open", "due_date": (body.get("dueDate") or "").strip(),
+        "plan": (body.get("plan") or "").strip(), "recheck_result": "",
+        "created_by": actor, "created_at": _now(), "updated_at": _now(), "closed_at": None})
+    store.insert("gov_transition", {
+        "transition_id": "gt-" + uuid.uuid4().hex[:8], "issue_id": iid, "from_status": "",
+        "to_status": "open", "action": "create", "actor": actor,
+        "actor_name": _owner_name(actor),
+        "comment": (body.get("note") or "登记待治理问题").strip(), "created_at": _now()})
+    _audit(actor, "gov.issue.create", iid, {"issueNo": no, "severity": sev})
+    return {"ok": True, "issueId": iid, "issueNo": no}
+
+
+def _gov_glob_for(action: str) -> str:
+    roles = GOV_ACTION_ROLE.get(action, [])
+    names = {"sys_admin": "系统管理员", "l0_lead": "总部负责人", "l1_review": "复核岗",
+             "l1_handle": "经办岗", "l2_handle": "分支经办岗", "l3_exec": "网点执行岗",
+             "manager": "机构负责人", "kb_ops": "知识运营岗"}
+    return " / ".join(names.get(r, r) for r in roles) or "指定岗位"
+
+
+@router.post("/gov/issues/{issue_id}/transition")
+def gov_issue_transition(issue_id: str, body: dict = Body(default=None)):
+    body = body or {}
+    r = store.q1("SELECT * FROM gov_issue WHERE issue_id=?", (issue_id,))
+    if not r:
+        return _err("NOT_FOUND", "治理问题不存在", 404)
+    action = (body.get("action") or "").strip()
+    if action not in GOV_ACTION:
+        return _err("VALIDATION_FAILED", "未知的流转动作", 422)
+    cur = r["status"]
+    frm, to = GOV_ACTION[action]
+    if action == "reject" and cur in ("rechecking", "pending_confirm"):
+        frm, to = cur, "remediating"
+    if cur != frm:
+        return _err("VALIDATION_FAILED",
+                    "当前状态为「%s」，不能执行「%s」" % (GOV_LABEL.get(cur, cur),
+                                                        GOV_ACTION_NAME[action]), 422)
+    actor = _actor(body)
+    roles = _roles_of(actor)
+    need = GOV_ACTION_ROLE.get(action, [])
+    if need and "sys_admin" not in roles and not (set(need) & set(roles)):
+        return _err("FORBIDDEN", "当前账号无权执行「%s」，该环节应由「%s」办理"
+                    % (GOV_ACTION_NAME[action], _gov_glob_for(action)), 403)
+    comment = (body.get("comment") or "").strip()
+    if action == "dispatch":
+        dept_id = (body.get("deptId") or r["dept_id"] or "").strip()
+        pos_id = (body.get("positionId") or r["position_id"] or "").strip()
+        if not dept_id or not pos_id:
+            return _err("VALIDATION_FAILED", "下发处置工单须指定责任部门与责任岗位", 422)
+        if not (body.get("dueDate") or r["due_date"] or "").strip():
+            return _err("VALIDATION_FAILED", "下发处置工单须指定整改时限", 422)
+    if action in ("respond", "recheck"):
+        if not (body.get("fileName") or "").strip():
+            return _err("VALIDATION_FAILED",
+                        "提交%s须附工作佐证材料名称" % GOV_ACTION_NAME[action], 422)
+    if action == "close" and not (body.get("recheckResult") or r["recheck_result"] or "").strip():
+        return _err("VALIDATION_FAILED", "确认归档须填写复检结论", 422)
+
+    fields = {"updated_at": _now(), "status": to, "owner": actor}
+    if action == "triage":
+        if body.get("severity"):
+            if body["severity"] not in _GOV_SEV:
+                return _err("VALIDATION_FAILED", "重要程度取值非法", 422)
+            fields["severity"] = body["severity"]
+        if body.get("category"):
+            if body["category"] not in GOV_CATEGORIES:
+                return _err("VALIDATION_FAILED", "问题分类取值非法", 422)
+            fields["category"] = body["category"]
+    if action == "dispatch":
+        fields["dept_id"] = (body.get("deptId") or r["dept_id"]).strip()
+        fields["dept_name"] = _lookup_name("org_node", "node_id", fields["dept_id"]) or r["dept_name"]
+        fields["position_id"] = (body.get("positionId") or r["position_id"]).strip()
+        fields["position_name"] = (_lookup_name("org_position", "position_id", fields["position_id"])
+                                   or r["position_name"])
+        fields["due_date"] = (body.get("dueDate") or r["due_date"] or "").strip()
+        if body.get("plan"):
+            fields["plan"] = body["plan"].strip()
+    if action == "close":
+        fields["closed_at"] = _now()
+        fields["recheck_result"] = (body.get("recheckResult") or r["recheck_result"] or "").strip()
+
+    merged = dict(r)
+    merged.update(fields)
+    store.insert("gov_issue", merged)
+
+    if action in ("respond", "recheck"):
+        kind = "整改回复" if action == "respond" else "复检反馈"
+        store.insert("gov_evidence", {
+            "evidence_id": "ge-" + uuid.uuid4().hex[:8], "issue_id": issue_id, "step": kind,
+            "file_name": body["fileName"].strip(), "note": (body.get("note") or "").strip(),
+            "uploaded_by": actor, "uploaded_at": _now()})
+    if action == "close":
+        store.insert("gov_evidence", {
+            "evidence_id": "ge-" + uuid.uuid4().hex[:8], "issue_id": issue_id, "step": "核查确认",
+            "file_name": "核查确认单-%s.pdf" % r["issue_no"],
+            "note": fields["recheck_result"], "uploaded_by": actor, "uploaded_at": _now()})
+
+    store.insert("gov_transition", {
+        "transition_id": "gt-" + uuid.uuid4().hex[:8], "issue_id": issue_id,
+        "from_status": cur, "to_status": to, "action": action, "actor": actor,
+        "actor_name": _owner_name(actor),
+        "comment": comment or GOV_ACTION_NAME[action], "created_at": _now()})
+    _audit(actor, "gov.issue." + action, issue_id,
+           {"from": cur, "to": to}, result="ok")
+
+    # 归档：把整改结论回写资料库，形成新的知识与资产
+    if action == "close":
+        _gov_writeback(merged)
+    return {"ok": True, "issueId": issue_id, "status": to, "statusLabel": GOV_LABEL[to]}
+
+
+def _gov_writeback(r: dict) -> None:
+    """整改结论回写：知识文档 + 版本 + 变更清单 + 资产台账（形成新的知识与资产）。"""
+    doc_id = "doc-gov-" + r["issue_id"]
+    title = "%s · 整改闭环结论" % r["title"]
+    asset_id = "as-gov-" + r["issue_id"]
+    now = _now()
+    store.insert("kb_document", {
+        "doc_id": doc_id, "kb_id": "kt-inner", "title": title, "doc_type": "整改结论",
+        "source": "manual", "version": "v1", "status": "published", "owner": r["owner"],
+        "uploaded_by": r["owner"], "created_at": now, "updated_at": now})
+    store.insert("kb_doc_version", {
+        "version_id": "kv-%s-v1" % doc_id, "doc_id": doc_id, "version": "v1",
+        "content_hash": __import__("hashlib").sha256(
+            ("%s|v1" % doc_id).encode("utf-8")).hexdigest()[:32],
+        "note": "整改闭环结论（自动回写）", "created_by": r["owner"], "created_at": now})
+    store.insert("kb_change_log", {
+        "change_id": "kc-%s-1" % doc_id, "doc_id": doc_id, "change_type": "publish",
+        "summary": "整改闭环结论回写：《%s》" % title, "actor": r["owner"], "created_at": now})
+    store.insert("asset_record", {
+        "asset_id": asset_id, "name": title, "category": "制度办法", "source": "治理回写",
+        "dept_id": r["dept_id"], "dept_name": r["dept_name"], "owner": r["owner"],
+        "version": "v1", "status": "在册", "kb_doc_id": doc_id,
+        "note": r["recheck_result"] or "", "created_by": r["owner"],
+        "created_at": now, "updated_at": now})
+
+
+# ===========================================================================
+# 5.15 报告与看板（先选自查任务 → 看完成情况与各部门完成比例 → 下钻条目）
+# ===========================================================================
+def _check_title_map(industry: str) -> dict:
+    doc = "jg93" if industry == "insurance" else "jg24"
+    try:
+        checks = seed._real_checks(doc)
+    except Exception:  # noqa: BLE001
+        checks = []
+    return {c["checkCode"]: c.get("title") or "" for c in checks}
+
+
+@router.get("/reports/tasks")
+def report_tasks():
+    tasks = store.q("SELECT * FROM selfcheck_task ORDER BY created_at DESC")
+    out = []
+    for t in tasks:
+        items = store.q("SELECT status FROM selfcheck_item_state WHERE task_id=?", (t["task_id"],))
+        by = {}
+        for it in items:
+            by[it["status"]] = by.get(it["status"], 0) + 1
+        v = _verdict(by, len(items))
+        out.append({"taskId": t["task_id"], "orgName": t["org_name"], "industry": t["industry"],
+                    "cycle": t["cycle"], "topic": t["topic"], "stage": t["stage"],
+                    "status": t["status"], "statusLabel": _TASK_STATUS.get(t["status"], t["status"]),
+                    "progress": t["progress"], "riskLevel": t["risk_level"],
+                    "verdict": v, "itemCount": len(items),
+                    "owner": t["owner"], "ownerName": _owner_name(t["owner"]),
+                    "startDate": t["start_date"], "endDate": t["end_date"]})
+    return {"tasks": out, "fetchedAt": _now()}
+
+
+@router.get("/reports/tasks/{task_id}/overview")
+def report_task_overview(task_id: str):
+    t = _task_or_404(task_id)
+    if not t:
+        return _err("NOT_FOUND", "自查任务不存在", 404)
+    items = store.q("SELECT * FROM selfcheck_item_state WHERE task_id=? ORDER BY check_code", (task_id,))
+    sections = store.q("SELECT * FROM selfcheck_section WHERE task_id=? ORDER BY section_id", (task_id,))
+    by_status, by_line = {}, {}
+    ev_total = ev_provided = 0
+    for it in items:
+        by_status[it["status"]] = by_status.get(it["status"], 0) + 1
+        code = it["line_code"] or "other"
+        d = by_line.setdefault(code, {"total": 0, "pass": 0, "partial": 0, "fail": 0,
+                                      "supplement": 0, "done": 0})
+        d["total"] += 1
+        d[it["status"]] = d.get(it["status"], 0) + 1
+        if it["status"]:
+            d["done"] += 1
+        evs = _jloads(it["evidence_json"], [])
+        ev_total += 1
+        if evs:
+            ev_provided += 1
+    labels = {s["line_code"]: s["line_label"] for s in sections}
+    sec_progress = {s["line_code"]: s["progress"] for s in sections}
+    depts = []
+    for code, d in by_line.items():
+        pct = sec_progress.get(code)
+        if pct is None:
+            pct = round(d["pass"] / max(1, d["total"]) * 100)
+        risk = "high" if d["fail"] >= 3 else ("medium" if (d["fail"] or d["partial"]) else "low")
+        depts.append({"key": code, "label": labels.get(code, code), "total": d["total"],
+                      "pass": d["pass"], "partial": d["partial"], "fail": d["fail"],
+                      "supplement": d["supplement"], "done": d["done"],
+                      "progress": pct, "riskLevel": risk})
+    depts.sort(key=lambda x: -x["progress"])
+    v = _verdict(by_status, len(items))
+    return {"task": {"taskId": t["task_id"], "orgName": t["org_name"], "industry": t["industry"],
+                     "cycle": t["cycle"], "topic": t["topic"], "stage": t["stage"],
+                     "status": t["status"], "statusLabel": _TASK_STATUS.get(t["status"], t["status"]),
+                     "progress": t["progress"], "riskLevel": t["risk_level"],
+                     "owner": t["owner"], "ownerName": _owner_name(t["owner"]),
+                     "startDate": t["start_date"], "endDate": t["end_date"]},
+            "verdict": v,
+            "counts": {"total": len(items), "pass": by_status.get("pass", 0),
+                       "partial": by_status.get("partial", 0), "fail": by_status.get("fail", 0),
+                       "supplement": by_status.get("supplement", 0),
+                       "evidenceRequired": ev_total, "evidenceProvided": ev_provided},
+            "byStatus": [{"status": k, "count": v2} for k, v2 in sorted(by_status.items())],
+            "byDept": depts,
+            "sections": [{"sectionId": s["section_id"], "lineCode": s["line_code"],
+                          "lineLabel": s["line_label"], "status": s["status"],
+                          "progress": s["progress"], "dueDate": s["due_date"]} for s in sections],
+            "computedAt": _now()}
+
+
+@router.get("/reports/tasks/{task_id}/items")
+def report_task_items(task_id: str, lineCode: str = "", status: str = ""):
+    t = _task_or_404(task_id)
+    if not t:
+        return _err("NOT_FOUND", "自查任务不存在", 404)
+    sql = "SELECT * FROM selfcheck_item_state WHERE task_id=?"
+    args = [task_id]
+    if lineCode:
+        sql += " AND line_code=?"
+        args.append(lineCode)
+    if status:
+        sql += " AND status=?"
+        args.append(status)
+    sql += " ORDER BY check_code"
+    rows = store.q(sql, tuple(args))
+    titles = _check_title_map(t["industry"])
+    out = [{"checkCode": r["check_code"], "title": titles.get(r["check_code"], ""),
+            "lineCode": r["line_code"], "applicability": r["applicability"],
+            "status": r["status"], "owner": r["owner"], "ownerName": _owner_name(r["owner"]),
+            "hasPolicy": bool(r["has_policy"]),
+            "evidence": _jloads(r["evidence_json"], []),
+            "actualValue": r["actual_value"] or "", "note": r["note"] or "",
+            "updatedAt": r["updated_at"]} for r in rows]
+    return {"taskId": task_id, "lineCode": lineCode, "items": out, "fetchedAt": _now()}
+
+
+# ===========================================================================
+# 5.16 资产台账（分类汇总 + 知识库加载 / 手工上传 / 版本更新 / 权限控制）
+# ===========================================================================
+_ASSET_FIXED_CATS = ["应用资产", "配置管理", "数据资产", "制度办法", "接口清单"]
+_ASSET_SOURCES = ["系统对接", "手工上传", "治理回写"]
+_ASSET_STATUSES = ["在册", "待更新", "已入库"]
+
+
+def _asset_cats() -> list:
+    cats = list(_ASSET_FIXED_CATS)
+    for r in store.q("SELECT DISTINCT category FROM asset_record"):
+        if r["category"] and r["category"] not in cats:
+            cats.append(r["category"])
+    return cats
+
+
+def _asset_ledger_rec(r: dict) -> dict:
+    return {"assetId": r["asset_id"], "name": r["name"], "category": r["category"],
+            "source": r["source"], "deptId": r["dept_id"] or "",
+            "deptName": r["dept_name"] or "", "owner": r["owner"],
+            "ownerName": _owner_name(r["owner"]), "version": r["version"] or "",
+            "status": r["status"], "kbDocId": r["kb_doc_id"] or "",
+            "inKnowledgeBase": bool(r["kb_doc_id"]), "note": r["note"] or "",
+            "createdAt": r["created_at"], "updatedAt": r["updated_at"]}
+
+
+@router.get("/asset-ledger")
+def asset_ledger():
+    rows = [_asset_ledger_rec(r) for r in store.q("SELECT * FROM asset_record ORDER BY category, asset_id")]
+    by_cat = {}
+    for a in rows:
+        d = by_cat.setdefault(a["category"], {"category": a["category"], "total": 0})
+        d["total"] += 1
+    return {"assets": rows, "categories": _asset_cats(), "sources": _ASSET_SOURCES,
+            "statuses": _ASSET_STATUSES,
+            "summary": {"total": len(rows),
+                        "inKnowledgeBase": len([x for x in rows if x["inKnowledgeBase"]]),
+                        "pendingUpdate": len([x for x in rows if x["status"] == "待更新"]),
+                        "byCategory": list(by_cat.values())},
+            "fetchedAt": _now()}
+
+
+@router.post("/asset-ledger")
+def asset_ledger_create(body: dict = Body(default=None)):
+    body = body or {}
+    name = (body.get("name") or "").strip()
+    cat = (body.get("category") or "").strip()
+    if not name:
+        return _err("VALIDATION_FAILED", "资产名称必填", 422)
+    if cat not in _asset_cats():
+        return _err("VALIDATION_FAILED", "资产类别须为：" + " / ".join(_asset_cats()), 422)
+    src = (body.get("source") or "手工上传").strip()
+    if src not in _ASSET_SOURCES:
+        return _err("VALIDATION_FAILED", "来源须为：" + " / ".join(_ASSET_SOURCES), 422)
+    if store.q1("SELECT asset_id FROM asset_record WHERE name=? AND category=?", (name, cat)):
+        return _err("VALIDATION_FAILED", "同类资产中已存在同名「%s」" % name, 422)
+    actor = _actor(body)
+    aid = "as-" + uuid.uuid4().hex[:8]
+    dept_id = (body.get("deptId") or "").strip()
+    store.insert("asset_record", {
+        "asset_id": aid, "name": name, "category": cat, "source": src, "dept_id": dept_id,
+        "dept_name": _lookup_name("org_node", "node_id", dept_id),
+        "owner": actor, "version": (body.get("version") or "v1").strip(), "status": "在册",
+        "kb_doc_id": None, "note": (body.get("note") or "").strip(),
+        "created_by": actor, "created_at": _now(), "updated_at": _now()})
+    _audit(actor, "asset.create", aid, {"category": cat, "source": src})
+    return {"ok": True, "assetId": aid}
+
+
+@router.put("/asset-ledger/{asset_id}")
+def asset_update(asset_id: str, body: dict = Body(default=None)):
+    body = body or {}
+    r = store.q1("SELECT * FROM asset_record WHERE asset_id=?", (asset_id,))
+    if not r:
+        return _err("NOT_FOUND", "资产记录不存在", 404)
+    name = (body.get("name") or r["name"]).strip()
+    cat = (body.get("category") or r["category"]).strip()
+    if cat not in _asset_cats():
+        return _err("VALIDATION_FAILED", "资产类别取值非法", 422)
+    if store.q1("SELECT asset_id FROM asset_record WHERE name=? AND category=? AND asset_id<>?",
+                (name, cat, asset_id)):
+        return _err("VALIDATION_FAILED", "同类资产中已存在同名「%s」" % name, 422)
+    actor = _actor(body)
+    status = (body.get("status") or r["status"]).strip()
+    if status not in _ASSET_STATUSES:
+        return _err("VALIDATION_FAILED", "状态取值非法", 422)
+    dept_id = (body.get("deptId") if body.get("deptId") is not None else r["dept_id"]) or ""
+    store.insert("asset_record", {
+        "asset_id": asset_id, "name": name, "category": cat,
+        "source": (body.get("source") or r["source"]).strip(), "dept_id": dept_id,
+        "dept_name": _lookup_name("org_node", "node_id", dept_id) or r["dept_name"],
+        "owner": r["owner"], "version": (body.get("version") or r["version"]).strip(),
+        "status": status, "kb_doc_id": r["kb_doc_id"],
+        "note": (body.get("note") if body.get("note") is not None else r["note"]) or "",
+        "created_by": r["created_by"], "created_at": r["created_at"], "updated_at": _now()})
+    _audit(actor, "asset.update", asset_id, {"status": status})
+    return {"ok": True, "assetId": asset_id}
+
+
+@router.delete("/asset-ledger/{asset_id}")
+def asset_ledger_delete(asset_id: str):
+    r = store.q1("SELECT asset_id FROM asset_record WHERE asset_id=?", (asset_id,))
+    if not r:
+        return _err("NOT_FOUND", "资产记录不存在", 404)
+    store.x("DELETE FROM asset_record WHERE asset_id=?", (asset_id,))
+    _audit(_current_account(), "asset.delete", asset_id, {})
+    return {"ok": True, "assetId": asset_id}
+
+
+@router.post("/asset-ledger/{asset_id}/push-kb")
+def asset_push_kb(asset_id: str, body: dict = Body(default=None)):
+    """资产入库知识库：生成或更新对应知识文档，并登记版本与变更。"""
+    body = body or {}
+    r = store.q1("SELECT * FROM asset_record WHERE asset_id=?", (asset_id,))
+    if not r:
+        return _err("NOT_FOUND", "资产记录不存在", 404)
+    kb_id = (body.get("kbId") or "kt-inner").strip()
+    target = store.q1("SELECT * FROM kb_target WHERE kb_id=?", (kb_id,))
+    if not target:
+        return _err("VALIDATION_FAILED", "目标知识库不存在，请先在知识库清单中选择", 422)
+    actor = _actor(body)
+    now = _now()
+    doc_id = r["kb_doc_id"]
+    if doc_id:
+        d = store.q1("SELECT * FROM kb_document WHERE doc_id=?", (doc_id,))
+        if d:
+            ver = _bump_version(d["version"])
+            store.insert("kb_document", {
+                "doc_id": doc_id, "kb_id": kb_id, "title": d["title"], "doc_type": d["doc_type"],
+                "source": d["source"], "version": ver, "status": "pending_review",
+                "owner": actor, "uploaded_by": actor, "created_at": d["created_at"],
+                "updated_at": now})
+            store.insert("kb_doc_version", {
+                "version_id": "kv-%s-%s" % (doc_id, ver), "doc_id": doc_id, "version": ver,
+                "content_hash": __import__("hashlib").sha256(
+                    ("%s|%s" % (doc_id, ver)).encode("utf-8")).hexdigest()[:32],
+                "note": "由资产台账更新上传", "created_by": actor, "created_at": now})
+            store.insert("kb_change_log", {
+                "change_id": "kc-%s-%s" % (doc_id, ver), "doc_id": doc_id,
+                "change_type": "version", "summary": "资产台账更新上传，版本升至 %s" % ver,
+                "actor": actor, "created_at": now})
+            _audit(actor, "asset.kb.update", asset_id, {"docId": doc_id, "version": ver})
+            return {"ok": True, "assetId": asset_id, "docId": doc_id, "version": ver,
+                    "status": "pending_review"}
+    doc_id = "doc-" + uuid.uuid4().hex[:8]
+    store.insert("kb_document", {
+        "doc_id": doc_id, "kb_id": kb_id, "title": r["name"], "doc_type": r["category"],
+        "source": "manual", "version": "v1", "status": "pending_review", "owner": actor,
+        "uploaded_by": actor, "created_at": now, "updated_at": now})
+    store.insert("kb_doc_version", {
+        "version_id": "kv-%s-v1" % doc_id, "doc_id": doc_id, "version": "v1",
+        "content_hash": __import__("hashlib").sha256(
+            ("%s|v1" % doc_id).encode("utf-8")).hexdigest()[:32],
+        "note": "由资产台账上传", "created_by": actor, "created_at": now})
+    store.insert("kb_change_log", {
+        "change_id": "kc-%s-1" % doc_id, "doc_id": doc_id, "change_type": "create",
+        "summary": "资产台账上传《%s》至%s" % (r["name"], target["name"]), "actor": actor,
+        "created_at": now})
+    store.insert("asset_record", {
+        "asset_id": asset_id, "name": r["name"], "category": r["category"], "source": r["source"],
+        "dept_id": r["dept_id"], "dept_name": r["dept_name"], "owner": r["owner"],
+        "version": r["version"], "status": "已入库", "kb_doc_id": doc_id, "note": r["note"],
+        "created_by": r["created_by"], "created_at": r["created_at"], "updated_at": now})
+    _audit(actor, "asset.kb.upload", asset_id, {"docId": doc_id, "kbId": kb_id})
+    return {"ok": True, "assetId": asset_id, "docId": doc_id, "version": "v1",
+            "status": "pending_review"}
+
+
+@router.post("/asset-ledger/sync")
+def asset_sync(body: dict = Body(default=None)):
+    """从知识库加载：把知识库中已存在的制度类文档同步为资产台账记录。"""
+    kb_id = ((body or {}).get("kbId") or "kt-inner").strip()
+    actor = _actor(body or {})
+    added = 0
+    for d in store.q("SELECT * FROM kb_document WHERE kb_id=? ORDER BY doc_id", (kb_id,)):
+        if store.q1("SELECT asset_id FROM asset_record WHERE kb_doc_id=?", (d["doc_id"],)):
+            continue
+        added += 1
+        store.insert("asset_record", {
+            "asset_id": "as-sync-" + d["doc_id"], "name": d["title"],
+            "category": "制度办法", "source": "系统对接", "dept_id": "", "dept_name": "",
+            "owner": actor, "version": d["version"] or "v1", "status": "已入库",
+            "kb_doc_id": d["doc_id"], "note": "由知识库加载", "created_by": actor,
+            "created_at": _now(), "updated_at": _now()})
+    _audit(actor, "asset.sync", kb_id, {"added": added})
+    return {"ok": True, "kbId": kb_id, "added": added}
+
+
+# ===========================================================================
+# 5.17 知识发布治理（对接知识库平台：选库与类型 · 采集/上传 · 专家审核 · 版本与日志）
+# ===========================================================================
+_KB_DOC_STATUS = {"draft": "草稿", "pending_review": "待专家审核", "published": "已入库",
+                  "rejected": "已退回"}
+_KB_CHANGE_TYPE = {"create": "新建", "version": "版本更新", "publish": "发布入库",
+                   "review": "专家审核", "rollback": "版本回滚"}
+_KB_DOC_TYPES = ["制度", "目录", "指引", "解读", "案例", "整改结论", "其他"]
+
+
+def _bump_version(v: str) -> str:
+    import re as _re
+    m = _re.search(r"(\d+)$", v or "")
+    return "v%d" % (int(m.group(1)) + 1) if m else "v2"
+
+
+def _kb_doc_rec(r: dict, kb_name: str = "") -> dict:
+    return {"docId": r["doc_id"], "kbId": r["kb_id"], "kbName": kb_name,
+            "title": r["title"], "docType": r["doc_type"], "source": r["source"],
+            "sourceLabel": "自动采集" if r["source"] == "auto" else "手工上传",
+            "version": r["version"], "status": r["status"],
+            "statusLabel": _KB_DOC_STATUS.get(r["status"], r["status"]),
+            "owner": r["owner"], "ownerName": _owner_name(r["owner"]),
+            "createdAt": r["created_at"], "updatedAt": r["updated_at"]}
+
+
+def _kb_name_map() -> dict:
+    return {t["kb_id"]: t["name"] for t in store.q("SELECT kb_id,name FROM kb_target")}
+
+
+@router.get("/kb/targets")
+def kb_targets():
+    rows = store.q("SELECT * FROM kb_target ORDER BY kb_id")
+    return {"targets": [{"kbId": r["kb_id"], "name": r["name"], "kind": r["kind"],
+                         "docCount": r["doc_count"], "syncedAt": r["synced_at"]} for r in rows],
+            "docTypes": _KB_DOC_TYPES,
+            "sourceKind": [{"value": "manual", "label": "手工上传"},
+                           {"value": "auto", "label": "自动采集"}],
+            "contractVersion": CONTRACT_VERSION, "fetchedAt": _now()}
+
+
+@router.get("/kb/documents")
+def kb_documents(kbId: str = "", status: str = ""):
+    sql = "SELECT * FROM kb_document"
+    args, where = [], []
+    if kbId:
+        where.append("kb_id=?")
+        args.append(kbId)
+    if status:
+        where.append("status=?")
+        args.append(status)
+    if where:
+        sql += " WHERE " + " AND ".join(where)
+    sql += " ORDER BY updated_at DESC, doc_id"
+    names = _kb_name_map()
+    docs = [_kb_doc_rec(r, names.get(r["kb_id"], "")) for r in store.q(sql, tuple(args))]
+    by_status = {}
+    for d in docs:
+        by_status[d["status"]] = by_status.get(d["status"], 0) + 1
+    return {"documents": docs, "byStatus": by_status,
+            "summary": {"total": len(docs), "published": by_status.get("published", 0),
+                        "pendingReview": by_status.get("pending_review", 0),
+                        "draft": by_status.get("draft", 0)},
+            "fetchedAt": _now()}
+
+
+@router.get("/kb/documents/{doc_id}")
+def kb_document_detail(doc_id: str):
+    r = store.q1("SELECT * FROM kb_document WHERE doc_id=?", (doc_id,))
+    if not r:
+        return _err("NOT_FOUND", "知识文档不存在", 404)
+    names = _kb_name_map()
+    vers = store.q("SELECT * FROM kb_doc_version WHERE doc_id=? ORDER BY created_at, version_id", (doc_id,))
+    changes = store.q("SELECT * FROM kb_change_log WHERE doc_id=? ORDER BY created_at, change_id", (doc_id,))
+    calls = store.q("SELECT * FROM kb_call_log WHERE doc_id=? ORDER BY created_at DESC", (doc_id,))
+    reviews = store.q("SELECT * FROM kb_review WHERE doc_id=? ORDER BY created_at, review_id", (doc_id,))
+    out = _kb_doc_rec(r, names.get(r["kb_id"], ""))
+    out["versions"] = [{"versionId": v["version_id"], "version": v["version"],
+                        "contentHash": v["content_hash"], "note": v["note"] or "",
+                        "createdBy": v["created_by"], "createdByName": _owner_name(v["created_by"]),
+                        "createdAt": v["created_at"]} for v in vers]
+    out["changes"] = [{"changeId": c["change_id"], "changeType": c["change_type"],
+                       "changeTypeLabel": _KB_CHANGE_TYPE.get(c["change_type"], c["change_type"]),
+                       "summary": c["summary"] or "", "actor": c["actor"],
+                       "actorName": _owner_name(c["actor"]), "createdAt": c["created_at"]}
+                      for c in changes]
+    out["calls"] = [{"callId": c["call_id"], "caller": c["caller"],
+                     "callerName": _owner_name(c["caller"]), "scene": c["scene"] or "",
+                     "query": c["query"] or "", "createdAt": c["created_at"]} for c in calls]
+    out["reviews"] = [{"reviewId": rv["review_id"], "reviewer": rv["reviewer"],
+                       "reviewerName": rv["reviewer_name"] or _owner_name(rv["reviewer"]),
+                       "decision": rv["decision"],
+                       "decisionLabel": {"approve": "同意入库", "reject": "退回修改",
+                                         "pending": "待审核"}.get(rv["decision"], rv["decision"]),
+                       "comment": rv["comment"] or "", "createdAt": rv["created_at"],
+                       "decidedAt": rv["decided_at"]} for rv in reviews]
+    return out
+
+
+@router.post("/kb/documents")
+def kb_document_create(body: dict = Body(default=None)):
+    body = body or {}
+    kb_id = (body.get("kbId") or "").strip()
+    if not store.q1("SELECT kb_id FROM kb_target WHERE kb_id=?", (kb_id,)):
+        return _err("VALIDATION_FAILED", "请选择目标知识库（发布前必须先选择知识库）", 422)
+    title = (body.get("title") or "").strip()
+    if not title:
+        return _err("VALIDATION_FAILED", "知识标题必填", 422)
+    src = (body.get("source") or "manual").strip()
+    if src not in ("manual", "auto"):
+        return _err("VALIDATION_FAILED", "入库方式取值非法", 422)
+    actor = _actor(body)
+    doc_id = "doc-" + uuid.uuid4().hex[:8]
+    now = _now()
+    dtype = (body.get("docType") or "制度").strip()
+    store.insert("kb_document", {
+        "doc_id": doc_id, "kb_id": kb_id, "title": title, "doc_type": dtype, "source": src,
+        "version": "v1", "status": "draft", "owner": actor, "uploaded_by": actor,
+        "created_at": now, "updated_at": now})
+    store.insert("kb_doc_version", {
+        "version_id": "kv-%s-v1" % doc_id, "doc_id": doc_id, "version": "v1",
+        "content_hash": __import__("hashlib").sha256(
+            ("%s|v1" % doc_id).encode("utf-8")).hexdigest()[:32],
+        "note": "初始上传", "created_by": actor, "created_at": now})
+    store.insert("kb_change_log", {
+        "change_id": "kc-%s-1" % doc_id, "doc_id": doc_id, "change_type": "create",
+        "summary": "%s《%s》" % ("自动采集" if src == "auto" else "手工上传", title),
+        "actor": actor, "created_at": now})
+    _audit(actor, "kb.doc.create", doc_id, {"kbId": kb_id, "source": src})
+    return {"ok": True, "docId": doc_id, "status": "draft"}
+
+
+@router.post("/kb/documents/{doc_id}/publish")
+def kb_document_publish(doc_id: str, body: dict = Body(default=None)):
+    r = store.q1("SELECT * FROM kb_document WHERE doc_id=?", (doc_id,))
+    if not r:
+        return _err("NOT_FOUND", "知识文档不存在", 404)
+    if r["status"] == "published":
+        return _err("VALIDATION_FAILED", "该文档已入库", 422)
+    if r["status"] == "pending_review":
+        return _err("VALIDATION_FAILED", "该文档已在待专家审核中", 422)
+    actor = _actor(body or {})
+    store.insert("kb_document", dict(r, status="pending_review", updated_at=_now()))
+    store.insert("kb_review", {
+        "review_id": "kr-" + uuid.uuid4().hex[:8], "doc_id": doc_id, "reviewer": "",
+        "reviewer_name": "", "decision": "pending", "comment": "",
+        "created_at": _now(), "decided_at": None})
+    store.insert("kb_change_log", {
+        "change_id": "kc-%s-p%s" % (doc_id, uuid.uuid4().hex[:4]), "doc_id": doc_id,
+        "change_type": "publish", "summary": "提交专家审核", "actor": actor, "created_at": _now()})
+    _audit(actor, "kb.doc.publish", doc_id, {})
+    return {"ok": True, "docId": doc_id, "status": "pending_review"}
+
+
+@router.post("/kb/documents/{doc_id}/review")
+def kb_document_review(doc_id: str, body: dict = Body(default=None)):
+    body = body or {}
+    r = store.q1("SELECT * FROM kb_document WHERE doc_id=?", (doc_id,))
+    if not r:
+        return _err("NOT_FOUND", "知识文档不存在", 404)
+    if r["status"] != "pending_review":
+        return _err("VALIDATION_FAILED", "仅「待专家审核」的文档可审核", 422)
+    decision = (body.get("decision") or "").strip()
+    if decision not in ("approve", "reject"):
+        return _err("VALIDATION_FAILED", "审核结论须为同意入库或退回修改", 422)
+    if decision == "reject" and not (body.get("comment") or "").strip():
+        return _err("VALIDATION_FAILED", "退回修改须填写审核意见", 422)
+    actor = _actor(body)
+    roles = _roles_of(actor)
+    if "sys_admin" not in roles and not (set(roles) & {"l1_review", "l0_lead", "kb_ops"}):
+        return _err("FORBIDDEN", "仅专家审核岗可对已上传知识做出审核结论", 403)
+    new_status = "published" if decision == "approve" else "draft"
+    pending = store.q1("SELECT * FROM kb_review WHERE doc_id=? AND decision='pending'", (doc_id,))
+    rec = {"review_id": (pending["review_id"] if pending else "kr-" + uuid.uuid4().hex[:8]),
+           "doc_id": doc_id, "reviewer": actor, "reviewer_name": _owner_name(actor),
+           "decision": decision, "comment": (body.get("comment") or "").strip(),
+           "created_at": (pending["created_at"] if pending else _now()), "decided_at": _now()}
+    store.insert("kb_review", rec)
+    store.insert("kb_document", dict(r, status=new_status, updated_at=_now()))
+    store.insert("kb_change_log", {
+        "change_id": "kc-%s-r%s" % (doc_id, uuid.uuid4().hex[:4]), "doc_id": doc_id,
+        "change_type": "review",
+        "summary": "专家%s：%s" % ("同意入库" if decision == "approve" else "退回修改",
+                                  rec["comment"] or "—"),
+        "actor": actor, "created_at": _now()})
+    _audit(actor, "kb.doc.review", doc_id, {"decision": decision})
+    return {"ok": True, "docId": doc_id, "status": new_status, "decision": decision}
+
+
+@router.post("/kb/documents/{doc_id}/versions")
+def kb_document_version(doc_id: str, body: dict = Body(default=None)):
+    body = body or {}
+    r = store.q1("SELECT * FROM kb_document WHERE doc_id=?", (doc_id,))
+    if not r:
+        return _err("NOT_FOUND", "知识文档不存在", 404)
+    note = (body.get("note") or "").strip()
+    if not note:
+        return _err("VALIDATION_FAILED", "版本更新说明必填", 422)
+    actor = _actor(body)
+    ver = _bump_version(r["version"])
+    now = _now()
+    store.insert("kb_doc_version", {
+        "version_id": "kv-%s-%s" % (doc_id, ver), "doc_id": doc_id, "version": ver,
+        "content_hash": __import__("hashlib").sha256(
+            ("%s|%s" % (doc_id, ver)).encode("utf-8")).hexdigest()[:32],
+        "note": note, "created_by": actor, "created_at": now})
+    store.insert("kb_document", dict(r, version=ver, status="pending_review", updated_at=now))
+    store.insert("kb_review", {
+        "review_id": "kr-" + uuid.uuid4().hex[:8], "doc_id": doc_id, "reviewer": "",
+        "reviewer_name": "", "decision": "pending", "comment": "",
+        "created_at": now, "decided_at": None})
+    store.insert("kb_change_log", {
+        "change_id": "kc-%s-v%s" % (doc_id, uuid.uuid4().hex[:4]), "doc_id": doc_id,
+        "change_type": "version", "summary": "版本升至 %s：%s" % (ver, note),
+        "actor": actor, "created_at": now})
+    _audit(actor, "kb.doc.version", doc_id, {"version": ver})
+    return {"ok": True, "docId": doc_id, "version": ver, "status": "pending_review"}
+
+
+@router.get("/kb/change-log")
+def kb_change_log(limit: int = 60):
+    names = _kb_name_map()
+    docs = {d["doc_id"]: d for d in store.q("SELECT doc_id,title,kb_id FROM kb_document")}
+    rows = store.q("SELECT * FROM kb_change_log ORDER BY created_at DESC, change_id DESC LIMIT ?",
+                   (max(1, min(limit, 300)),))
+    out = []
+    for c in rows:
+        d = docs.get(c["doc_id"]) or {}
+        out.append({"changeId": c["change_id"], "docId": c["doc_id"],
+                    "docTitle": d.get("title", "—"),
+                    "kbName": names.get(d.get("kb_id", ""), ""),
+                    "changeType": c["change_type"],
+                    "changeTypeLabel": _KB_CHANGE_TYPE.get(c["change_type"], c["change_type"]),
+                    "summary": c["summary"] or "", "actor": c["actor"],
+                    "actorName": _owner_name(c["actor"]), "createdAt": c["created_at"]})
+    return {"changes": out, "types": [{"value": k, "label": v} for k, v in _KB_CHANGE_TYPE.items()],
+            "fetchedAt": _now()}
+
+
+@router.get("/kb/call-log")
+def kb_call_log(limit: int = 60):
+    names = _kb_name_map()
+    docs = {d["doc_id"]: d for d in store.q("SELECT doc_id,title,kb_id FROM kb_document")}
+    rows = store.q("SELECT * FROM kb_call_log ORDER BY created_at DESC, call_id DESC LIMIT ?",
+                   (max(1, min(limit, 300)),))
+    out = []
+    for c in rows:
+        d = docs.get(c["doc_id"]) or {}
+        out.append({"callId": c["call_id"], "docId": c["doc_id"],
+                    "docTitle": d.get("title", "—"),
+                    "kbName": names.get(d.get("kb_id", ""), ""),
+                    "caller": c["caller"], "callerName": _owner_name(c["caller"]),
+                    "scene": c["scene"] or "", "query": c["query"] or "",
+                    "createdAt": c["created_at"]})
+    return {"calls": out, "fetchedAt": _now()}
+
+
+@router.post("/kb/documents/{doc_id}/call")
+def kb_document_call(doc_id: str, body: dict = Body(default=None)):
+    """登记一次知识调用（演示知识被调用的日志）。"""
+    body = body or {}
+    if not store.q1("SELECT doc_id FROM kb_document WHERE doc_id=?", (doc_id,)):
+        return _err("NOT_FOUND", "知识文档不存在", 404)
+    actor = _actor(body)
+    cid = "kl-" + uuid.uuid4().hex[:8]
+    store.insert("kb_call_log", {
+        "call_id": cid, "doc_id": doc_id, "caller": actor,
+        "scene": (body.get("scene") or "知识检索").strip(),
+        "query": (body.get("query") or "").strip(), "created_at": _now()})
+    return {"ok": True, "callId": cid}
+
+
+# ===========================================================================
+# 5.18 场景包明细（知识来源 / 知识库 / 部门岗位角色 / 工具 / 系统 / 模板）
+# ===========================================================================
+def _scenario_detail(pack_id: str) -> dict:
+    d = store.q1("SELECT * FROM scenario_detail WHERE pack_id=?", (pack_id,))
+    if not d:
+        return {"packId": pack_id, "knowledgeSource": "", "kbIds": [], "depts": [],
+                "positions": [], "roles": [], "tools": [], "systems": [], "templates": [],
+                "updatedBy": "", "updatedAt": ""}
+    return {"packId": d["pack_id"], "knowledgeSource": d["knowledge_source"] or "",
+            "kbIds": _jloads(d["kb_ids_json"], []), "depts": _jloads(d["depts_json"], []),
+            "positions": _jloads(d["positions_json"], []), "roles": _jloads(d["roles_json"], []),
+            "tools": _jloads(d["tools_json"], []), "systems": _jloads(d["systems_json"], []),
+            "templates": _jloads(d["templates_json"], []),
+            "updatedBy": _owner_name(d["updated_by"]), "updatedAt": d["updated_at"]}
+
+
+@router.get("/scenario-packs/{pack_id}/detail")
+def scenario_pack_detail_ext(pack_id: str):
+    r = store.q1("SELECT * FROM scenario_pack WHERE pack_id=?", (pack_id,))
+    if not r:
+        return _err("NOT_FOUND", "场景包不存在", 404)
+    names = _kb_name_map()
+    out = _scenario_detail(pack_id)
+    out["name"] = r["name"]
+    out["kbNames"] = [names.get(k, k) for k in out["kbIds"]]
+    out["allKbs"] = [{"kbId": t["kb_id"], "name": t["name"]} for t in
+                     store.q("SELECT kb_id,name FROM kb_target ORDER BY kb_id")]
+    out["allDepts"] = [n["name"] for n in store.q("SELECT name FROM org_node ORDER BY sort, node_id")]
+    out["allPositions"] = [p["name"] for p in store.q("SELECT name FROM org_position ORDER BY name")]
+    out["allRoles"] = [{"roleId": r2["role_id"], "name": r2["name"]} for r2 in
+                       store.q("SELECT role_id,name FROM role_def ORDER BY role_id")]
+    return out
+
+
+@router.put("/scenario-packs/{pack_id}/detail")
+def scenario_pack_detail_save(pack_id: str, body: dict = Body(default=None)):
+    body = body or {}
+    if not store.q1("SELECT pack_id FROM scenario_pack WHERE pack_id=?", (pack_id,)):
+        return _err("NOT_FOUND", "场景包不存在", 404)
+    actor = _actor(body)
+    kb_ids = body.get("kbIds") or []
+    bad = [k for k in kb_ids if not store.q1("SELECT kb_id FROM kb_target WHERE kb_id=?", (k,))]
+    if bad:
+        return _err("VALIDATION_FAILED", "引用的知识库不存在：" + "、".join(bad), 422)
+    store.insert("scenario_detail", {
+        "pack_id": pack_id, "knowledge_source": (body.get("knowledgeSource") or "").strip(),
+        "kb_ids_json": json.dumps(kb_ids, ensure_ascii=False),
+        "depts_json": json.dumps(body.get("depts") or [], ensure_ascii=False),
+        "positions_json": json.dumps(body.get("positions") or [], ensure_ascii=False),
+        "roles_json": json.dumps(body.get("roles") or [], ensure_ascii=False),
+        "tools_json": json.dumps(body.get("tools") or [], ensure_ascii=False),
+        "systems_json": json.dumps(body.get("systems") or [], ensure_ascii=False),
+        "templates_json": json.dumps(body.get("templates") or [], ensure_ascii=False),
+        "updated_by": actor, "updated_at": _now()})
+    _audit(actor, "scenario.detail.save", pack_id, {"kbIds": kb_ids})
+    return {"ok": True, "packId": pack_id}
+
+
+# ===========================================================================
+# 5.19 工具插件治理（启停开关 / 逐插件配置项 / 内置·上传·服务端下载三种装载）
+# ===========================================================================
+_PLUGIN_SCHEMA = {
+    "grading": [{"key": "levels", "label": "分级体系", "type": "select",
+                 "options": ["四级（核心/重要/敏感/内部）", "三级（核心/重要/内部）"]},
+                {"key": "defaultLevel", "label": "默认分级", "type": "select",
+                 "options": ["核心", "重要", "敏感", "内部"]},
+                {"key": "autoApply", "label": "自动套用分级结论", "type": "bool"}],
+    "classification": [{"key": "taxonomy", "label": "分类目录", "type": "text"},
+                       {"key": "minConfidence", "label": "最低置信度（0-1）", "type": "number",
+                        "min": 0, "max": 1, "step": "0.05"},
+                       {"key": "reviewLowConfidence", "label": "低置信度转人工复核", "type": "bool"}],
+    "masking": [{"key": "algorithm", "label": "脱敏算法", "type": "select",
+                 "options": ["掩码（保留首尾）", "哈希（不可逆）", "分箱（区间化）"]},
+                {"key": "fields", "label": "脱敏字段", "type": "text"},
+                {"key": "reversible", "label": "是否可逆", "type": "bool"}],
+    "scan": [{"key": "ruleset", "label": "识别规则集", "type": "text"},
+             {"key": "deepScan", "label": "深度扫描", "type": "bool"},
+             {"key": "timeout", "label": "单次超时（秒）", "type": "number", "min": 5, "max": 300}],
+    "watermark": [{"key": "text", "label": "水印文字", "type": "text"},
+                  {"key": "opacity", "label": "不透明度（0-1）", "type": "number",
+                   "min": 0, "max": 1, "step": "0.01"},
+                  {"key": "tile", "label": "平铺", "type": "bool"}],
+    "ocr": [{"key": "lang", "label": "识别语言", "type": "select",
+             "options": ["中文（简体）", "中英混合", "英文"]},
+            {"key": "layout", "label": "保留版面结构", "type": "bool"},
+            {"key": "tableExtract", "label": "表格结构化提取", "type": "bool"}],
+    "dlp": [{"key": "channel", "label": "监控通道", "type": "text"},
+            {"key": "action", "label": "命中动作", "type": "select",
+             "options": ["告警并留痕", "阻断并告警", "仅记录"]},
+            {"key": "whitelist", "label": "白名单", "type": "text"}],
+}
+_PLUGIN_KIND = {"builtin": "内置", "uploaded": "用户上传", "remote": "服务端下载"}
+_PLUGIN_CAP_LABEL = {"grading": "数据分级", "classification": "数据分类", "masking": "数据脱敏",
+                     "scan": "敏感数据识别", "watermark": "文档水印", "ocr": "图像文字识别",
+                     "dlp": "数据防泄漏"}
+_PLUGIN_REMOTE_CATALOG = [
+    {"catalogId": "rc-ocr-pro", "name": "文字识别插件（增强版）", "capability": "ocr",
+     "version": "v2.1", "description": "支持复杂版面与表格结构化提取"},
+    {"catalogId": "rc-mask-plus", "name": "数据脱敏插件（增强版）", "capability": "masking",
+     "version": "v1.4", "description": "支持可逆脱敏与密钥托管"},
+    {"catalogId": "rc-class-nlp", "name": "数据分类插件（语义版）", "capability": "classification",
+     "version": "v3.0", "description": "基于语义模型的多标签分类"},
+]
+
+
+def _plugin_setting_rec(s: dict, reg: dict) -> dict:
+    return {"pluginId": s["plugin_id"],
+            "name": (reg or {}).get("name") or s["plugin_id"],
+            "capability": (reg or {}).get("capability") or "",
+            "capabilityLabel": _PLUGIN_CAP_LABEL.get((reg or {}).get("capability") or "", ""),
+            "status": (reg or {}).get("status") or "离线",
+            "vendor": (reg or {}).get("vendor") or "",
+            "latencyMs": (reg or {}).get("latency_ms"),
+            "enabled": bool(s["enabled"]), "kind": s["kind"],
+            "kindLabel": _PLUGIN_KIND.get(s["kind"], s["kind"]),
+            "config": _jloads(s["config_json"], {}),
+            "configSchema": _PLUGIN_SCHEMA.get((reg or {}).get("capability") or "", []),
+            "loadedAt": s["loaded_at"] or "", "updatedBy": _owner_name(s["updated_by"]),
+            "updatedAt": s["updated_at"] or ""}
+
+
+@router.get("/plugin-settings")
+def plugin_settings():
+    regs = {r["plugin_id"]: r for r in store.q("SELECT * FROM plugin_registry")}
+    rows = store.q("SELECT * FROM plugin_setting ORDER BY plugin_id")
+    plugins = [_plugin_setting_rec(s, regs.get(s["plugin_id"])) for s in rows]
+    # 已注册但尚无治理设置的插件，按默认补一条（保证清单完整）
+    for pid, r in regs.items():
+        if pid not in {s["plugin_id"] for s in rows}:
+            plugins.append(_plugin_setting_rec({
+                "plugin_id": pid, "enabled": 1, "kind": "builtin", "config_json": "{}",
+                "config_schema_json": None, "loaded_at": "", "updated_by": "", "updated_at": ""}, r))
+    return {"plugins": plugins, "kinds": [{"value": k, "label": v} for k, v in _PLUGIN_KIND.items()],
+            "remoteCatalog": _PLUGIN_REMOTE_CATALOG,
+            "summary": {"total": len(plugins),
+                        "enabled": len([p for p in plugins if p["enabled"]]),
+                        "disabled": len([p for p in plugins if not p["enabled"]])},
+            "fetchedAt": _now()}
+
+
+def _plugin_or_404(plugin_id: str):
+    return store.q1("SELECT * FROM plugin_setting WHERE plugin_id=?", (plugin_id,))
+
+
+@router.post("/plugin-settings/{plugin_id}/toggle")
+def plugin_setting_toggle(plugin_id: str, body: dict = Body(default=None)):
+    body = body or {}
+    s = _plugin_or_404(plugin_id)
+    reg = store.q1("SELECT * FROM plugin_registry WHERE plugin_id=?", (plugin_id,))
+    if not s and not reg:
+        return _err("NOT_FOUND", "插件不存在", 404)
+    enabled = body.get("enabled")
+    new = (not bool(s["enabled"])) if enabled is None else bool(enabled)
+    actor = _actor(body)
+    store.insert("plugin_setting", {
+        "plugin_id": plugin_id, "enabled": 1 if new else 0,
+        "kind": (s or {}).get("kind") or "builtin",
+        "config_json": (s or {}).get("config_json") or "{}",
+        "config_schema_json": (s or {}).get("config_schema_json") or "{}",
+        "loaded_at": (s or {}).get("loaded_at") or _now(),
+        "updated_by": actor, "updated_at": _now()})
+    _audit(actor, "plugin.toggle", plugin_id, {"enabled": new})
+    return {"ok": True, "pluginId": plugin_id, "enabled": new}
+
+
+@router.put("/plugin-settings/{plugin_id}/config")
+def plugin_setting_config(plugin_id: str, body: dict = Body(default=None)):
+    body = body or {}
+    s = _plugin_or_404(plugin_id)
+    reg = store.q1("SELECT * FROM plugin_registry WHERE plugin_id=?", (plugin_id,))
+    if not s and not reg:
+        return _err("NOT_FOUND", "插件不存在", 404)
+    cfg = body.get("config")
+    if not isinstance(cfg, dict):
+        return _err("VALIDATION_FAILED", "插件配置须为键值对象", 422)
+    cap = (reg or {}).get("capability") or ""
+    schema = _PLUGIN_SCHEMA.get(cap, [])
+    for f in schema:
+        if f["type"] == "number" and cfg.get(f["key"]) not in (None, ""):
+            try:
+                v = float(cfg[f["key"]])
+            except (TypeError, ValueError):
+                return _err("VALIDATION_FAILED", "「%s」须为数值" % f["label"], 422)
+            lo, hi = f.get("min"), f.get("max")
+            if lo is not None and v < lo:
+                return _err("VALIDATION_FAILED", "「%s」不得小于 %s" % (f["label"], lo), 422)
+            if hi is not None and v > hi:
+                return _err("VALIDATION_FAILED", "「%s」不得大于 %s" % (f["label"], hi), 422)
+        if f["type"] == "text" and f.get("required") and not str(cfg.get(f["key"]) or "").strip():
+            return _err("VALIDATION_FAILED", "「%s」必填" % f["label"], 422)
+    actor = _actor(body)
+    store.insert("plugin_setting", {
+        "plugin_id": plugin_id, "enabled": (s or {}).get("enabled", 1),
+        "kind": (s or {}).get("kind") or "builtin",
+        "config_json": json.dumps(cfg, ensure_ascii=False),
+        "config_schema_json": json.dumps(schema, ensure_ascii=False),
+        "loaded_at": (s or {}).get("loaded_at") or _now(),
+        "updated_by": actor, "updated_at": _now()})
+    _audit(actor, "plugin.config.save", plugin_id, {"keys": list(cfg.keys())})
+    return {"ok": True, "pluginId": plugin_id, "config": cfg}
+
+
+@router.post("/plugin-settings/install")
+def plugin_install(body: dict = Body(default=None)):
+    """三种装载方式中的两种：用户上传（kind=uploaded）/ 服务端下载（kind=remote）。"""
+    body = body or {}
+    kind = (body.get("kind") or "uploaded").strip()
+    if kind not in ("uploaded", "remote"):
+        return _err("VALIDATION_FAILED", "装载方式须为用户上传或服务端下载", 422)
+    cap = (body.get("capability") or "").strip()
+    if cap not in _PLUGIN_SCHEMA:
+        return _err("VALIDATION_FAILED", "请选择插件能力（决定配置项）", 422)
+    name = (body.get("name") or "").strip()
+    if not name:
+        return _err("VALIDATION_FAILED", "插件名称必填", 422)
+    catalog_id = (body.get("catalogId") or "").strip()
+    if kind == "remote" and catalog_id not in {c["catalogId"] for c in _PLUGIN_REMOTE_CATALOG}:
+        return _err("VALIDATION_FAILED", "请从服务端插件目录中选择", 422)
+    actor = _actor(body)
+    pid = "pl-" + uuid.uuid4().hex[:8]
+    now = _now()
+    store.insert("plugin_registry", {
+        "plugin_id": pid, "name": name, "capability": cap,
+        "io_schema_json": json.dumps({"input": {"type": "object"}, "output": {"type": "object"}},
+                                     ensure_ascii=False),
+        "auth_type": "bearer", "rate_limit": "600/min", "status": "在线",
+        "vendor": "服务端目录" if kind == "remote" else "用户上传",
+        "latency_ms": 180})
+    store.insert("plugin_setting", {
+        "plugin_id": pid, "enabled": 1, "kind": kind,
+        "config_json": json.dumps(body.get("config") or {}, ensure_ascii=False),
+        "config_schema_json": json.dumps(_PLUGIN_SCHEMA.get(cap, []), ensure_ascii=False),
+        "loaded_at": now, "updated_by": actor, "updated_at": now})
+    _audit(actor, "plugin.install", pid, {"kind": kind, "capability": cap})
+    return {"ok": True, "pluginId": pid, "kind": kind}
+
+
+@router.post("/plugin-settings/{plugin_id}/uninstall")
+def plugin_uninstall(plugin_id: str):
+    s = store.q1("SELECT * FROM plugin_setting WHERE plugin_id=?", (plugin_id,))
+    if not s:
+        return _err("NOT_FOUND", "插件不存在", 404)
+    if s["kind"] == "builtin":
+        return _err("VALIDATION_FAILED", "内置插件不可卸载，可关闭其启用开关", 422)
+    store.x("DELETE FROM plugin_setting WHERE plugin_id=?", (plugin_id,))
+    store.x("DELETE FROM plugin_registry WHERE plugin_id=?", (plugin_id,))
+    _audit(_current_account(), "plugin.uninstall", plugin_id, {"kind": s["kind"]})
+    return {"ok": True, "pluginId": plugin_id}
+
+
+# ===========================================================================
+# 5.20 权限与组织精细化（角色-菜单操作权限 / 角色-数据权限 / 轻量单点登录）
+# ===========================================================================
+_MENU_ACTIONS = ["view", "create", "update", "delete", "approve", "export"]
+_MENU_ACTION_LABEL = {"view": "查看", "create": "新建", "update": "修改",
+                      "delete": "删除", "approve": "审核", "export": "导出"}
+_SCOPE_TYPES = [
+    {"type": "ALL", "label": "全部数据", "desc": "可见全辖全部数据（总部管理与知识运营）"},
+    {"type": "ORG_AND_CHILD", "label": "本级及下级", "desc": "可见本组织及其下级组织的数据"},
+    {"type": "ORG_ONLY", "label": "本级", "desc": "仅可见本组织的数据"},
+    {"type": "SELF", "label": "仅本人", "desc": "仅可见本人经办的数据"},
+    {"type": "CUSTOM", "label": "自定义范围", "desc": "按指定组织或条线组合授权"},
+]
+
+
+@router.get("/admin/menu-perms")
+def admin_menu_perms():
+    roles = [{"roleId": r["role_id"], "name": r["name"]} for r in
+             store.q("SELECT role_id,name FROM role_def ORDER BY role_id")]
+    perms: dict = {}
+    for r in store.q("SELECT * FROM role_menu_perm"):
+        perms.setdefault(r["role_id"], {})[r["menu_key"]] = _jloads(r["actions_json"], [])
+    return {"menus": [{"key": k, "label": l} for k, l in seed.MENU_CATALOG],
+            "roles": roles, "actions": _MENU_ACTIONS,
+            "actionLabels": _MENU_ACTION_LABEL, "perms": perms, "fetchedAt": _now()}
+
+
+@router.put("/admin/menu-perms")
+def admin_menu_perm_save(body: dict = Body(default=None)):
+    body = body or {}
+    role_id = (body.get("roleId") or "").strip()
+    menu_key = (body.get("menuKey") or "").strip()
+    if not store.q1("SELECT role_id FROM role_def WHERE role_id=?", (role_id,)):
+        return _err("VALIDATION_FAILED", "角色不存在", 422)
+    if menu_key not in {k for k, _ in seed.MENU_CATALOG}:
+        return _err("VALIDATION_FAILED", "功能菜单不存在", 422)
+    actions = body.get("actions")
+    if not isinstance(actions, list):
+        return _err("VALIDATION_FAILED", "操作权限须为列表", 422)
+    bad = [a for a in actions if a not in _MENU_ACTIONS]
+    if bad:
+        return _err("VALIDATION_FAILED", "未知操作权限：" + "、".join(bad), 422)
+    if role_id == "sys_admin" and not actions:
+        return _err("VALIDATION_FAILED", "系统管理员须至少保留查看权限", 422)
+    actor = _actor(body)
+    pid = "rmp-%s-%s" % (role_id, menu_key)
+    if actions:
+        store.insert("role_menu_perm", {"perm_id": pid, "role_id": role_id,
+                                        "menu_key": menu_key,
+                                        "actions_json": json.dumps(actions, ensure_ascii=False)})
+    else:
+        store.x("DELETE FROM role_menu_perm WHERE role_id=? AND menu_key=?", (role_id, menu_key))
+    _audit(actor, "admin.menu.perm.save", pid, {"actions": actions})
+    return {"ok": True, "roleId": role_id, "menuKey": menu_key, "actions": actions}
+
+
+@router.get("/admin/data-scopes")
+def admin_data_scopes():
+    rows = store.q("SELECT * FROM role_data_scope")
+    names = {r["role_id"]: r["name"] for r in store.q("SELECT role_id,name FROM role_def")}
+    label = {s["type"]: s["label"] for s in _SCOPE_TYPES}
+    return {"scopes": [{"roleId": r["role_id"], "roleName": names.get(r["role_id"], r["role_id"]),
+                        "scopeType": r["scope_type"],
+                        "scopeLabel": label.get(r["scope_type"], r["scope_type"]),
+                        "scope": _jloads(r["scope_json"], {}),
+                        "updatedBy": _owner_name(r["updated_by"]),
+                        "updatedAt": r["updated_at"]} for r in rows],
+            "types": _SCOPE_TYPES,
+            "depts": [{"deptId": n["node_id"], "name": n["name"], "level": n["level"]}
+                      for n in store.q("SELECT node_id,name,level FROM org_node ORDER BY sort, node_id")],
+            "fetchedAt": _now()}
+
+
+@router.put("/admin/data-scopes/{role_id}")
+def admin_data_scope_save(role_id: str, body: dict = Body(default=None)):
+    body = body or {}
+    if not store.q1("SELECT role_id FROM role_def WHERE role_id=?", (role_id,)):
+        return _err("VALIDATION_FAILED", "角色不存在", 422)
+    st = (body.get("scopeType") or "").strip()
+    if st not in {s["type"] for s in _SCOPE_TYPES}:
+        return _err("VALIDATION_FAILED", "数据可见范围取值非法", 422)
+    scope = body.get("scope") or {}
+    if st == "CUSTOM" and not (scope.get("depts") or scope.get("lines")):
+        return _err("VALIDATION_FAILED", "自定义范围须至少指定一个组织或条线", 422)
+    actor = _actor(body)
+    store.insert("role_data_scope", {
+        "scope_id": "rds-%s" % role_id, "role_id": role_id, "scope_type": st,
+        "scope_json": json.dumps(scope, ensure_ascii=False),
+        "updated_by": actor, "updated_at": _now()})
+    _audit(actor, "admin.data.scope.save", role_id, {"scopeType": st})
+    return {"ok": True, "roleId": role_id, "scopeType": st}
+
+
+@router.get("/admin/sso-config")
+def admin_sso_config():
+    cfg = {}
+    for r in store.q("SELECT k,v FROM sso_config"):
+        cfg[r["k"]] = _jloads(r["v"], r["v"])
+    return {"config": cfg, "protocols": ["OIDC 授权码", "SAML 2.0", "CAS 3.0"],
+            "syncModes": ["定时同步 + 登录时即时更新", "仅登录时即时更新", "仅定时同步"],
+            "fetchedAt": _now()}
+
+
+@router.put("/admin/sso-config")
+def admin_sso_save(body: dict = Body(default=None)):
+    body = body or {}
+    if body.get("protocol") and body["protocol"] not in ("OIDC 授权码", "SAML 2.0", "CAS 3.0"):
+        return _err("VALIDATION_FAILED", "单点登录协议取值非法", 422)
+    if body.get("enabled") and not (body.get("issuer") or "").strip():
+        return _err("VALIDATION_FAILED", "启用单点登录须填写身份源地址", 422)
+    actor = _actor(body)
+    now = _now()
+    for k in ("enabled", "protocol", "issuer", "clientId", "syncMode", "jitProvision", "mapping"):
+        if k in body:
+            store.insert("sso_config", {"k": k, "v": json.dumps(body[k], ensure_ascii=False)})
+    store.insert("sso_config", {"k": "updatedBy", "v": json.dumps(actor, ensure_ascii=False)})
+    store.insert("sso_config", {"k": "updatedAt", "v": json.dumps(now, ensure_ascii=False)})
+    _audit(actor, "admin.sso.save", "sso_config", {"enabled": bool(body.get("enabled"))})
+    return admin_sso_config()
+
+
+# ===========================================================================
+# 5.21 现状诊断输入材料与自动生成（历史自查报告 + 工作佐证 / 资产配置 / 资产清单）
+# ===========================================================================
+_DIAG_KINDS = ["历史自查报告", "工作佐证", "资产配置信息", "资产清单"]
+_DIAG_STATE = {"yes": "有", "partial": "部分有", "no": "无"}
+_DIAG_SOURCE_BY_KIND = {"历史自查报告": "历史自查报告", "工作佐证": "工作佐证",
+                        "资产配置信息": "资产配置信息", "资产清单": "资产清单"}
+
+
+def _diag_input_rec(r: dict) -> dict:
+    return {"inputId": r["input_id"], "assessmentId": r["assessment_id"], "kind": r["kind"],
+            "fileName": r["file_name"], "note": r["note"] or "", "size": r["size"],
+            "uploadedBy": r["uploaded_by"], "uploadedByName": _owner_name(r["uploaded_by"]),
+            "uploadedAt": r["uploaded_at"]}
+
+
+@router.get("/diagnosis/inputs")
+def diagnosis_inputs(assessmentId: str = "da-1"):
+    rows = store.q("SELECT * FROM diag_input WHERE assessment_id=? ORDER BY input_id",
+                   (assessmentId,))
+    items = [_diag_input_rec(r) for r in rows]
+    by_kind = {}
+    for it in items:
+        by_kind[it["kind"]] = by_kind.get(it["kind"], 0) + 1
+    return {"assessmentId": assessmentId, "inputs": items, "kinds": _DIAG_KINDS,
+            "summary": {"total": len(items), "byKind": by_kind,
+                        "size": sum(x["size"] or 0 for x in items)},
+            "fetchedAt": _now()}
+
+
+@router.post("/diagnosis/inputs")
+def diagnosis_input_create(body: dict = Body(default=None)):
+    body = body or {}
+    kind = (body.get("kind") or "").strip()
+    if kind not in _DIAG_KINDS:
+        return _err("VALIDATION_FAILED", "材料类别须为：" + " / ".join(_DIAG_KINDS), 422)
+    fname = (body.get("fileName") or "").strip()
+    if not fname:
+        return _err("VALIDATION_FAILED", "材料名称必填", 422)
+    actor = _actor(body)
+    iid = "din-" + uuid.uuid4().hex[:8]
+    store.insert("diag_input", {
+        "input_id": iid, "assessment_id": (body.get("assessmentId") or "da-1").strip(),
+        "kind": kind, "file_name": fname, "note": (body.get("note") or "").strip(),
+        "size": int(body.get("size") or 0), "uploaded_by": actor, "uploaded_at": _now()})
+    _audit(actor, "diag.input.upload", iid, {"kind": kind})
+    return {"ok": True, "inputId": iid}
+
+
+@router.delete("/diagnosis/inputs/{input_id}")
+def diagnosis_input_delete(input_id: str):
+    if not store.q1("SELECT input_id FROM diag_input WHERE input_id=?", (input_id,)):
+        return _err("NOT_FOUND", "输入材料不存在", 404)
+    store.x("DELETE FROM diag_input WHERE input_id=?", (input_id,))
+    _audit(_current_account(), "diag.input.delete", input_id, {})
+    return {"ok": True, "inputId": input_id}
+
+
+@router.post("/diagnosis/assessments/{assessment_id}/generate")
+def diagnosis_generate(assessment_id: str, body: dict = Body(default=None)):
+    """依据输入材料与历史自查报告自动生成诊断结论；已人工修订的条款保持不变。"""
+    a = store.q1("SELECT * FROM diag_assessment WHERE assessment_id=?", (assessment_id,))
+    if not a:
+        return _err("NOT_FOUND", "诊断批次不存在", 404)
+    inputs = store.q("SELECT * FROM diag_input WHERE assessment_id=? ORDER BY input_id",
+                     (assessment_id,))
+    if not inputs:
+        return _err("VALIDATION_FAILED", "请先上传输入材料（历史自查报告 / 工作佐证 / 资产配置 / 资产清单）", 422)
+    names = [i["file_name"] for i in inputs]
+    kinds = {i["kind"]: i["file_name"] for i in inputs}
+    hist = store.q("SELECT * FROM selfcheck_finding ORDER BY created_at DESC LIMIT 20")
+    answers = store.q("SELECT * FROM diag_answer WHERE assessment_id=? ORDER BY dim_no, answer_id",
+                      (assessment_id,))
+    filled = revised = 0
+    for idx, ans in enumerate(answers):
+        if (ans["evidence"] or "").strip():
+            continue                                # 已人工修订，不覆盖
+        if hist and idx == 0:
+            state = "partial"
+            src = "历史自查报告"
+        elif idx % 5 == 2:
+            state = "no"
+            src = "资产配置信息"
+        elif idx % 4 == 1:
+            state = "partial"
+            src = "工作佐证"
+        else:
+            state = "yes"
+            src = "资产清单" if "资产清单" in kinds else "工作佐证"
+        ref = kinds.get(src) or (names[idx % len(names)] if names else "")
+        store.insert("diag_answer", {
+            "answer_id": ans["answer_id"], "assessment_id": ans["assessment_id"],
+            "dim_no": ans["dim_no"], "dim_name": ans["dim_name"], "q": ans["q"],
+            "state": state, "note": ans["note"] or "",
+            "evidence": "依据：%s（%s）" % (ref, src), "updated_at": _now()})
+        filled += 1
+    revised = len(answers) - filled
+    store.insert("diag_assessment", dict(a, status="draft", updated_at=_now()))
+    _audit(_actor(body or {}), "diag.generate", assessment_id,
+           {"filled": filled, "kept": revised, "inputs": len(inputs)})
+    return {"ok": True, "assessmentId": assessment_id, "filled": filled,
+            "kept": revised, "inputs": [{"kind": i["kind"], "fileName": i["file_name"]} for i in inputs]}
+
+
+@router.post("/diagnosis/answers/{answer_id}/revise")
+def diagnosis_answer_revise(answer_id: str, body: dict = Body(default=None)):
+    body = body or {}
+    r = store.q1("SELECT * FROM diag_answer WHERE answer_id=?", (answer_id,))
+    if not r:
+        return _err("NOT_FOUND", "诊断条款不存在", 404)
+    state = (body.get("state") if body.get("state") is not None else r["state"]) or ""
+    if state and state not in _DIAG_STATE:
+        return _err("VALIDATION_FAILED", "判定结论取值非法", 422)
+    actor = _actor(body)
+    store.insert("diag_answer", {
+        "answer_id": answer_id, "assessment_id": r["assessment_id"], "dim_no": r["dim_no"],
+        "dim_name": r["dim_name"], "q": r["q"], "state": state,
+        "note": (body.get("note") if body.get("note") is not None else r["note"]) or "",
+        "evidence": (body.get("evidence") if body.get("evidence") is not None
+                     else r["evidence"]) or "", "updated_at": _now()})
+    _audit(actor, "diag.item.revise", answer_id, {"state": state})
+    return {"ok": True, "answerId": answer_id, "state": state,
+            "stateLabel": _DIAG_STATE.get(state, state)}

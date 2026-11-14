@@ -1,5 +1,5 @@
 const $ = s => document.querySelector(s);
-// 当前系统暂不做权限控制与身份认证，写操作统一以固定操作者标识落审计。
+// 写操作统一以当前登录身份（右上角账户入口可切换）落审计留痕。
 const ACTOR = 'ui-user';
 const api = async (p, opt) => {
   const r = await fetch(p, opt);
@@ -30,10 +30,9 @@ function navToggle(){
   document.querySelector('.wrap').classList.toggle('nav-collapsed');
 }
 
-// ---------- 合规自查（v1.18.0：OpenClaw 智能体版）----------
+// ---------- 合规自查 ----------
 // 前端只负责输入（合规文件 + 被检查目录）与输出（逐检查项结果 + PDF 报告），
-// 全部检查逻辑由后端 openclaw 智能体完成；每注册用户在同一 gateway 内
-// 拥有专属 agent（轻隔离），访客共用 guest agent。
+// 全部检查逻辑由后端智能体服务完成。
 const SC_R = {pass:'符合', partial:'部分符合', fail:'不符合', missing:'证据缺失', manual:'需人工'};
 const SC_V = SC_R;
 function scBadge(r){return `<span class="badge b-${r==='pass'?'ok':r==='partial'?'warn':r==='missing'?'unk':'bad'}">${SC_R[r]||r||'—'}</span>`;}
@@ -82,7 +81,7 @@ async function scStart(){
   if(!r||r.error){ $('#sc_progress').innerHTML='<span class="badge b-bad">启动失败</span> '+esc((r&&r.error&&(r.error.message||r.error.code))||''); return; }
   scLastRunId=r.runId;
   try{localStorage.setItem('sc_dir',dir);localStorage.setItem('sc_last_run',r.runId);}catch(e){}
-  $('#sc_results').innerHTML='<p class="muted">已提交智能体（agent: '+esc(r.agentId||'')+'），执行中…</p>';
+  $('#sc_results').innerHTML='<p class="muted">已提交智能体（编号 '+esc(r.agentId||'')+'），执行中…</p>';
   scPoll(r.runId);
 }
 function scResume(runId){ scPoll(runId); }
@@ -93,7 +92,7 @@ async function scPoll(runId){
   const s=d.summary||{};
   $('#sc_progress').innerHTML=
     `<span class="badge b-${d.status==='done'?'ok':d.status==='error'?'bad':'warn'}">${d.status==='running'?'智能体执行中':d.status==='done'?'已完成':d.status==='error'?'出错':d.status}</span>`+
-    ` 进度 ${d.done||0}/${d.total||0}　文件 ${d.fileCount||0} 个　agent <code>${esc(d.agentId||'')}</code>`+
+    ` 进度 ${d.done||0}/${d.total||0}　文件 ${d.fileCount||0} 个　智能体 <code>${esc(d.agentId||'')}</code>`+
     `　依据 ${esc(d.docNo||d.doc||'')}　目录 <code>${esc(d.dir||'')}</code>`+
     (d.error?`　<span class="muted">${esc(d.error)}</span>`:'')+
     (d.status==='done'?`　<a href="/api/selfcheck/runs/${runId}/report.pdf" class="ghost-link">导出合规自查报告（PDF）</a>`:'');
@@ -137,12 +136,11 @@ async function scLoadAgentStatus(){
   const d=await api('/api/selfcheck/agent/status').catch(()=>null);
   if(!d){ box.innerHTML='<span class="badge b-bad">状态接口不可达</span>'; return; }
   const g=d.gateway||{};
-  box.innerHTML=`<span class="badge b-${g.ok?'ok':'bad'}">${g.ok?'OpenClaw 智能体服务在线':'智能体服务离线（启动自查时自动拉起）'}</span>`+
-    ` <span class="muted">端点 ${esc(g.base||'—')}　整合目录 <code>${esc(d.home||'')}</code></span>`;
+  box.innerHTML=`<span class="badge b-${g.ok?'ok':'bad'}">${g.ok?'智能体服务在线':'智能体服务离线（启动自查时自动拉起）'}</span>`+
+    ` <span class="muted">服务端点 ${esc(g.base||'—')}</span>`;
 }
 
 // 检查台账（M5）本版本暂不提供：按需求先移除菜单与页面，后续再行补充。
-
 async function loadChecks() {
   const docEl = $('#ck_doc'), domEl = $('#ck_domain'), priEl = $('#ck_pri'), kwEl = $('#ck_kw'), listEl = $('#ck_list');
   if (!listEl) return;
@@ -197,7 +195,7 @@ async function showCheck(code) {
   const sc = (c.suggestedControls||[]).map(s=>{
     const badge = s.status === 'provisional'
       ? `<span class="badge b-warn">暂定对应 · 待 CT 确认</span>`
-      : `<span class="badge b-unk">待对齐（10 工程 v1.5）</span>`;
+      : `<span class="badge b-unk">待对齐</span>`;
     return `<li><span class="pill">${esc(s.layer)}</span> <b>${esc(s.name)}</b> ${badge}<br>
       <span class="muted">${esc(s.type||'')}${s.baseControlTitle ? '｜暂定对应底座：' + esc(s.baseControlTitle) : ''}</span></li>`;
   }).join('');
@@ -216,8 +214,7 @@ async function showCheck(code) {
     <details><summary>常见问题 / 根因 / 整改</summary><ul>${fp||'<li>—</li>'}</ul></details>
     <details><summary>关联检查项</summary><ul>${rel||'<li>—</li>'}</ul>
       <p class="muted">${esc(c.relatedRaw||'')}</p></details>
-    <details open><summary>建议控制措施（占位 · 待 10 工程 v1.5 CT 编码对齐）</summary>
-      <p class="muted">以下为检查侧控制需求占位，<b>非已落实 / 已对齐权威控制</b>；权威控制词汇唯一事实源 = <b>10 工程 v1.5</b>。</p>
+    <details open><summary>建议控制措施</summary>
       <ul>${sc||'<li>—</li>'}</ul></details>`;
 }
 
@@ -295,10 +292,10 @@ async function kbIngestSubmit(){
   const c = env.content || {};
   kbProcId = c.knowledgeId || '';
   out.innerHTML = `<p>${srcBar(env)}</p>
-    <p>已投递：<b>${esc(c.title||title)}</b>　knowledgeId=<code>${esc(kbProcId||'—')}</code></p>
-    <p class="muted">投递后由知识库平台自行解析 / 分块 / 向量化，平台只回显进度（不直写知识库）。</p>`;
+    <p>已投递：<b>${esc(c.title||title)}</b>　知识条目编号 <code>${esc(kbProcId||'—')}</code></p>
+    <p class="muted">已提交知识库平台处理，处理进度实时回显。</p>`;
   $('#kp_status').innerHTML = kbProcId ? '<p class="muted">读取加工进度…</p>'
-    : '<p class="muted">未取得 knowledgeId，进度暂不可查（可在「知识库」刷新查看）。</p>';
+    : '<p class="muted">未取得知识条目编号，进度暂不可查（可前往「知识库」查询）。</p>';
   if (kbProcId) kbPollStatus();
 }
 async function kbPollStatus(){
@@ -317,16 +314,16 @@ async function kbPollStatus(){
   if (!s.ready) kbProcTimer = setTimeout(kbPollStatus, 3000);   // 未完成则继续轮询
 }
 
-// ---------- LLM 配置（v1.12.0：前端可配置，UI 优先、env 兜底，免重启生效）----------
+// ---------- 模型服务配置（前端可配置，界面配置优先、环境变量兜底，免重启生效）----------
 async function loadLlmset() {
   const st = await api('/api/settings/llm').catch(() => null);
-  if (!st) { $('#llm_status').innerHTML = '配置读取失败：' + (st ? '' : 'API 不可达'); return; }
+  if (!st) { $('#llm_status').innerHTML = '配置读取失败：服务不可达'; return; }
   $('#llm_base').value = st.base_url || '';
   $('#llm_model').value = st.model || '';
   const keyInfo = st.api_key_set ? ('已设置（' + st.api_key_masked + '）') : '未设置（自动降级规则抽取）';
-  $('#llm_status').innerHTML = '当前 Key：' + keyInfo +
-    ' · 生效来源：' + (st.source === 'db' ? '前端配置（UI）' : '环境变量（env）') +
-    (st.ui_configured ? ' · 前端已配置' : '');
+  $('#llm_status').innerHTML = '当前访问密钥：' + keyInfo +
+    ' · 生效来源：' + (st.source === 'db' ? '界面配置' : '环境变量') +
+    (st.ui_configured ? ' · 已由界面配置' : '');
 }
 
 async function llmSave() {
@@ -342,9 +339,9 @@ async function llmSave() {
     headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)}).catch(() => null);
   if (!st) { $('#llm_status').innerHTML = '保存失败：API 不可达。'; return; }
   $('#llm_key').value = '';
-  $('#llm_status').innerHTML = '✓ 已保存并生效。当前 Key：' +
+  $('#llm_status').innerHTML = '✓ 已保存并生效。当前访问密钥：' +
     (st.api_key_set ? '已设置（' + st.api_key_masked + '）' : '未设置') +
-    ' · Model：' + st.model + ' · 来源：' + (st.source === 'db' ? '前端配置（UI）' : '环境变量');
+    ' · 模型：' + st.model + ' · 来源：' + (st.source === 'db' ? '界面配置' : '环境变量');
 }
 
 async function llmTest() {
@@ -358,7 +355,7 @@ async function llmTest() {
   $('#llm_status').innerHTML = '测试中…';
   const st = await api('/api/settings/llm/test', {method: 'POST',
     headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)}).catch(() => null);
-  $('#llm_status').innerHTML = (st && st.ok ? '✓ ' : '✗ ') + (st ? st.detail : '测试失败：API 不可达');
+  $('#llm_status').innerHTML = (st && st.ok ? '✓ ' : '✗ ') + (st ? st.detail : '测试失败：服务不可达');
 }
 
 // ---------- 设置页：可引用的知识库（多选） + 取数来源状态 ----------
@@ -418,16 +415,16 @@ async function kbPickReset(){
   await kbPickSave();
 }
 
-// 主动刷新：失效后端取数缓存 → 立即重取知识库首屏索引并回显条目数/取数时间。
-// 对应「知识库内容更新后，前端如何拿到最新」的机制（30s TTL 之外的手动即时刷新）。
+// 主动查询：失效后端取数缓存 → 立即重取知识库首屏索引并回显条目数/取数时间。
+// 对应「知识库内容更新后，前端如何拿到最新」的机制（30s TTL 之外的手动即时查询）。
 async function kbRefreshData(){
-  const el = $('#kb_refresh_status'); if (el) el.textContent = '刷新中…';
+  const el = $('#kb_refresh_status'); if (el) el.textContent = '查询中…';
   const env = await api('/api/kb/cache/invalidate', {method: 'POST'}).catch(() => null);
-  if (!env){ if (el) el.textContent = '刷新失败：接口不可达。'; return; }
+  if (!env){ if (el) el.textContent = '查询失败：接口不可达。'; return; }
   kbSiteInited = false;                       // 使知识库视图按最新数据重建
   await kbSiteShow();
   const n = (window.KNOWLEDGE_BASE && (window.KNOWLEDGE_BASE.entities || []).length) || 0;
-  if (el) el.textContent = '✓ 已刷新，条目 ' + n +
+  if (el) el.textContent = '✓ 已查询到最新，条目 ' + n +
     '　取数 ' + String(env.fetchedAt || '').replace('T', ' ');
 }
 

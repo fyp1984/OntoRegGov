@@ -38,15 +38,17 @@ window.KbSite = (function () {
   var IN_CACHE = {};        // 入链缓存（随条目详情接口返回）
   /* 图谱多源（v1.20.0）：每个来源首次访问时各取一次并缓存；切换来源不重取。
    *   site     —— 本站知识库装配图（Markdown -> nodes/edges）
-   *   native   —— 底层抽取图（Neo4j :ENTITY*，经后端只读代理）
-   *   ontology —— 平台本体镜像图（Neo4j :Entity @ dsec.local）
-   * 后端在 Neo4j 不可达时自动回落 site，信封 source 字段标注实际来源。 */
+   *   native   —— 底层实体抽取图（经后端只读代理）
+   *   ontology —— 平台本体镜像图
+   * 后端在底层实体库不可达时自动回落 site，信封 source 字段标注实际来源。 */
   var GRAPH_SOURCES = [
     { key: 'site',     label: '知识库图谱',   hint: '本站知识库装配图 · 11 类实体' },
-    { key: 'native',   label: '底层抽取图',   hint: '底层实体抽取图（Neo4j）' },
-    { key: 'ontology', label: '平台本体图',   hint: '平台本体镜像图（Neo4j · dsec）' }
+    { key: 'native',   label: '底层抽取图',   hint: '底层实体抽取图' },
+    { key: 'ontology', label: '平台本体图',   hint: '平台本体镜像图' }
   ];
   var GRAPH_CACHE = {}, GRAPH_PENDING = {}, GRAPH_SRC = 'site', GRAPH_LOADED = false;
+  // 取数来源英文键 → 中文可读名（避免英文键直接上屏）
+  var SOURCE_TEXT = { weknora: '知识库实时', canonical: '正本图', db: '结构化投影', sqlite: '运行台账', site: '本站装配', none: '来源不可用' };
 
   function apiGet(url) {
     return fetch(url, { headers: { 'Accept': 'application/json' } })
@@ -1228,7 +1230,7 @@ window.KbSite = (function () {
       '    <span>节点 <b id="gsNodes">' + g.nodes.length + '</b></span>' +
       '    <span>关系 <b id="gsEdges">' + g.edges.length + '</b></span>' +
       '    <span>类型 <b id="gsTypes">' + types.length + '</b></span>' +
-      (g.meta.source ? '    <span class="gs-src">' + esc(g.meta.source) + '</span>' : '') +
+      (g.meta.source ? '    <span class="gs-src">' + esc(SOURCE_TEXT[g.meta.source] || '本站装配') + '</span>' : '') +
       '  </div>' +
       '</div>' +
       '<div class="graph-layout" id="graphLayout">' +

@@ -166,29 +166,6 @@ CREATE TABLE IF NOT EXISTS kb_category_mapping(
 
 -- 第八轮：8 个扩展视图功能化（可写作业表）
 -- 口径：每张表承载一个"作业流程"的输入与状态，写操作一律校验 + 审计留痕。
-CREATE TABLE IF NOT EXISTS capability_instance(
-  instance_id TEXT PRIMARY KEY, domain_no INTEGER, domain_name TEXT, name TEXT,
-  kind TEXT, input_desc TEXT, output_desc TEXT, status TEXT DEFAULT 'active',
-  owner TEXT, created_by TEXT, created_at TEXT, updated_at TEXT);
-
-CREATE TABLE IF NOT EXISTS arch_module(
-  module_id TEXT PRIMARY KEY, layer_no INTEGER, layer_name TEXT, name TEXT,
-  access_mode TEXT, bound_capability TEXT, status TEXT DEFAULT 'active',
-  owner TEXT, created_by TEXT, created_at TEXT, updated_at TEXT);
-
-CREATE TABLE IF NOT EXISTS path_stage_state(
-  stage TEXT PRIMARY KEY, stage_name TEXT, status TEXT DEFAULT 'pending',
-  started_at TEXT, finished_at TEXT, updated_by TEXT, updated_at TEXT);
-
-CREATE TABLE IF NOT EXISTS path_gate_item(
-  item_id TEXT PRIMARY KEY, stage TEXT, seq INTEGER, text TEXT,
-  checked INTEGER DEFAULT 0, checked_by TEXT, checked_at TEXT);
-
-CREATE TABLE IF NOT EXISTS retained_asset_record(
-  asset_id TEXT PRIMARY KEY, name TEXT, category TEXT, source_stage TEXT, ref TEXT,
-  status TEXT DEFAULT '在册', owner TEXT, created_by TEXT, created_at TEXT,
-  archived_at TEXT, updated_at TEXT);
-
 CREATE TABLE IF NOT EXISTS frame_chain_case(
   case_id TEXT PRIMARY KEY, title TEXT, issue_no TEXT, status TEXT DEFAULT 'in_progress',
   current_ring INTEGER DEFAULT 1, owner TEXT, created_by TEXT, created_at TEXT, updated_at TEXT);
@@ -213,6 +190,79 @@ CREATE TABLE IF NOT EXISTS issue_disposal(
   disposal_id TEXT PRIMARY KEY, issue_no TEXT, issue_name TEXT, layer TEXT,
   status TEXT DEFAULT 'open', org_name TEXT, position TEXT, plan TEXT, evidence TEXT,
   owner TEXT, created_by TEXT, created_at TEXT, updated_at TEXT, closed_at TEXT);
+
+-- 第九轮：多角色闭环工作流 / 知识发布治理 / 资产台账 / 插件治理 / 权限精细化
+-- 口径：每张表承载一个"作业流程"的输入与状态，写操作一律校验 + 审计留痕。
+
+-- 插件治理（启停开关 / 逐插件配置项 / 三种装载方式）
+CREATE TABLE IF NOT EXISTS plugin_setting(
+  plugin_id TEXT PRIMARY KEY, enabled INTEGER DEFAULT 1, kind TEXT DEFAULT 'builtin',
+  config_json TEXT, config_schema_json TEXT, loaded_at TEXT, updated_by TEXT, updated_at TEXT);
+
+-- 安全治理闭环（登记→定级→派单→接收→整改→回复→复检→核查确认→归档）
+CREATE TABLE IF NOT EXISTS gov_issue(
+  issue_id TEXT PRIMARY KEY, issue_no TEXT, title TEXT, source TEXT, category TEXT,
+  severity TEXT, dept_id TEXT, dept_name TEXT, position_id TEXT, position_name TEXT,
+  owner TEXT, status TEXT DEFAULT 'open', due_date TEXT, plan TEXT, recheck_result TEXT,
+  created_by TEXT, created_at TEXT, updated_at TEXT, closed_at TEXT);
+
+CREATE TABLE IF NOT EXISTS gov_transition(
+  transition_id TEXT PRIMARY KEY, issue_id TEXT, from_status TEXT, to_status TEXT,
+  action TEXT, actor TEXT, actor_name TEXT, comment TEXT, created_at TEXT);
+
+CREATE TABLE IF NOT EXISTS gov_evidence(
+  evidence_id TEXT PRIMARY KEY, issue_id TEXT, step TEXT, file_name TEXT, note TEXT,
+  uploaded_by TEXT, uploaded_at TEXT);
+
+-- 知识发布治理（目标知识库 / 文档 / 版本 / 变更清单 / 调用日志 / 专家审核）
+CREATE TABLE IF NOT EXISTS kb_target(
+  kb_id TEXT PRIMARY KEY, name TEXT, kind TEXT, doc_count INTEGER DEFAULT 0, synced_at TEXT);
+
+CREATE TABLE IF NOT EXISTS kb_document(
+  doc_id TEXT PRIMARY KEY, kb_id TEXT, title TEXT, doc_type TEXT, source TEXT,
+  version TEXT, status TEXT, owner TEXT, uploaded_by TEXT, created_at TEXT, updated_at TEXT);
+
+CREATE TABLE IF NOT EXISTS kb_doc_version(
+  version_id TEXT PRIMARY KEY, doc_id TEXT, version TEXT, content_hash TEXT, note TEXT,
+  created_by TEXT, created_at TEXT);
+
+CREATE TABLE IF NOT EXISTS kb_change_log(
+  change_id TEXT PRIMARY KEY, doc_id TEXT, change_type TEXT, summary TEXT,
+  actor TEXT, created_at TEXT);
+
+CREATE TABLE IF NOT EXISTS kb_call_log(
+  call_id TEXT PRIMARY KEY, doc_id TEXT, caller TEXT, scene TEXT, query TEXT, created_at TEXT);
+
+CREATE TABLE IF NOT EXISTS kb_review(
+  review_id TEXT PRIMARY KEY, doc_id TEXT, reviewer TEXT, reviewer_name TEXT,
+  decision TEXT, comment TEXT, created_at TEXT, decided_at TEXT);
+
+-- 资产台账（应用资产 / 配置管理 / 制度办法 分类汇总 + 知识库联动）
+CREATE TABLE IF NOT EXISTS asset_record(
+  asset_id TEXT PRIMARY KEY, name TEXT, category TEXT, source TEXT, dept_id TEXT, dept_name TEXT,
+  owner TEXT, version TEXT, status TEXT, kb_doc_id TEXT, note TEXT,
+  created_by TEXT, created_at TEXT, updated_at TEXT);
+
+-- 场景包扩展（知识来源 / 调用的知识库 / 部门岗位角色 / 工具 / 系统 / 模板）
+CREATE TABLE IF NOT EXISTS scenario_detail(
+  pack_id TEXT PRIMARY KEY, knowledge_source TEXT, kb_ids_json TEXT, depts_json TEXT,
+  positions_json TEXT, roles_json TEXT, tools_json TEXT, systems_json TEXT, templates_json TEXT,
+  updated_by TEXT, updated_at TEXT);
+
+-- 权限精细化（角色-菜单操作权限 / 角色-数据权限）+ 轻量单点登录配置
+CREATE TABLE IF NOT EXISTS role_menu_perm(
+  perm_id TEXT PRIMARY KEY, role_id TEXT, menu_key TEXT, actions_json TEXT);
+
+CREATE TABLE IF NOT EXISTS role_data_scope(
+  scope_id TEXT PRIMARY KEY, role_id TEXT, scope_type TEXT, scope_json TEXT,
+  updated_by TEXT, updated_at TEXT);
+
+CREATE TABLE IF NOT EXISTS sso_config(k TEXT PRIMARY KEY, v TEXT);
+
+-- 现状诊断输入材料（历史自查报告 / 工作佐证 / 资产配置 / 资产清单）
+CREATE TABLE IF NOT EXISTS diag_input(
+  input_id TEXT PRIMARY KEY, assessment_id TEXT, kind TEXT, file_name TEXT, note TEXT,
+  size INTEGER, uploaded_by TEXT, uploaded_at TEXT);
 
 -- 演示状态（键值）
 CREATE TABLE IF NOT EXISTS demo_state(k TEXT PRIMARY KEY, v TEXT);
@@ -249,9 +299,13 @@ ALL_TABLES = [
     "kb_publish_run", "audit_log", "scenario_pack", "plugin_registry", "plugin_invocation",
     "collect_task", "kb_category_mapping", "demo_state",
     # 第八轮：8 个扩展视图功能化表
-    "capability_instance", "arch_module", "path_stage_state", "path_gate_item",
-    "retained_asset_record", "frame_chain_case", "frame_ring_record",
+    "frame_chain_case", "frame_ring_record",
     "diag_assessment", "diag_answer", "ledger_row", "issue_disposal",
+    # 第九轮：多角色闭环工作流 / 知识发布治理 / 资产台账 / 插件治理 / 权限精细化
+    "plugin_setting", "gov_issue", "gov_transition", "gov_evidence",
+    "kb_target", "kb_document", "kb_doc_version", "kb_change_log", "kb_call_log", "kb_review",
+    "asset_record", "scenario_detail", "role_menu_perm", "role_data_scope", "sso_config",
+    "diag_input",
 ]
 
 
