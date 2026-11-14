@@ -31,6 +31,12 @@
     watermark: '文档水印', ocr: '图像文字识别', dlp: '数据防泄漏'
   };
 
+  // 页签：按功能拆分（插件清单 / 调用记录）
+  var TABS = [
+    { key: 'plugins', label: '插件清单' },
+    { key: 'invocations', label: '调用记录' }
+  ];
+
   var S = {
     plugins: null,        // null = 未加载
     remoteCatalog: [],
@@ -38,7 +44,8 @@
     invocations: null,
     invLimit: 50,
     configOpen: null,
-    invokeOpen: null
+    invokeOpen: null,
+    tab: 'plugins'        // 当前页签
   };
 
   function rootEl() { return document.getElementById('plugin_root'); }
@@ -71,19 +78,55 @@
     var opts = [20, 50, 100].map(function (n) {
       return '<option value="' + n + '"' + (n === S.invLimit ? ' selected' : '') + '>' + n + '</option>';
     }).join('');
-    return '' +
-      '<div class="dz-toolbar">' +
-        '<button class="ghost" id="pl_refresh" title="重新查询插件与调用记录" aria-label="查询">查询</button>' +
-        '<label class="muted" for="pl_inv_limit" style="margin:0">调用记录条数</label>' +
-        '<select id="pl_inv_limit" style="width:auto" title="调用记录条数" aria-label="调用记录条数">' + opts + '</select>' +
-      '</div>' +
+    // 顶部动作/筛选统一走扁平筛选行组件：控件同排一行，控件宽度由组件规范决定
+    return DZ.filterBar([
+      { label: '调用记录条数', html: '<select id="pl_inv_limit" title="调用记录条数" aria-label="调用记录条数">' + opts + '</select>' }
+    ], {
+      aria: '插件筛选',
+      end: '<button class="ghost" id="pl_refresh" title="重新查询插件与调用记录" aria-label="查询">查询</button>'
+    }) +
       '<div id="pl_kpis">' + DZ.skeleton(2) + '</div>' +
       '<div id="pl_msg"></div>' +
+      '<div id="pl_tabs"></div>' +
+      '<div id="pl_pane" class="dz-pane"></div>';
+  }
+
+  // 页签内容壳：切换页签仅渲染当前内容
+  function paneHtml(key) {
+    if (key === 'invocations') {
+      return '<div class="card"><h3>调用记录</h3><div id="pl_inv_list"></div></div>';
+    }
+    return '' +
       '<div class="card"><h3>插件清单</h3><div id="pl_list"></div></div>' +
       '<div id="pl_config_area"></div>' +
       '<div id="pl_invoke_area"></div>' +
-      '<div class="card"><h3>插件装载</h3><div id="pl_install_area"></div></div>' +
-      '<div class="card"><h3>调用记录</h3><div id="pl_inv_list"></div></div>';
+      '<div class="card"><h3>插件装载</h3><div id="pl_install_area"></div></div>';
+  }
+
+  function renderPane() {
+    var pane = document.getElementById('pl_pane');
+    if (!pane) return;
+    var guide = {
+      plugins: '<b>插件清单</b>：查看已纳管插件与启停状态，可安装新插件并配置其能力。',
+      invocations: '<b>调用记录</b>：查看插件被智能体调用的明细与结果。'
+    }[S.tab] || '';
+    pane.innerHTML = DZ.guide(guide) + paneHtml(S.tab);
+    if (S.tab === 'invocations') {
+      renderInvocationList();
+    } else {
+      renderPluginList();
+      renderConfigArea();
+      renderInvokeArea();
+      renderInstallArea();
+    }
+  }
+
+  function switchTab(key) {
+    if (TABS.filter(function (t) { return t.key === key; }).length) S.tab = key;
+    DZ.tabs('#pl_tabs', TABS, S.tab, switchTab);
+    renderPane();
+    if (S.tab === 'invocations') loadInvocations(false);
+    else loadSettings(false);
   }
 
   function mount() {
@@ -94,11 +137,8 @@
     if (rb) rb.onclick = function () { loadSettings(true); loadInvocations(true); };
     var lim = document.getElementById('pl_inv_limit');
     if (lim) lim.onchange = function () { S.invLimit = Number(this.value) || 50; loadInvocations(true); };
-    renderPluginList();
-    renderConfigArea();
-    renderInvokeArea();
-    renderInstallArea();
-    renderInvocationList();
+    DZ.tabs('#pl_tabs', TABS, S.tab, switchTab);
+    renderPane();
     loadSettings(false);
     loadInvocations(false);
   }
@@ -106,7 +146,7 @@
   /* ---------------------------------------------------------- 指标 / 清单 */
   function renderKpis(summary) {
     var s = summary || { total: null, enabled: null, disabled: null };
-    DZ.render('#pl_kpis', '<div class="dz-kpi-row">' +
+    DZ.render('#pl_kpis', '<div class="dz-kpi-row is-compact">' +
       DZ.kpi('插件总数', DZ.number(s.total), '已纳管', '') +
       DZ.kpi('已启用', DZ.number(s.enabled), '可被智能体调用', 'ok') +
       DZ.kpi('已停用', DZ.number(s.disabled), '暂不参与调用', 'warn') +
@@ -347,7 +387,11 @@
     if (out.capability) html += metric('能力', esc(capLabel(out.capability)));
     if (out.result) html += metric('执行结果', out.result === 'ok' ? '成功' : esc(out.result));
     if (out.message) html += metric('说明', esc(out.message));
+    html += '<div class="dz-actions" style="justify-content:flex-start;margin-top:12px">' +
+      '<button class="ghost" id="pl_goto_inv" title="前往调用记录页签">查看调用记录</button></div>';
     box.innerHTML = html;
+    var g = document.getElementById('pl_goto_inv');
+    if (g) g.onclick = function () { switchTab('invocations'); };
   }
 
   /* ---------------------------------------------------------- 装载（用户上传 / 从服务端下载） */

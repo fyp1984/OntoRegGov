@@ -33,6 +33,7 @@
       '</div>' +
       '<div id="frame_msg"></div>' +
       '<div id="frame_form"></div>' +
+      DZ.guide('<b>治理框架</b>：以「闭合链六环」从问题登记推进到整改验收，每环留痕并最终形成闭环。') +
       '<div id="frame_kpis">' + DZ.skeleton(2) + '</div>' +
       '<div class="card"><h3>闭合链六环</h3><div id="frame_chain">' + DZ.skeleton(1) + '</div></div>' +
       '<div id="frame_cases">' + DZ.skeleton(3) + '</div>';
@@ -172,7 +173,7 @@
 
   function renderKpis(summary) {
     var s = summary || {};
-    DZ.render('#frame_kpis', '<div class="dz-kpi-row">' +
+    DZ.render('#frame_kpis', '<div class="dz-kpi-row is-compact">' +
       DZ.kpi('闭合环节', DZ.number(s.chain), '从问题到整改验收', '') +
       DZ.kpi('在办案件', DZ.number(s.cases), '已建闭合链', '') +
       DZ.kpi('推进中', DZ.number(s.progressing), '未闭环', 'warn') +

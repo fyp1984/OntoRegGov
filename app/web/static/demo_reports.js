@@ -30,6 +30,7 @@
   // 视图状态：跨重入常驻（当前步骤 / 选中任务 / 筛选与已取数）
   const S = {
     step: 1,          // 1 选任务 / 2 看板 / 3 明细
+    tab: 'pick',      // 当前页签（pick / board / export），与 step 对应
     tasks: [],
     taskId: null,
     org: '', cycle: '',
@@ -48,6 +49,21 @@
   const RESULT_COLOR = { pass: 'var(--ok)', partial: 'var(--warn)', fail: 'var(--bad)', supplement: 'var(--unk)' };
   const OPTS = [['', '全部'], ['pass', '符合'], ['partial', '部分符合'], ['fail', '不符合'], ['supplement', '需补充']];
 
+  // 页签：与 S.step 一一对应（pick=选任务 / board=看板 / export=明细与导出）
+  const TABS = [
+    { key: 'pick', label: '选择任务' },
+    { key: 'board', label: '任务看板' },
+    { key: 'export', label: '明细与导出' }
+  ];
+  const TAB_STEP = { pick: 1, board: 2, export: 3 };
+  const STEP_TAB = { 1: 'pick', 2: 'board', 3: 'export' };
+  // 每个步骤的引导说明：按「选择任务 → 任务看板 → 明细与导出」的顺序推进
+  const STEP_GUIDE = {
+    1: '<b>选择任务</b>：选择一条自查任务，作为生成合规报告的对象。',
+    2: '<b>任务看板</b>：查看该任务的判定分布、证据齐备率与整改情况。',
+    3: '<b>明细与导出</b>：查看检查项明细，并按需导出合规报告。'
+  };
+
   // ---------- 小工具 ----------
   function root(){ return document.querySelector(ROOT); }
   function errMsg(d){ return (d && d.error && d.error.message) || '接口请求失败'; }
@@ -61,7 +77,8 @@
 
   // ---------- 骨架 / 挂载 ----------
   function shell(){
-    return '<div id="rep_head"></div><div id="rep_body"></div>';
+    return '<div id="rep_head"></div><div id="rep_tabs"></div>' +
+      '<div id="rep_pane" class="dz-pane"><div id="rep_body"></div></div>';
   }
   function setBody(html){ DZ.render('#rep_body', html); }
 
@@ -78,9 +95,29 @@
   function render(){
     const head = document.getElementById('rep_head');
     if (head) head.innerHTML = toolbarHtml();
-    if (S.step === 1) setBody(step1Html());
-    else if (S.step === 2) setBody(step2Html());
-    else setBody(step3Html());
+    renderTabs();
+    const g = DZ.guide(STEP_GUIDE[S.step] || '');
+    if (S.step === 1) setBody(g + step1Html());
+    else if (S.step === 2) setBody(g + step2Html());
+    else setBody(g + step3Html());
+  }
+
+  // ---------- 页签（选择任务 / 任务看板 / 明细与导出） ----------
+  // 页签只承载呈现结构：切换时改变 S.step，内容仍渲染进 #rep_body 并按页签互斥。
+  function renderTabs(){
+    const key = STEP_TAB[S.step] || 'pick';
+    S.tab = key;
+    DZ.tabs('#rep_tabs', TABS, key, onTabClick);
+  }
+  function onTabClick(key){
+    const step = TAB_STEP[key];
+    if (!step || step === S.step) return;
+    if (step === 1){ S.step = 1; render(); return; }
+    if (!S.taskId){ S.step = 1; render(); DZ.toast('请先选择一条自查任务', 'warn'); return; }
+    S.step = step;
+    render();
+    if (step === 2 && !S.overview) loadOverview();
+    else if (step === 3 && !S.items) loadItems();
   }
 
   // ---------- 工具栏（文案统一：查询 / 返回任务列表 / 导出报告） ----------
@@ -211,17 +248,19 @@
     }
     const orgs = uniq(S.tasks.map(function(t){ return t.orgName; }).filter(Boolean));
     const cycles = uniq(S.tasks.map(function(t){ return t.cycle; }).filter(Boolean));
-    let html = '';
+    // 组织 / 周期筛选合并为同一行，避免两行筛选条各占一行篇幅
+    let chips = '';
     if (orgs.length > 1){
-      html += '<div class="dz-chipbar"><span class="muted" style="align-self:center">组织</span>' +
+      chips += '<span class="muted" style="align-self:center">组织</span>' +
         orgChip('全部组织', !S.org, '') +
-        orgs.map(function(o){ return orgChip(o, S.org === o, o); }).join('') + '</div>';
+        orgs.map(function(o){ return orgChip(o, S.org === o, o); }).join('');
     }
     if (cycles.length > 1){
-      html += '<div class="dz-chipbar"><span class="muted" style="align-self:center">周期</span>' +
+      chips += '<span class="muted" style="align-self:center;margin-left:12px">周期</span>' +
         cycleChip('全部周期', !S.cycle, '') +
-        cycles.map(function(c){ return cycleChip(c, S.cycle === c, c); }).join('') + '</div>';
+        cycles.map(function(c){ return cycleChip(c, S.cycle === c, c); }).join('');
     }
+    let html = chips ? '<div class="dz-chipbar">' + chips + '</div>' : '';
     const list = S.tasks.filter(function(t){
       return (!S.org || t.orgName === S.org) && (!S.cycle || t.cycle === S.cycle);
     });
@@ -283,7 +322,7 @@
       DZ.kpi('需补充', DZ.number(c.supplement), '判定为需补充', ''),
       DZ.kpi('证据齐备率', evPct + '%', '已提供 ' + DZ.number(evPro) + ' / ' + DZ.number(evReq), pctKind(evPct))
     ].join('');
-    return '<div class="dz-kpi-row">' + row + '</div>';
+    return '<div class="dz-kpi-row is-compact">' + row + '</div>';
   }
   function conclusion(o){
     const v = o.verdict || {};
@@ -348,14 +387,16 @@
     if (!S.items) return DZ.skeleton(5);
     const o = S.overview || {};
     const depts = Array.isArray(o.byDept) ? o.byDept : [];
-    let html = '<div class="dz-chipbar"><span class="muted" style="align-self:center">条线</span>' +
+    // 条线 / 判定筛选合并为同一行，避免两行筛选条各占一行篇幅
+    let chips = '<span class="muted" style="align-self:center">条线</span>' +
       lineChip('全部', !S.dept, '') +
-      depts.map(function(d){ return lineChip(d.label || d.key, S.dept === d.key, d.key); }).join('') + '</div>';
-    html += '<div class="dz-chipbar"><span class="muted" style="align-self:center">判定</span>' +
+      depts.map(function(d){ return lineChip(d.label || d.key, S.dept === d.key, d.key); }).join('') +
+      '<span class="muted" style="align-self:center;margin-left:12px">判定</span>' +
       OPTS.map(function(x){
         return '<button class="dz-chip' + (S.status === x[0] ? ' on' : '') + '" data-act="status" data-status="' +
           x[0] + '" title="按判定筛选">' + x[1] + '</button>';
-      }).join('') + '</div>';
+      }).join('');
+    let html = '<div class="dz-chipbar">' + chips + '</div>';
     if (!S.items.length) return html + DZ.empty('当前筛选条件下暂无检查项');
     const labelOf = deptLabelMap();
     const rows = S.items.map(function(it){ return itemRow(it, labelOf[it.lineCode]); }).join('');

@@ -89,16 +89,19 @@
       '<div id="diag_form"></div>' +
       '<div id="diag_tabs"></div>' +
       '<div class="dz-pane" data-pane="overview">' +
+        DZ.guide('<b>诊断总览</b>：以「三问链条」逐层判定现状符合度，形成诊断批次与结论。') +
         '<div class="card"><h3>三问链条</h3><div id="diag_chain">' + DZ.skeleton(1) + '</div></div>' +
         '<div id="diag_kpis">' + DZ.skeleton(2) + '</div>' +
         '<div class="card"><h3>诊断批次</h3><div id="diag_batches">' + DZ.skeleton(3) + '</div></div>' +
       '</div>' +
       '<div class="dz-pane" data-pane="inputs" hidden>' +
+        DZ.guide('<b>输入材料</b>：上传或登记诊断输入材料，并按材料类型汇总。') +
         '<div class="card"><h3>上传输入材料</h3><div id="diag_input_form"></div></div>' +
         '<div id="diag_input_kpis"></div>' +
         '<div class="card"><h3>输入材料清单</h3><div id="diag_input_list">' + DZ.skeleton(3) + '</div></div>' +
       '</div>' +
       '<div class="dz-pane" data-pane="items" hidden>' +
+        DZ.guide('<b>条款与修订</b>：逐条维护诊断条款的判定状态与修订意见。') +
         '<div id="diag_edit"></div>' +
         '<div id="diag_work"></div>' +
       '</div>';
@@ -200,7 +203,7 @@
     var s = summary || {};
     var a = s.answers || {};
     var drafts = list.filter(function (x) { return x.status !== 'submitted'; }).length;
-    DZ.render('#diag_kpis', '<div class="dz-kpi-row">' +
+    DZ.render('#diag_kpis', '<div class="dz-kpi-row is-compact">' +
       DZ.kpi('诊断维度', DZ.number(s.dimensions), '逐层覆盖', '') +
       DZ.kpi('每层三问', DZ.number(s.questions), '同一组问法', '') +
       DZ.kpi('诊断批次', DZ.number(list.length), '在办 ' + DZ.number(drafts) + ' 个', '') +
@@ -308,7 +311,7 @@
     var s = res.summary || {};
     var by = s.byKind || {};
     var kinds = res.kinds || [];
-    box.innerHTML = '<div class="dz-kpi-row">' +
+    box.innerHTML = '<div class="dz-kpi-row is-compact">' +
       DZ.kpi('输入材料', DZ.number(s.total), '合计', '') +
       kinds.map(function (k) { return DZ.kpi(k, DZ.number(by[k] || 0), '按材料类型', ''); }).join('') +
     '</div>';

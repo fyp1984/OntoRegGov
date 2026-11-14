@@ -111,11 +111,42 @@
   };
 
   // ---------- KPI 指标卡 ----------
+  // 说明文案同时写入 title：紧凑模式（.dz-kpi-row.is-compact）下说明默认隐藏，
+  // 悬停即可读出，兼顾"省篇幅"与"信息不丢"。
   DZ.kpi = function(label, value, sub, kind){
-    return '<div class="dz-kpi'+(kind?' k-'+kind:'')+'">'+
+    return '<div class="dz-kpi'+(kind?' k-'+kind:'')+'"'+(sub?' title="'+DZ.esc(sub)+'"':'')+'>'+
       '<div class="dz-kpi-label">'+DZ.esc(label)+'</div>'+
       '<div class="dz-kpi-value">'+DZ.esc(value)+'</div>'+
       (sub ? '<div class="dz-kpi-sub">'+DZ.esc(sub)+'</div>' : '')+'</div>';
+  };
+
+  // ---------- 紧凑指标条（列表 / 台账页顶部规模概览） ----------
+  // 用法：DZ.kpiCompact([['问题总数','6','累计登记'],['已归档','1','闭环','ok']])
+  DZ.kpiCompact = function(items){
+    return '<div class="dz-kpi-row is-compact">' +
+      (items||[]).map(function(it){ return DZ.kpi(it[0], it[1], it[2], it[3]); }).join('') +
+      '</div>';
+  };
+
+  // ---------- 筛选行（扁平单行：控件并排不换行，右侧放动作） ----------
+  // 用法：DZ.filterBar([{label:'状态',html:'<select…>'},…], {end:'<button…>'})
+  DZ.filterBar = function(items, opt){
+    opt = opt || {};
+    const body = (items||[]).map(function(it){
+      return '<span class="dz-filterbar-item">' +
+        (it.label ? '<span class="dz-filterbar-label">'+DZ.esc(it.label)+'</span>' : '') +
+        (it.html || '') + '</span>';
+    }).join('');
+    return '<div class="dz-filterbar" role="group"'+(opt.aria?' aria-label="'+DZ.esc(opt.aria)+'"':'')+'>' +
+      body +
+      (opt.end ? '<span class="dz-filterbar-end">'+opt.end+'</span>' : '') +
+    '</div>';
+  };
+
+  // ---------- 引导说明条（一句话讲清当前页面要做什么） ----------
+  DZ.guide = function(text){
+    return '<div class="dz-guide"><span class="dz-guide-icon" aria-hidden="true">i</span>' +
+      '<span>'+text+'</span></div>';
   };
 
   // ---------- 格式化 ----------
@@ -292,17 +323,19 @@
   // 视图元信息：所属分组（与左侧菜单分组一致）+ 页面标题。
   // 门楣只承载"当前位置"这一导航信息：不放模块编号，也不放功能介绍文字。
   const VIEW_META = {
-    selfcheck:{group:'自查与报告', title:'合规自查'},
-    dsc:      {group:'自查与报告', title:'安全自查'},
+    selfcheck:{group:'自查与报告', title:'智能预检'},
+    dsc:      {group:'自查与报告', title:'合规自查'},
     rep:      {group:'自查与报告', title:'报告与看板'},
     diag:     {group:'诊断与治理', title:'现状诊断'},
     ledger:   {group:'诊断与治理', title:'资产台账'},
     issues:   {group:'诊断与治理', title:'安全治理'},
     kbdash:   {group:'知识底座', title:'知识库'},
+    collect:  {group:'知识底座', title:'知识采集'},
     pipeline: {group:'知识底座', title:'知识发布'},
     scenario: {group:'能力与接入', title:'场景包'},
     plugin:   {group:'能力与接入', title:'工具插件'},
     gov:      {group:'平台与治理', title:'权限与组织'},
+    perm:     {group:'平台与治理', title:'权限策略与审计'},
     dsk:      {group:'平台与治理', title:'运行驾驶舱'},
     frame:    {group:'平台与治理', title:'治理框架'}
   };

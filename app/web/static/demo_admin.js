@@ -1,15 +1,17 @@
 /* ============================================================
-   权限与组织（视图 id: gov / 容器 #gov_root）· demo_admin.js
+   权限与组织 · demo_admin.js（拆分为两个菜单，各注册一个视图初始化）
+   视图 gov（权限与组织 / 容器 #gov_root）：组织 / 角色能力 / 人员绑定
+   视图 perm（权限策略与审计 / 容器 #perm_root）：菜单权限 / 数据范围 /
+            单点登录 / 文号注册 / 审计日志 / 治理看板
    严格只用 DZ.* 与 dz- 前缀 class；颜色 / 圆角仅走现有 CSS 变量。
-   九个页签：组织 / 角色能力 / 人员绑定 / 菜单权限 / 数据范围 /
-            单点登录 / 文号注册 / 审计日志 / 治理看板。
    新增页签取数惰性加载（切到该页签才请求后端）。
    所有异步先骨架屏；失败横幅 + 重试；空数据空态；写操作处理中反馈。
    ============================================================ */
 (function () {
   'use strict';
 
-  var ROOT = '#gov_root';
+  // 当前视图标识（gov / perm），与页签 key 区分：VIEW 是视图，S.tab 是页签
+  var VIEW = 'gov';
 
   // 后端真实路径（app/demo/router.py §5.10 / §auth）
   var API = {
@@ -41,36 +43,58 @@
   function levelLabel(l) { return LEVEL_LABEL[l] || l || '—'; }
   function kindLabel(k) { return KIND_LABEL[k] || k || '—'; }
 
-  var TABS = [
-    { key: 'org',     label: '组织' },
-    { key: 'roles',   label: '角色能力' },
-    { key: 'binding', label: '人员绑定' },
-    { key: 'menu',    label: '菜单权限' },
-    { key: 'scope',   label: '数据范围' },
-    { key: 'sso',     label: '单点登录' },
-    { key: 'docreg',  label: '文号注册' },
-    { key: 'audit',   label: '审计日志' },
-    { key: 'gov',     label: '治理看板' }
-  ];
-
-  // 模块级状态（跨页签保留选择）
-  var S = {
-    tab: 'org',
-    industry: 'bank',
-    roleSel: null,
-    roleNew: false,
-    roles: [],
-    caps: [],
-    matrix: {},
-    docs: [],
-    users: [],
-    session: null,
-    menuData: null,
-    menuRoleSel: null,
-    scopeData: null,
-    ssoData: null,
-    ssoNames: {}
+  // 页签注册表：按视图标识分槽（视图 gov / perm 各有自己的页签集合）
+  var TABS = {
+    gov: [
+      { key: 'org',     label: '组织' },
+      { key: 'roles',   label: '角色能力' },
+      { key: 'binding', label: '人员绑定' }
+    ],
+    perm: [
+      { key: 'menu',    label: '菜单权限' },
+      { key: 'scope',   label: '数据范围' },
+      { key: 'sso',     label: '单点登录' },
+      { key: 'docreg',  label: '文号注册' },
+      { key: 'audit',   label: '审计日志' },
+      { key: 'gov',     label: '治理看板' }
+    ]
   };
+
+  // 各页签的引导说明：一句话讲清本页签要做什么
+  var TAB_GUIDE = {
+    org: '「组织」：维护组织架构树，可按行业切换查看。',
+    roles: '「角色能力」：配置角色及其能力清单，作为权限控制的基础。',
+    binding: '「人员绑定」：将人员绑定到组织、岗位与角色。',
+    menu: '「菜单权限」：配置各角色可见的菜单。',
+    scope: '「数据范围」：配置各角色可见的数据层级范围，实现按层级隔离。',
+    sso: '「单点登录」：查看与配置单点登录对接信息。',
+    docreg: '「文号注册」：注册与维护依据文号，供自查与报告引用。',
+    audit: '「审计日志」：查看系统操作审计留痕，只追加不可改写。',
+    gov: '「治理看板」：总览治理与合规关键指标。'
+  };
+
+  // 各视图独立状态（互不覆盖跨页签的选择项）
+  function newState(tab) {
+    return {
+      tab: tab,
+      industry: 'bank',
+      roleSel: null,
+      roleNew: false,
+      roles: [],
+      caps: [],
+      matrix: {},
+      docs: [],
+      users: [],
+      session: null,
+      menuData: null,
+      menuRoleSel: null,
+      scopeData: null,
+      ssoData: null,
+      ssoNames: {}
+    };
+  }
+  var STATE = { gov: newState('org'), perm: newState('menu') };
+  var S = STATE[VIEW]; // 当前视图状态（在 init 中按 VIEW 切换）
 
   // ---------- 通用工具 ----------
   function title(t) { return '<div class="dz-section-title">' + DZ.esc(t) + '</div>'; }
@@ -115,12 +139,14 @@
   }
 
   // ---------- 装载 ----------
+  // 统一渲染：按 VIEW 切换状态槽与根容器（#gov_root / #perm_root），只渲染当前视图
   async function init() {
-    var box = document.querySelector(ROOT);
+    S = STATE[VIEW];
+    var box = document.getElementById(VIEW + '_root');
     if (!box) return;
     box.innerHTML =
-      '<div id="gov_tabs"></div><div id="gov_body"></div>';
-    DZ.tabs('#gov_tabs', TABS, S.tab, function (k) { S.tab = k; renderTab(); });
+      '<div id="' + VIEW + '_tabs"></div><div id="' + VIEW + '_hint"></div><div id="' + VIEW + '_body"></div>';
+    DZ.tabs('#' + VIEW + '_tabs', TABS[VIEW], S.tab, function (k) { S.tab = k; renderTab(); });
     await loadSession();
     renderTab();
   }
@@ -135,10 +161,11 @@
     docreg: renderDocReg, audit: renderAudit, gov: renderGov };
 
   function renderTab() {
-    var body = document.querySelector('#gov_body');
+    var body = document.getElementById(VIEW + '_body');
     if (!body) return;
+    DZ.render('#' + VIEW + '_hint', DZ.guide(TAB_GUIDE[S.tab] || ''));
     body.innerHTML = DZ.skeleton(5);
-    var f = RENDERERS[S.tab] || RENDERERS.org;
+    var f = RENDERERS[S.tab] || RENDERERS[TABS[VIEW][0].key];
     Promise.resolve(f(body)).catch(function (e) {
       body.innerHTML = fail({ error: { message: '渲染异常：' + ((e && e.message) || e) } });
     });
@@ -1080,19 +1107,21 @@
   // 5. 审计日志（G3 / 只追加）
   // =========================================================================
   function auditFilterBar() {
-    return '<div class="dz-toolbar">' +
-      '<input id="au_from" type="datetime-local" title="起始时间" aria-label="起始时间" style="width:auto" />' +
-      '<span class="muted">→</span>' +
-      '<input id="au_to" type="datetime-local" title="结束时间" aria-label="结束时间" style="width:auto" />' +
-      '<input id="au_actor" placeholder="操作者账号" title="操作者账号" aria-label="操作者账号" style="width:auto" />' +
-      '<input id="au_action" placeholder="动作（中文或代码，模糊匹配）" title="动作" aria-label="动作" style="width:auto" />' +
-      '<select id="au_limit" title="返回条数" aria-label="返回条数" style="width:auto">' +
+    // 统一走扁平筛选行组件：控件不再依赖内联 width:auto，且同排一行
+    return DZ.filterBar([
+      { label: '起始', html: '<input id="au_from" type="datetime-local" title="起始时间" aria-label="起始时间" />' },
+      { label: '结束', html: '<input id="au_to" type="datetime-local" title="结束时间" aria-label="结束时间" />' },
+      { label: '操作者', html: '<input id="au_actor" placeholder="操作者账号" title="操作者账号" aria-label="操作者账号" />' },
+      { label: '动作', html: '<input id="au_action" placeholder="中文或代码，模糊匹配" title="动作" aria-label="动作" />' },
+      { label: '条数', html: '<select id="au_limit" title="返回条数" aria-label="返回条数">' +
         ['50', '100', '200', '500'].map(function (n) { return '<option' + (n === '100' ? ' selected' : '') + '>' + n + '</option>'; }).join('') +
-      '</select>' +
-      '<button id="au_query" title="查询审计日志" aria-label="查询审计日志">查询</button>' +
-      '<button id="au_reset" class="ghost" title="重置筛选" aria-label="重置筛选">重置</button>' +
-      '<button id="au_export" class="ghost" title="导出记录表（导出动作本身留痕）" aria-label="导出审计记录表">导出记录表</button>' +
-    '</div>';
+        '</select>' }
+    ], {
+      aria: '审计日志筛选',
+      end: '<button id="au_query" title="查询审计日志" aria-label="查询审计日志">查询</button>' +
+        '<button id="au_reset" class="ghost" title="重置筛选" aria-label="重置筛选">重置</button>' +
+        '<button id="au_export" class="ghost" title="导出记录表（导出动作本身留痕）" aria-label="导出审计记录表">导出记录表</button>'
+    });
   }
 
   async function renderAudit(body) {
@@ -1195,7 +1224,7 @@
     var rebuild = (d && d.rebuild) || {};
     var kq = (d && d.knowledgeQuality) || {};
 
-    document.querySelector('#gv_kpi').innerHTML = '<div class="dz-kpi-row">' +
+    document.querySelector('#gv_kpi').innerHTML = '<div class="dz-kpi-row is-compact">' +
       DZ.kpi('审计留痕总数', DZ.number(audit.total || 0), '只追加不可改写') +
       DZ.kpi('哈希链校验', audit.chainOk ? '通过' : '失败', '前序哈希 → 当前哈希', audit.chainOk ? 'ok' : 'bad') +
       DZ.kpi('来源命中率', pct(d && d.sourceHitRate), '知识取数命中真实来源占比', 'ok') +
@@ -1241,11 +1270,17 @@
   }
 
   // =========================================================================
-  // 注册视图初始化
+  // 注册视图初始化（两个菜单各注册一个：gov / perm）
   // =========================================================================
   window.DEMO_VIEW_INIT = window.DEMO_VIEW_INIT || {};
   window.DEMO_VIEW_INIT['gov'] = function () {
-    // 每次进入视图重新渲染（幂等；保留当前页签与选择）
+    // 权限与组织：每次进入视图重新渲染（幂等；保留当前页签与选择）
+    VIEW = 'gov';
+    init();
+  };
+  window.DEMO_VIEW_INIT['perm'] = function () {
+    // 权限策略与审计：每次进入视图重新渲染（幂等；保留当前页签与选择）
+    VIEW = 'perm';
     init();
   };
 })();

@@ -5,7 +5,7 @@
    ============================================================ */
 
 /* ---------- 工具条 ---------- */
-.dz-toolbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px}
+.dz-toolbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px}
 .dz-toolbar .muted{font-size:12px}
 /* 全局 input/select 为 width:100%，在 flex 工具条里会把整行撑满并挤掉同行元素；
    工具条内的控件按内容宽度排布，保证同一行展示 */
@@ -30,23 +30,88 @@
   display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:2px 28px}
 .ret-fixed .dz-metric{border-bottom:0;padding:4px 0}
 
-/* ---------- KPI 指标卡 ---------- */
-.dz-kpi-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin-bottom:18px}
-.dz-kpi{position:relative;overflow:hidden;background:var(--card);border:1px solid var(--line);
-  border-radius:var(--radius);padding:14px 16px;box-shadow:var(--shadow)}
-.dz-kpi::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--brand)}
+/* ---------- KPI 指标卡（扁平：左侧色条 + 1px 边框，不用投影） ---------- */
+.dz-kpi-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(164px,1fr));gap:10px;margin-bottom:12px}
+.dz-kpi{position:relative;background:var(--card);border:1px solid var(--line);
+  border-left:3px solid var(--brand);border-radius:10px;padding:10px 14px}
 .dz-kpi-label{font-size:12px;color:var(--muted);font-weight:500}
-.dz-kpi-value{font-size:24px;font-weight:700;color:var(--brand-deep);line-height:1.35;margin-top:2px}
-.dz-kpi-sub{font-size:12px;color:var(--muted)}
-.dz-kpi.k-ok::before{background:var(--ok)}
+.dz-kpi-value{font-size:21px;font-weight:700;color:var(--brand-deep);line-height:1.3}
+.dz-kpi-sub{font-size:11.5px;color:var(--muted);line-height:1.5}
+.dz-kpi.k-ok{border-left-color:var(--ok)}
 .dz-kpi.k-ok .dz-kpi-value{color:var(--ok-ink)}
-.dz-kpi.k-warn::before{background:var(--warn)}
+.dz-kpi.k-warn{border-left-color:var(--warn)}
 .dz-kpi.k-warn .dz-kpi-value{color:var(--warn-ink)}
-.dz-kpi.k-bad::before{background:var(--bad)}
+.dz-kpi.k-bad{border-left-color:var(--bad)}
 .dz-kpi.k-bad .dz-kpi-value{color:var(--bad-ink)}
 
-/* ---------- 两栏自适应布局 ---------- */
-.dz-split{display:grid;grid-template-columns:320px minmax(0,1fr);gap:18px;align-items:start}
+/* ---------- 紧凑指标条（is-compact）：单行内联，竖向分隔线切分 ---------- */
+/* 用途：列表 / 台账页顶部的规模概览。相比大卡片可省约 60% 竖向篇幅， */
+/* 说明文字收进 title，鼠标悬停可读，避免页面被说明文案撑满。 */
+.dz-kpi-row.is-compact{display:flex;flex-wrap:wrap;gap:0;background:var(--card);
+  border:1px solid var(--line);border-radius:10px;margin-bottom:10px;overflow:hidden}
+.dz-kpi-row.is-compact .dz-kpi{flex:1 1 auto;min-width:126px;display:flex;align-items:baseline;
+  justify-content:center;gap:8px;padding:7px 16px;border:0;border-left:1px solid var(--line);
+  border-radius:0;background:transparent}
+.dz-kpi-row.is-compact .dz-kpi:first-child{border-left:0}
+.dz-kpi-row.is-compact .dz-kpi-label{order:1;font-size:12.5px}
+.dz-kpi-row.is-compact .dz-kpi-value{order:2;font-size:19px}
+.dz-kpi-row.is-compact .dz-kpi-sub{display:none}
+.dz-kpi-row.is-compact .dz-kpi:hover{background:var(--brand-soft)}
+
+/* ---------- 筛选行（扁平单行：控件自动宽度并排，右侧放动作） ---------- */
+/* 关键：全局 input/select 为 width:100%，在 flex 行里会把整行撑满并各自换行； */
+/* 这里显式改回 auto，确保多个筛选控件稳定同排一行。 */
+.dz-filterbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;
+  padding:8px 12px;margin-bottom:10px;background:var(--brand-soft);
+  border:1px solid var(--line);border-radius:10px}
+.dz-filterbar-item{display:inline-flex;align-items:center;gap:6px;min-width:0}
+.dz-filterbar-label{font-size:12px;color:var(--muted);white-space:nowrap}
+.dz-filterbar select,.dz-filterbar input{width:auto;flex:0 1 auto;min-width:92px;max-width:180px;
+  height:32px;padding:4px 24px 4px 10px;font-size:12.5px}
+.dz-filterbar input{padding-right:10px;max-width:200px}
+/* 日期时间控件的原生宽度偏大，按组件规范收窄，保证审计筛选仍能同排一行 */
+.dz-filterbar input[type="datetime-local"]{max-width:168px;min-width:0;font-size:12px;padding:4px 8px}
+.dz-filterbar-end{margin-left:auto;display:flex;align-items:center;gap:8px;flex:0 0 auto}
+.dz-filterbar-note{font-size:12px;color:var(--muted);white-space:nowrap}
+.dz-filterbar button{height:32px;padding:0 14px;font-size:12.5px}
+
+/* ---------- 引导说明条（页面目标 / 操作路径，一句话说清） ---------- */
+.dz-guide{display:flex;gap:8px;align-items:flex-start;font-size:12.5px;color:var(--muted);
+  line-height:1.6;padding:8px 12px;margin:0 0 10px;background:var(--brand-soft);
+  border-left:3px solid var(--brand-border);border-radius:8px}
+.dz-guide b{color:var(--brand-deep);font-weight:600}
+.dz-guide .dz-guide-icon{flex:none;color:var(--brand);font-weight:700}
+
+/* ---------- 扁平信息条（标题 + 说明 + 动作同排一行，不占一张卡片） ---------- */
+.dz-strip{display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+  padding:8px 12px;margin:0 0 10px;background:var(--brand-soft);
+  border:1px solid var(--line);border-radius:10px}
+.dz-strip>b{flex:none;color:var(--brand-deep);font-weight:600;font-size:13px}
+.dz-strip>.muted{flex:1 1 auto;min-width:0;font-size:12.5px}
+.dz-strip>button{flex:0 0 auto;height:32px;padding:0 14px;font-size:12.5px}
+
+/* ---------- 卡片头（标题 + 右侧动作同排一行，避免动作条单独占一行） ---------- */
+.dz-card-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 8px}
+.dz-card-head h3{margin:0;flex:1 1 auto;min-width:0}
+.dz-card-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;flex:0 0 auto}
+.dz-card-actions .muted{font-size:12px}
+.dz-card-actions button{height:32px;padding:0 14px;font-size:12.5px}
+
+/* ---------- 胶囊分组（标签 + 胶囊同排一行，多组自动流动换行） ---------- */
+.dz-chipgroup{display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap;margin:0}
+.dz-chipgroup-label{font-size:12px;color:var(--muted);white-space:nowrap}
+
+/* ---------- 数据表：扁平浅色表头（知识库视图自带表样式，不参与） ---------- */
+main > section.view:not(#kbdash) th{background:var(--brand-soft);color:var(--brand-deep);
+  font-weight:600;border-bottom:1px solid var(--line-strong);padding:8px 10px}
+main > section.view:not(#kbdash) th:first-child{border-radius:8px 0 0 0}
+main > section.view:not(#kbdash) th:last-child{border-radius:0 8px 0 0}
+main > section.view:not(#kbdash) td{padding:7px 10px}
+main > section.view:not(#kbdash) tbody tr:nth-child(even){background:#FBFCFE}
+main > section.view:not(#kbdash) .dz-table-wrap{border:1px solid var(--line);border-radius:10px}
+
+/* ---------- 两步栏自适应布局 ---------- */
+.dz-split{display:grid;grid-template-columns:320px minmax(0,1fr);gap:14px;align-items:start}
 .dz-side{min-width:0}
 .dz-main{min-width:0}
 .dz-sticky{position:sticky;top:16px;max-height:calc(100vh - 120px);overflow:auto}
@@ -73,7 +138,7 @@
 .dz-tl-title{font-weight:600;color:var(--brand-deep);font-size:13.5px}
 
 /* ---------- 胶囊筛选条 ---------- */
-.dz-chipbar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+.dz-chipbar{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:8px}
 .dz-chip{background:var(--brand-soft);border:1px solid var(--line-strong);border-radius:999px;
   padding:4px 12px;font-size:12.5px;color:var(--text);cursor:pointer;
   transition:background .15s,border-color .15s,color .15s}
@@ -101,7 +166,7 @@
 .dz-toast.out{opacity:0;transform:translateY(8px)}
 
 /* ---------- 提示条 ---------- */
-.dz-banner{display:flex;align-items:center;gap:10px;padding:10px 14px;margin-bottom:14px;
+.dz-banner{display:flex;align-items:center;gap:10px;padding:9px 13px;margin-bottom:10px;
   border-radius:10px;font-size:13px;background:var(--brand-bg);
   border:1px solid var(--brand-border);color:var(--brand-dark)}
 .dz-banner.warn{background:var(--warn-bg);border-color:var(--warn);color:var(--warn-ink)}
@@ -111,7 +176,7 @@
 
 /* ---------- 小字 / 进度条 ---------- */
 .dz-mini{font-size:12px;color:var(--muted)}
-.dz-bar{position:relative;height:8px;min-width:60px;border-radius:999px;background:var(--brand-bg);overflow:hidden}
+.dz-bar{position:relative;height:6px;min-width:48px;border-radius:999px;background:var(--brand-bg);overflow:hidden}
 .dz-bar>i{display:block;height:100%;border-radius:999px;
   background:linear-gradient(90deg,var(--brand),var(--brand-border));transition:width .4s}
 
@@ -123,13 +188,13 @@
   border-radius:6px;padding:1px 8px;font-size:12px;font-weight:500}
 
 /* ---------- 空态 ---------- */
-.dz-empty{text-align:center;padding:34px 16px;color:var(--muted);
+.dz-empty{text-align:center;padding:22px 16px;color:var(--muted);
   border:1px dashed var(--line-strong);border-radius:var(--radius);background:var(--brand-soft)}
 .dz-empty-title{font-size:13.5px;margin-bottom:10px}
 .dz-actions{display:flex;gap:10px;flex-wrap:wrap;align-items:center;justify-content:center}
 
 /* ---------- 选项卡 ---------- */
-.dz-tabs{display:flex;gap:6px;flex-wrap:wrap;border-bottom:1px solid var(--line);margin-bottom:14px}
+.dz-tabs{display:flex;gap:4px;flex-wrap:wrap;border-bottom:1px solid var(--line);margin-bottom:10px}
 .dz-tab{background:transparent;color:var(--muted);border:0;border-bottom:2px solid transparent;
   border-radius:0;padding:8px 12px;font-size:13px;font-weight:500;cursor:pointer;
   transition:background .15s,color .15s,border-color .15s}
@@ -197,7 +262,7 @@
 .dz-table-wrap{overflow:auto}
 
 /* ---------- 页面头（轻量页标题：所属分组 › 页面标题） ---------- */
-.dz-pagehead{display:flex;align-items:baseline;padding:0 0 8px;margin:0 0 14px;
+.dz-pagehead{display:flex;align-items:baseline;padding:0 0 7px;margin:0 0 10px;
   border-bottom:1px solid var(--line)}
 .dz-crumb{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;min-width:0}
 .dz-crumb-group{font-size:12.5px;color:var(--muted)}

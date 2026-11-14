@@ -23,12 +23,15 @@ import os from 'node:os';
 const BASE_URL = (process.env.BASE_URL || 'http://127.0.0.1:8420').replace(/\/$/, '');
 const ARGS = process.argv.slice(2);
 
-// 视图清单（与 app/web/static/index.html 的 nav + section 对齐，5 组 13 视图）
+// 视图清单（与 app/web/static/index.html 的 nav + section 对齐，5 组 14 视图）
 // 说明：checkslib（监管检查库）已并入知识库上方标签 #kb_nav（data-nav="checks"）；
 //       rem 已并入 issues（安全治理）；ext 已拆为 scenario + plugin；
-//       arch / capability / path / assets 四个视图已按下线要求彻底删除。
-const MAIN_VIEWS = ['selfcheck', 'dsc', 'rep', 'diag', 'ledger', 'issues',
-                    'kbdash', 'pipeline', 'scenario', 'plugin', 'gov', 'dsk', 'frame'];
+//       pipeline 已拆为 collect（知识采集）+ pipeline（知识发布）；
+//       gov 已拆为 gov（权限与组织）+ perm（权限策略与审计）；
+//       arch / capability / path / assets 四个视图已按下线要求彻底删除；
+//       selfcheck（智能预检）收敛为 dsc 执行自查页内的动作入口，不再作为独立菜单。
+const MAIN_VIEWS = ['dsc', 'rep', 'diag', 'ledger', 'issues',
+                    'kbdash', 'collect', 'pipeline', 'scenario', 'plugin', 'gov', 'perm', 'dsk', 'frame'];
 const KB_ROUTES = ['home', 'graph', 'path', 'timeline', 'cases', 'controls', 'checks'];
 
 // 数据一致性期望值（白皮书口径：第 7/9/11 章、附录 A.1-补 / B；与差距对照表一致）

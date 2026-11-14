@@ -1,6 +1,7 @@
 /* ============================================================
    资产台账（demo_ledger.js）
    视图 id：ledger   容器：#ledger_root
+   页签（按流程）：资产清单 / 分类汇总 / 知识库同步
    分类汇总 · 手工登记 · 存入知识库升版 · 从知识库同步
    读：GET /api/asset-ledger
    写：POST /api/asset-ledger、PUT /api/asset-ledger/{id}、DELETE /api/asset-ledger/{id}
@@ -20,7 +21,22 @@
 
   var STATUS_KIND = { '在册': 'ok', '待更新': 'warn', '已入库': 'ok' };
 
+  // 页签定义（按流程排序）
+  var TABS = [
+    { key: 'list', label: '资产清单' },
+    { key: 'summary', label: '分类汇总' },
+    { key: 'sync', label: '知识库同步' }
+  ];
+
+  // 各页签的引导说明：一句话讲清本页签要做什么
+  var TAB_GUIDE = {
+    list: '<b>资产清单</b>：查询、登记与维护数据资产；可从知识库同步资产记录，逐条查看来源与版本。',
+    summary: '<b>分类汇总</b>：按类别 / 来源 / 状态汇总资产，点击下方胶囊即可快速筛选。',
+    sync: '<b>知识库同步</b>：从知识库拉取资产记录并回写台账，保持台账与知识库一致。'
+  };
+
   var S = {
+    tab: 'list',
     data: null, kbs: null, depts: null,
     filter: { cat: 'all', source: 'all', status: 'all' },
     mode: 'none', editId: null, pushId: null, syncOpen: false, confirmDel: null,
@@ -55,19 +71,9 @@
   // ---------------------------------------------------------------- 骨架
   function shell() {
     return '' +
-      '<div class="dz-toolbar">' +
-        '<button id="ledger_query" title="按当前条件重新查询资产台账">查询</button>' +
-        '<button class="ghost" id="ledger_new" title="手工登记一条资产">登记资产</button>' +
-        '<button class="ghost" id="ledger_sync" title="从知识库加载资产记录">从知识库同步</button>' +
-        '<span class="muted" id="ledger_srcnote"></span>' +
-      '</div>' +
+      '<div id="lg_tabs"></div>' +
       '<div id="ledger_msg"></div>' +
-      '<div id="ledger_op"></div>' +
-      '<div id="ledger_form"></div>' +
-      '<div id="ledger_kpis">' + DZ.skeleton(2) + '</div>' +
-      '<div id="ledger_summary"></div>' +
-      '<div class="card"><h3>资产清单</h3>' +
-        '<div id="ledger_table" class="dz-table-wrap">' + DZ.skeleton(5) + '</div></div>';
+      '<div id="lg_pane" class="dz-pane"></div>';
   }
 
   function mount() {
@@ -75,17 +81,83 @@
     if (!r) return;
     r.innerHTML = shell();
     S.pushId = null; S.syncOpen = false; S.confirmDel = null;
-    var q = document.getElementById('ledger_query');
-    if (q) q.onclick = function () { S.confirmDel = null; load(true); };
-    var n = document.getElementById('ledger_new');
-    if (n) n.onclick = function () { openCreate(); };
-    var sy = document.getElementById('ledger_sync');
-    if (sy) sy.onclick = function () { openSync(); };
-    if (S.data && !S.busy) { renderAll(); }
+    renderTabs();
+    renderPane();
     load(false);
   }
 
   function setMsg(html) { DZ.render('#ledger_msg', html || ''); }
+
+  // ---------------------------------------------------------------- 页签
+  function renderTabs() {
+    DZ.tabs('#lg_tabs', TABS.map(function (t) { return { key: t.key, label: t.label }; }), S.tab, function (k) {
+      S.tab = k;
+      renderPane();
+    });
+  }
+
+  function switchTab(k) {
+    S.tab = k;
+    renderTabs();
+    renderPane();
+  }
+
+  function renderPane() {
+    var box = document.getElementById('lg_pane');
+    if (!box) return;
+    if (S.tab === 'summary') {
+      box.innerHTML = summaryPaneShell();
+      if (S.data) { renderKpis(S.data.summary || {}); renderSummary(); }
+    } else if (S.tab === 'sync') {
+      box.innerHTML = syncPaneShell();
+      bindSyncPane();
+      renderOp();
+    } else {
+      box.innerHTML = listPaneShell();
+      bindListPane();
+      if (S.data) { renderNote(); renderForm(); renderTable(); }
+    }
+    box.insertAdjacentHTML('afterbegin', DZ.guide(TAB_GUIDE[S.tab] || ''));
+  }
+
+  function listPaneShell() {
+    return '' +
+      '<div class="dz-toolbar">' +
+        '<button id="ledger_query" title="按当前条件重新查询资产台账">查询</button>' +
+        '<button class="ghost" id="ledger_new" title="手工登记一条资产">登记资产</button>' +
+        '<span class="muted" id="ledger_srcnote"></span>' +
+      '</div>' +
+      '<div id="ledger_form"></div>' +
+      '<div class="card"><h3>资产清单</h3>' +
+        '<div id="ledger_table" class="dz-table-wrap">' + DZ.skeleton(5) + '</div></div>';
+  }
+
+  function summaryPaneShell() {
+    return '' +
+      '<div id="ledger_kpis" class="dz-kpi-row is-compact">' + DZ.skeleton(2) + '</div>' +
+      '<div id="ledger_summary">' + DZ.skeleton(3) + '</div>';
+  }
+
+  function syncPaneShell() {
+    return '' +
+      '<div class="dz-toolbar">' +
+        '<button class="ghost" id="ledger_sync" title="从知识库加载资产记录">从知识库同步</button>' +
+        '<span class="muted">可将「资产清单」中的资产存入知识库，或从知识库加载文档为资产记录</span>' +
+      '</div>' +
+      '<div id="ledger_op"></div>';
+  }
+
+  function bindListPane() {
+    var q = document.getElementById('ledger_query');
+    if (q) q.onclick = function () { S.confirmDel = null; load(true); };
+    var n = document.getElementById('ledger_new');
+    if (n) n.onclick = function () { openCreate(); };
+  }
+
+  function bindSyncPane() {
+    var sy = document.getElementById('ledger_sync');
+    if (sy) sy.onclick = function () { openSync(); };
+  }
 
   // ---------------------------------------------------------------- 取数
   function ensureKbs() {
@@ -131,12 +203,8 @@
   }
 
   function renderAll() {
-    renderNote();
-    renderKpis(S.data.summary || {});
-    renderSummary();
-    renderTable();
-    renderForm();
-    renderOp();
+    renderTabs();
+    renderPane();
   }
 
   function renderNote() {
@@ -148,7 +216,7 @@
   // ---------------------------------------------------------------- KPI
   function renderKpis(s) {
     var catCount = (s.byCategory || []).length;
-    DZ.render('#ledger_kpis', '<div class="dz-kpi-row">' +
+    DZ.render('#ledger_kpis', '<div class="dz-kpi-row is-compact">' +
       DZ.kpi('资产总数', DZ.number(s.total), '在册全部资产', '') +
       DZ.kpi('已入库知识库', DZ.number(s.inKnowledgeBase), '已生成知识文档', 'ok') +
       DZ.kpi('待更新', DZ.number(s.pendingUpdate), '需升版的过时资产', 'warn') +
@@ -157,12 +225,16 @@
   }
 
   // ---------------------------------------------------------------- 分类汇总与筛选
-  function chipbar(group, items) {
-    return '<div class="dz-chipbar" data-group="' + group + '">' + items.map(function (it) {
-      var on = S.filter[group] === it.key;
-      return '<button class="dz-chip' + (on ? ' on' : '') + '" data-v="' + DZ.esc(it.key) +
-        '" title="' + DZ.esc(it.label) + '">' + DZ.esc(it.label) + '</button>';
-    }).join('') + '</div>';
+  // 分类汇总筛选：类别 / 来源 / 状态三组胶囊同排一行（组内标签内联），
+  // 取代原先「每组各占一行 + 独立小标题」的堆叠布局，缩短页面篇幅。
+  function chipgroup(group, label, items) {
+    return '<span class="dz-chipgroup" data-group="' + group + '">' +
+      '<span class="dz-chipgroup-label">' + DZ.esc(label) + '</span>' +
+      items.map(function (it) {
+        var on = S.filter[group] === it.key;
+        return '<button class="dz-chip' + (on ? ' on' : '') + '" data-v="' + DZ.esc(it.key) +
+          '" title="' + DZ.esc(it.label) + '">' + DZ.esc(it.label) + '</button>';
+      }).join('') + '</span>';
   }
 
   function countBy(field) {
@@ -183,17 +255,20 @@
     }
 
     box.innerHTML = '<div class="card"><h3>分类汇总</h3>' +
-      '<div class="muted">按类别</div>' + chipbar('cat', items(cats(), catN, assets().length)) +
-      '<div class="muted" style="margin-top:8px">按来源</div>' + chipbar('source', items(sources(), srcN, assets().length)) +
-      '<div class="muted" style="margin-top:8px">按状态</div>' + chipbar('status', items(statuses(), stN, assets().length)) +
+      '<div class="dz-filterbar" aria-label="分类汇总筛选">' +
+        chipgroup('cat', '按类别', items(cats(), catN, assets().length)) +
+        chipgroup('source', '按来源', items(sources(), srcN, assets().length)) +
+        chipgroup('status', '按状态', items(statuses(), stN, assets().length)) +
+      '</div>' +
     '</div>';
 
-    box.querySelectorAll('.dz-chipbar').forEach(function (bar) {
+    box.querySelectorAll('.dz-chipgroup').forEach(function (bar) {
       var g = bar.getAttribute('data-group');
       bar.querySelectorAll('.dz-chip').forEach(function (c) {
         c.onclick = function () {
           S.filter[g] = c.getAttribute('data-v');
-          renderSummary(); renderTable();
+          renderSummary();
+          renderTable();
         };
       });
     });
@@ -376,9 +451,8 @@
   // ---------------------------------------------------------------- 存入知识库
   function openPush(id) {
     S.pushId = id; S.syncOpen = false; S.confirmDel = null;
-    renderTable();
-    renderOp();
-    ensureKbs().then(function () { renderOp(); });
+    switchTab('sync');
+    ensureKbs().then(function () { if (S.tab === 'sync') renderOp(); });
   }
 
   function kbOptions(sel) {
@@ -456,8 +530,8 @@
   // ---------------------------------------------------------------- 从知识库同步
   function openSync() {
     S.syncOpen = true; S.pushId = null; S.confirmDel = null;
-    renderOp();
-    ensureKbs().then(function () { renderOp(); });
+    switchTab('sync');
+    ensureKbs().then(function () { if (S.tab === 'sync') renderOp(); });
   }
 
   function syncPanel() {
