@@ -48,6 +48,18 @@ const SOURCE_PROBES = ['/api/kb/knowledge/index', '/api/kb/knowledge/graph', '/a
 function log(...a) { console.log(...a); }
 function hr(t) { log('\n' + '='.repeat(64) + (t ? '\n' + t : '')); }
 
+function captureHttpErrors(page, errors) {
+  page.on('response', (r) => {
+    if (r.status() >= 400) {
+      errors.push(r.request().method() + ' ' + r.status() + ' ' + r.url());
+    }
+  });
+}
+
+function readErrorBanners(page, rootId) {
+  return page.locator(`#${rootId} .dz-banner.bad:visible`).allTextContents();
+}
+
 /** 稳健解析 playwright：常规解析 → npx 缓存目录 */
 async function loadPlaywright() {
   const tried = [];
@@ -135,6 +147,8 @@ async function selftest(chromium) {
   hr('判定器自检（双向识别验证）');
   const browser = await chromium.launch({ headless: true });
   const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+  const httpErrors = [];
+  captureHttpErrors(page, httpErrors);
   await page.goto(BASE_URL + '/', { waitUntil: 'networkidle', timeout: 60000 });
   await page.waitForTimeout(3000);
   // 宿主改用知识库视图（kbqa 已下线）：判定根容器 = #kb_app
@@ -205,6 +219,29 @@ async function selftest(chromium) {
   });
   check('T4 .dz-banner.bad「知识库暂不可达」→ 判 FAIL', await run('kb_app'), false);
 
+  await mutate(() => {
+    document.getElementById('inj4')?.remove();
+    const d = document.createElement('div');
+    d.className = 'dz-banner bad'; d.id = 'inj5';
+    d.innerHTML = '<span class="dz-banner-text">知识文档清单获取失败：Not Found</span>';
+    document.getElementById('kb_app').prepend(d);
+  });
+  const banners = await readErrorBanners(page, 'kbdash');
+  const bannerDetected = banners.some((t) => t.includes('Not Found'));
+  check('T5 页面错误横幅「Not Found」→ 被视图验收捕获',
+        { ok: bannerDetected, reasons: bannerDetected ? [] : ['错误横幅未被识别'] }, true);
+
+  const before404 = httpErrors.length;
+  await page.route('**/__acceptance_selftest_404__', (route) =>
+    route.fulfill({ status: 404, contentType: 'text/plain', body: 'Not Found' }));
+  await page.evaluate(async () => {
+    await fetch('/__acceptance_selftest_404__');
+  });
+  const captured404 = httpErrors.slice(before404)
+    .some((entry) => entry.includes(' 404 ') && entry.includes('__acceptance_selftest_404__'));
+  check('T6 HTTP 404 响应 → 被网络验收捕获',
+        { ok: captured404, reasons: captured404 ? [] : ['HTTP 404 未被记录'] }, true);
+
   await browser.close();
   hr('自检结论：' + pass + ' pass / ' + fail + ' fail');
   log(fail === 0
@@ -226,6 +263,7 @@ async function main(chromium) {
     let src = 'ERR', note = '';
     try {
       const r = await fetch(BASE_URL + p);
+      if (!r.ok) throw new Error('HTTP ' + r.status);
       const j = await r.json();
       src = (j && j.source) || 'none';
       const c = j && j.content;
@@ -238,10 +276,11 @@ async function main(chromium) {
 
   const browser = await chromium.launch({ headless: true });
   const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
-  const jsErrs = [], reqFails = [];
+  const jsErrs = [], reqFails = [], httpErrors = [];
   page.on('pageerror', (e) => jsErrs.push('pageerror: ' + e.message));
   page.on('console', (m) => { if (m.type() === 'error') jsErrs.push(m.text()); });
   page.on('requestfailed', (r) => reqFails.push(r.url() + ' :: ' + (r.failure()?.errorText || '')));
+  captureHttpErrors(page, httpErrors);
 
   await page.goto(BASE_URL + '/', { waitUntil: 'networkidle', timeout: 60000 });
   await page.waitForTimeout(3000);
@@ -259,13 +298,16 @@ async function main(chromium) {
     await link.first().click();
     await page.waitForTimeout(1800);
     const r = await inspect(v);
+    const banners = await readErrorBanners(page, v);
+    const viewOk = r.ok && banners.length === 0;
     checked++;
     if (!r.ok) problems.push(v + ' :: ' + r.reasons.join(' ; '));
-    log((r.ok ? 'PASS' : 'FAIL').padEnd(5), v.padEnd(10),
+    if (banners.length) problems.push(v + ' :: 页面错误横幅：' + banners.join(' | '));
+    log((viewOk ? 'PASS' : 'FAIL').padEnd(5), v.padEnd(10),
         'text=' + String(r.info.textLen).padStart(5),
         'nodes=' + String(r.info.nodes).padStart(4),
         r.info.bBad && r.info.bBad.length ? '(业务徽章 ' + r.info.bBad.join('|') + ')' : '',
-        r.ok ? '' : '→ ' + r.reasons.join(' ; ').slice(0, 70));
+        !viewOk ? '→ ' + [...r.reasons, ...banners].join(' ; ').slice(0, 90) : '');
   }
 
   /* [3] 知识库子路由（点 nav 后取 #kb_app） */
@@ -278,13 +320,16 @@ async function main(chromium) {
     await a.first().click();
     await page.waitForTimeout(2200);
     const r = await inspect('kbdash');   // 判定根为 kbdash（含 kb_meta 与 kb_app）
+    const banners = await readErrorBanners(page, 'kbdash');
+    const routeOk = r.ok && banners.length === 0;
     checked++;
     if (!r.ok) problems.push('kb:' + s + ' :: ' + r.reasons.join(' ; '));
-    log((r.ok ? 'PASS' : 'FAIL').padEnd(5), s.padEnd(10),
+    if (banners.length) problems.push('kb:' + s + ' :: 页面错误横幅：' + banners.join(' | '));
+    log((routeOk ? 'PASS' : 'FAIL').padEnd(5), s.padEnd(10),
         'text=' + String(r.info.textLen).padStart(6),
         'nodes=' + String(r.info.nodes).padStart(4),
         '| ' + (r.info.meta || '').slice(0, 40),
-        r.ok ? '' : '→ ' + r.reasons.join(' ; ').slice(0, 60));
+        !routeOk ? '→ ' + [...r.reasons, ...banners].join(' ; ').slice(0, 90) : '');
   }
 
   /* [3.5] 交互冒烟：监管检查库（点检查项 → 六维详情；只验空态不足，必须真点一次） */
@@ -446,6 +491,7 @@ async function main(chromium) {
       let ok = false, note = '';
       try {
         const r = await fetch(BASE_URL + pr.url);
+        if (!r.ok) throw new Error('HTTP ' + r.status);
         const j = await r.json();
         const arr = pr.pick(j);
         ok = !!arr && !!pr.check(arr);
@@ -461,8 +507,11 @@ async function main(chromium) {
   hr('[4] JS 异常 / 网络失败');
   log('pageerror + console.error :', jsErrs.length ? '\n  ' + jsErrs.slice(0, 8).join('\n  ') : '(none)');
   log('requestfailed             :', reqFails.length ? '\n  ' + reqFails.slice(0, 8).join('\n  ') : '(none)');
+  const uniqueHttpErrors = [...new Set(httpErrors)];
+  log('HTTP 4xx/5xx              :', uniqueHttpErrors.length ? '\n  ' + uniqueHttpErrors.slice(0, 12).join('\n  ') : '(none)');
   if (jsErrs.length) problems.push('存在 JS 异常 ' + jsErrs.length + ' 条');
   if (reqFails.length) problems.push('存在失败请求 ' + reqFails.length + ' 条');
+  if (uniqueHttpErrors.length) problems.push('存在 HTTP 4xx/5xx 响应 ' + uniqueHttpErrors.length + ' 条');
 
   await browser.close();
 
@@ -473,7 +522,7 @@ async function main(chromium) {
       '（主视图 ' + MAIN_VIEWS.length + ' + 知识子路由 ' + KB_ROUTES.length +
       ' + 交互冒烟 ' + smokeChecked + ' + 数据一致性 ' + dataChecked + '）');
   if (problems.length === 0) {
-    log('结论：PASS —— 全部视图渲染正常，无降级状态、无 JS 异常、无失败请求');
+    log('结论：PASS —— 全部视图渲染正常，无错误横幅、HTTP 错误、JS 异常或失败请求');
     return 0;
   }
   log('结论：FAIL —— 共 ' + problems.length + ' 项问题：');
