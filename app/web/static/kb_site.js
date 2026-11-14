@@ -962,7 +962,10 @@ window.KbSite = (function () {
     };
     appEl.innerHTML =
       '<div class="section" style="margin-top:4px">' +
-        '<div class="card">' +
+        /* 双栏：左侧检查项列表，右侧六维详情——两栏各自内部滚动，
+         * 免去拖动页面滚动条才能对照查看。 */
+        '<div class="ck-split">' +
+        '<div class="card ck-col">' +
           '<h3>监管检查库（多文号 · 关联检索）</h3>' +
           '<div class="dz-toolbar">' +
             '<select id="ck_doc" onchange="loadChecks()" title="按文号筛选" aria-label="按文号筛选" style="max-width:300px">' +
@@ -981,10 +984,11 @@ window.KbSite = (function () {
             '<input id="ck_kw" placeholder="搜索关键词" oninput="loadChecks()" title="搜索关键词" aria-label="搜索关键词" style="max-width:220px">' +
             '<button onclick="loadChecks()" title="应用筛选">筛选</button>' +
           '</div>' +
-          '<div id="ck_list" style="max-height:56vh;overflow:auto"></div>' +
+          '<div id="ck_list" class="ck-scroll"></div>' +
         '</div>' +
-        '<div class="card"><h3>检查项六维详情</h3>' +
-          '<div id="ck_detail" class="muted">点击上方检查项查看六维详情。</div>' +
+        '<div class="card ck-col"><h3>检查项六维详情</h3>' +
+          '<div id="ck_detail" class="muted ck-scroll">点击左侧检查项查看六维详情。</div>' +
+        '</div>' +
         '</div>' +
       '</div>';
     if (typeof window.loadChecks === 'function') window.loadChecks();
