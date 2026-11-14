@@ -1,5 +1,14 @@
 # 路线图（本轮已做 vs 后续）
 
+## 本轮（v1.19.0 · 合规自查 · 智能体自主取证，已交付）
+
+**目标（需求驱动）**：合规自查由"前端逐要素录入 + 后端符号引擎判定"改造为**全部检查逻辑由后端 OpenClaw 智能体完成**；并按"用智能体就让它干智能体的活"原则，证据的相关性判断、文件读取、图片视觉识别、音频转写、语义判定全部由智能体在会话内自主完成，平台只做编排（列目录 → 下发任务 → 收结果 → 落库 → PDF）。
+
+- **v1.18.0（OpenClaw 智能体版）**：模块改造为智能体驱动；`openclaw` 整合为独立服务（`services/openclaw/`，含专属 `openclaw.json` + `state/` 状态目录，监听 `127.0.0.1:18789`），随平台启动自动拉起；新端点 `/api/users/register|login`、`/api/selfcheck/runs*`、`/api/selfcheck/agent/status`；原符号引擎 `/api/inspection/*` 保留不动。
+- **v1.19.0（智能体自主取证）**：移除 v1.18.0 的程序化预处理层（关键词挑文件 / Python 库抽文本 / MaaS 视觉·ASR 转写）；新增 `services/openclaw/evidence-kit/`（自包含 venv，供智能体经 exec 调用：office/PDF/zip 逐字抽取、音频本地 faster-whisper 转写）；结果新增 `readFiles`（智能体实际取证清单 = 审计轨迹）；前端与 PDF 报告新增"智能体自主取证 N 份文件"轨迹行。
+- **用户 ↔ 智能体一一映射（轻隔离）**：注册用户在同一 gateway 进程内创建专属 agent（独立 workspace / 会话库），未注册访客共用 `default` agent；创建失败自动降级，永不抛错。
+- **测试文件集**：`samples/selfcheck-evidence/`（13 个虚构文件，覆盖 pass/partial/fail/missing 预期案例）。
+
 ## 本轮（v1.17.0 · MS6 知识库能力开放，已交付）
 
 **目标（PRD `docs/11` M11 / O6）**：把知识库平台的**加工 / 查阅 / 检索 / Wiki** 四类能力开放给终端用户；界面用**平台原生页面**承载，**知识库平台零改造**（不碰其源码 / 页面 / 库结构）。

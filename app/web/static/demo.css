@@ -205,6 +205,37 @@
 .dz-pagehead-title{margin:0;font-size:17px;font-weight:700;color:var(--brand-deep);
   letter-spacing:.2px;line-height:1.35}
 
+/* ---------- 页眉右上角：登录用户入口 ---------- */
+.header-user{position:relative;margin-left:auto;display:flex;align-items:center}
+.user-trigger{display:flex;align-items:center;gap:10px;padding:4px 10px 4px 6px;border:1px solid var(--line);
+  border-radius:999px;background:var(--card);color:var(--text);font-size:13px;font-weight:500;
+  transition:border-color .15s,background .15s;max-width:290px}
+.user-trigger:hover,.user-trigger[aria-expanded="true"]{background:var(--brand-soft);border-color:var(--brand-border)}
+.user-trigger-text{display:flex;flex-direction:column;align-items:flex-start;line-height:1.25;min-width:0}
+.user-trigger-text b{font-size:13px;font-weight:600;color:var(--brand-deep);
+  max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.user-trigger-text .muted{font-size:11.5px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.user-caret{width:16px;height:16px;color:var(--muted);flex:none}
+.user-panel{position:absolute;top:calc(100% + 10px);right:0;z-index:1200;width:340px;
+  background:var(--card);border:1px solid var(--line);border-radius:14px;
+  box-shadow:0 12px 40px rgba(30,50,104,.18);overflow:hidden}
+.user-panel-head{display:flex;align-items:center;gap:12px;padding:16px;background:var(--brand-soft);
+  border-bottom:1px solid var(--line)}
+.user-panel-id{flex:1;min-width:0}
+.user-panel-name{font-size:14px;font-weight:700;color:var(--brand-deep);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.user-panel-body{padding:8px 16px 4px;max-height:52vh;overflow:auto}
+.user-panel-body .dz-metric-v{font-weight:600;text-align:right;max-width:190px;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.user-panel-body .dz-metric-v .pill{margin-left:4px}
+.user-panel-caps{padding:10px 0 6px;border-top:1px dashed var(--line);margin-top:4px}
+.user-panel-caps-title{font-size:12px;color:var(--muted);font-weight:600;margin-bottom:6px}
+.user-panel-cap-list{display:flex;flex-wrap:wrap;gap:5px;max-height:132px;overflow:auto}
+.user-panel-foot{padding:12px 16px 16px;border-top:1px solid var(--line);background:#FCFDFF}
+.user-panel-foot label{margin-top:0}
+.user-panel-foot select{width:100%}
+.user-panel-foot .row button{flex:1}
+
 /* ---------- 页签面板（多 tab 拆分：同一视图内互斥显示） ---------- */
 .dz-pane{animation:dz-fade .18s ease-out}
 .dz-pane[hidden]{display:none}

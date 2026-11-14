@@ -1,508 +1,404 @@
 /* ============================================================
-   金融行业数据安全知识库和智能体平台 · 全量功能 Demo（demo_reports.js）
-   视图：报告与看板（id = rep，容器 #rep_root）
-   依赖：demo_common.js 提供的全局 DZ 命名空间；styles.css / demo.css 现有样式。
-   仅调用契约 §5.8 的三个接口，字段严格以后端真实返回为准：
-     GET /api/selfcheck/progress
-     GET /api/selfcheck/tasks/{id}/report?fmt=json
-     GET /api/selfcheck/tasks/{id}/report/md
-   不引入任何图表库 / CDN，条形与趋势均为纯 CSS / 内联样式实现。
+   金融行业数据安全知识库和智能体平台 · 报告与看板（demo_reports.js）
+   视图：id = rep，容器 #rep_root
+   流程：先选自查任务 → 看完成情况与各部门完成比例 → 下钻检查项明细。
+   数据来源（仅这三个接口，字段以后端真实返回为准）：
+     GET /api/reports/tasks
+     GET /api/reports/tasks/{taskId}/overview
+     GET /api/reports/tasks/{taskId}/items
+   导出：复用既有报告下载接口 /api/selfcheck/tasks/{taskId}/report/md
+   依赖：demo_common.js 提供的全局 DZ 命名空间与既有 CSS 类，不引入图表库 / CDN。
    ============================================================ */
 (function(){
   'use strict';
 
   const ROOT = '#rep_root';
 
-  // ---------- 接口清单（唯一权威，勿臆造） ----------
   const API = {
-    progress: '/api/selfcheck/progress',
-    report: function(id){ return '/api/selfcheck/tasks/' + encodeURIComponent(id) + '/report?fmt=json'; },
-    reportMd: function(id){ return '/api/selfcheck/tasks/' + encodeURIComponent(id) + '/report/md'; },
-    sample: '/api/report/sample'
+    tasks: '/api/reports/tasks',
+    overview: function(id){ return '/api/reports/tasks/' + encodeURIComponent(id) + '/overview'; },
+    items: function(id, q){
+      const url = '/api/reports/tasks/' + encodeURIComponent(id) + '/items';
+      const p = [];
+      if (q && q.lineCode) p.push('lineCode=' + encodeURIComponent(q.lineCode));
+      if (q && q.status) p.push('status=' + encodeURIComponent(q.status));
+      return p.length ? url + '?' + p.join('&') : url;
+    },
+    exportMd: function(id){ return '/api/selfcheck/tasks/' + encodeURIComponent(id) + '/report/md'; }
   };
 
-  // 视图状态（跨重入保留当前选中任务、当前页签与样例缓存）
-  const state = { tasks: [], selectedTaskId: null, tab: 'overview', sample: null };
+  // 视图状态：跨重入常驻（当前步骤 / 选中任务 / 筛选与已取数）
+  const S = {
+    step: 1,          // 1 选任务 / 2 看板 / 3 明细
+    tasks: [],
+    taskId: null,
+    org: '', cycle: '',
+    dept: '', status: '',
+    overview: null,
+    items: null
+  };
 
-  // 页签定义：把原先纵向堆叠的 6 个板块按"看态势 / 看任务报告 / 看样例"三类互斥呈现，避免单页拥挤。
-  const TABS = [
-    { key: 'overview', label: '态势总览' },
-    { key: 'tasks',    label: '任务与报告' },
-    { key: 'sample',   label: '报告样例' }
-  ];
+  // 任务状态 → 徽章色（页面只展示后端 statusLabel，不暴露英文原文）
+  const STATUS_KIND = { in_progress: 'warn', closed: 'ok', draft: 'unk', pending: 'warn', done: 'ok', open: 'warn' };
+  // 适用性中文映射（不渲染英文值）
+  const APPLY = { applicable: '适用', not_applicable: '不适用', na: '不适用', partial: '部分适用' };
+  // 证据材料状态中文映射
+  const EVID = { provided: '已提供', missing: '缺失', pending: '待补充' };
+  // 判定着色（仅取现有 CSS 变量）
+  const RESULT_COLOR = { pass: 'var(--ok)', partial: 'var(--warn)', fail: 'var(--bad)', supplement: 'var(--unk)' };
+  const OPTS = [['', '全部'], ['pass', '符合'], ['partial', '部分符合'], ['fail', '不符合'], ['supplement', '需补充']];
 
   // ---------- 小工具 ----------
   function root(){ return document.querySelector(ROOT); }
   function errMsg(d){ return (d && d.error && d.error.message) || '接口请求失败'; }
-  function round1(n){ const v = Number(n); if (!isFinite(v)) return 0; return Math.round(v * 10) / 10; }
   function clampPct(n){ let v = Number(n); if (!isFinite(v)) v = 0; return Math.max(0, Math.min(100, v)); }
-
-  // 优先级徽章：P0/P1/P2 → 现有 .b-p0/.b-p1/.b-p2
-  function priorityBadge(p){
-    const k = String(p || '').toLowerCase();
-    const kind = (k === 'p0' || k === 'p1' || k === 'p2') ? k : 'p2';
-    return DZ.badge(kind, p || '—');
-  }
-  // 布尔徽章：同时给出文字，状态不只靠颜色
-  function boolBadge(v, yes, no){ return DZ.badge(v ? 'ok' : 'bad', v ? (yes || '是') : (no || '否')); }
-
-  // 自绘彩色条形：结构复用 .dz-bar，颜色仅取现有 CSS 变量
-  function colorBar(percent, colorVar){
-    const v = clampPct(percent);
-    return '<div class="dz-bar"><i style="width:' + v + '%;background:' + colorVar + '"></i></div>';
+  function pctKind(n){ const v = Number(n); if (!isFinite(v)) return ''; return v >= 80 ? 'ok' : (v >= 50 ? 'warn' : 'bad'); }
+  function uniq(list){
+    const seen = {}, out = [];
+    list.forEach(function(x){ if (!seen[x]){ seen[x] = 1; out.push(x); } });
+    return out;
   }
 
-  // 结果四态 / 风险等级 → 现有变量色
-  const RESULT_COLOR = { pass:'var(--ok)', partial:'var(--warn)', fail:'var(--bad)', supplement:'var(--unk)' };
-  const RISK_COLOR   = { high:'var(--bad)', medium:'var(--warn)', low:'var(--unk)' };
-  const VERDICT = { pass:['ok','符合'], partial:['warn','部分符合'], fail:['bad','不符合'], supplement:['unk','需补充'] };
-  const RISK_TEXT = { high:'高', medium:'中', low:'低' };
-
-  function verdictText(v){ return (VERDICT[v] || ['unk', v || '—'])[1]; }
-  function verdictKind(v){ return (VERDICT[v] || ['unk',''])[0]; }
-  function riskText(r){ return RISK_TEXT[r] || (r || '—'); }
-  function riskKind(r){ return r === 'high' ? 'bad' : (r === 'medium' ? 'warn' : (r === 'low' ? 'unk' : '')); }
-  function scoreKind(s){ const v = Number(s); if (!isFinite(v)) return ''; return v >= 80 ? 'ok' : (v >= 60 ? 'warn' : 'bad'); }
-
-  // ---------- 视图骨架（先渲染骨架屏，避免空白） ----------
+  // ---------- 骨架 / 挂载 ----------
   function shell(){
-    return '' +
-      '<div class="dz-toolbar">' +
-        '<button class="ghost" id="rep_refresh" title="重新拉取看板数据" aria-label="刷新看板数据">刷新看板</button>' +
-      '</div>' +
-      '<div id="rep_tabs"></div>' +
-      // 页签一：态势总览（KPI + 条线 / 风险 / 结论分布 + 整改趋势）
-      '<div class="dz-pane" data-pane="overview">' +
-        '<div id="rep_kpis">' + DZ.skeleton(2) + '</div>' +
-        '<div class="grid2">' +
-          '<div class="card"><h3>条线进度分布</h3><div id="rep_byline">' + DZ.skeleton(3) + '</div></div>' +
-          '<div class="card"><h3>风险等级分布</h3><div id="rep_byrisk">' + DZ.skeleton(2) + '</div>' +
-            '<h4>四态结论分布</h4><div id="rep_byresult">' + DZ.skeleton(2) + '</div></div>' +
-        '</div>' +
-        '<div class="card"><h3>整改趋势</h3><div id="rep_trend">' + DZ.skeleton(2) + '</div></div>' +
-      '</div>' +
-      // 页签二：任务与报告（任务列表 + 选中任务的行业版报告）
-      '<div class="dz-pane" data-pane="tasks" hidden>' +
-        '<div class="card"><h3>自查任务</h3><div id="rep_tasks" class="dz-table-wrap">' + DZ.skeleton(3) + '</div></div>' +
-        '<div class="card"><h3>行业版报告</h3><div id="rep_report">' + DZ.skeleton(4) + '</div></div>' +
-      '</div>' +
-      // 页签三：报告样例（脱敏示例，展示自查报告的五项结构与填写方式）
-      '<div class="dz-pane" data-pane="sample" hidden>' +
-        '<div class="card"><h3>报告脱敏样例</h3>' +
-          '<div id="rep_sample">' + DZ.skeleton(4) + '</div>' +
-        '</div>' +
-      '</div>';
+    return '<div id="rep_head"></div><div id="rep_body"></div>';
   }
+  function setBody(html){ DZ.render('#rep_body', html); }
 
-  // ---------- 页签渲染与切换 ----------
-  function renderTabs(){
-    const items = TABS.map(function(t){
-      const it = { key: t.key, label: t.label };
-      if (t.key === 'tasks' && state.tasks.length) it.count = state.tasks.length;
-      return it;
-    });
-    DZ.tabs('#rep_tabs', items, state.tab, function(key){ switchTab(key); });
-  }
-
-  function switchTab(key){
-    state.tab = key;
-    const box = root();
-    if (!box) return;
-    box.querySelectorAll('.dz-pane').forEach(function(p){ p.hidden = (p.getAttribute('data-pane') !== key); });
-    renderTabs();
-    // 切到"任务与报告"且尚未选任务时，默认选第一个，避免右侧空白
-    if (key === 'tasks' && !state.selectedTaskId && state.tasks.length){
-      selectTask(state.tasks[0].taskId, true);
-    }
-    // 切到"报告样例"时按需加载（已缓存则直接复用）
-    if (key === 'sample') loadSample();
-  }
-
-  // ---------- 挂载 ----------
   function mount(){
     const box = root();
     if (!box) return;
-    box.innerHTML = shell();
-    switchTab(state.tab);
-    DZ.on('#rep_refresh', 'click', function(){ mount(); });
-    loadProgress();
+    if (!box.querySelector('#rep_body')) box.innerHTML = shell();
+    bindRoot();
+    if (S.step < 1 || S.step > 3) S.step = 1;
+    if (!S.tasks.length) loadTasks();
+    else render();
   }
 
-  // ---------- 看板：拉取进度 ----------
-  async function loadProgress(){
-    const data = await DZ.get(API.progress);
-
-    if (!data || data.error){
-      const msg = errMsg(data);
-      DZ.render('#rep_kpis', DZ.banner('bad', '看板数据加载失败：' + msg, loadProgress));
-      DZ.render('#rep_byline', DZ.empty('条线分布暂不可用'));
-      DZ.render('#rep_byrisk', DZ.empty('风险分布暂不可用'));
-      DZ.render('#rep_byresult', DZ.empty('结论分布暂不可用'));
-      DZ.render('#rep_trend', DZ.empty('趋势数据暂不可用'));
-      DZ.render('#rep_tasks', DZ.empty('任务列表暂不可用'));
-      DZ.render('#rep_report', DZ.empty('选择任务后可查看行业版报告'));
-      return;
-    }
-
-    const tasks = Array.isArray(data.tasks) ? data.tasks : [];
-    state.tasks = tasks;
-
-    renderKpis(data.kpis || {}, Array.isArray(data.byResult) ? data.byResult : []);
-    renderByLine(Array.isArray(data.byLine) ? data.byLine : []);
-    renderByRisk(Array.isArray(data.byRisk) ? data.byRisk : []);
-    renderByResult(Array.isArray(data.byResult) ? data.byResult : []);
-    renderTrend(Array.isArray(data.trend) ? data.trend : []);
-    renderTasks(tasks);
-    renderTabs();
-
-    // 默认选中第一个任务；若已选任务仍存在则保留
-    let sel = state.selectedTaskId;
-    if (!sel || !tasks.some(function(t){ return t.taskId === sel; })){
-      sel = tasks.length ? tasks[0].taskId : null;
-    }
-    if (sel){ selectTask(sel, false); }
-    else { DZ.render('#rep_report', DZ.empty('暂无可生成报告的自查任务')); }
+  function render(){
+    const head = document.getElementById('rep_head');
+    if (head) head.innerHTML = toolbarHtml();
+    if (S.step === 1) setBody(step1Html());
+    else if (S.step === 2) setBody(step2Html());
+    else setBody(step3Html());
   }
 
-  // ---------- KPI（严格使用后端 kpis 字段 + 由 byResult 派生的合规率） ----------
-  function renderKpis(kpis, byResult){
-    let pass = 0, total = 0;
-    byResult.forEach(function(r){
-      total += Number(r.count) || 0;
-      if (r.result === 'pass') pass += Number(r.count) || 0;
+  // ---------- 工具栏（文案统一：查询 / 返回任务列表 / 导出报告） ----------
+  function toolbarHtml(){
+    let h = '<div class="dz-toolbar">';
+    h += '<button class="ghost" data-act="query" title="按当前筛选条件重新查询">查询</button>';
+    if (S.step > 1) h += '<button class="ghost" data-act="back" title="返回任务列表重新选择">返回任务列表</button>';
+    if (S.step === 3 && S.taskId) h += '<button class="ghost" data-act="export" title="导出自查报告">导出报告</button>';
+    if (S.step > 1 && S.overview && S.overview.task){
+      const t = S.overview.task;
+      h += '<span class="muted" style="margin-left:auto">当前任务：' + DZ.esc(t.orgName || '—') +
+        ' · ' + DZ.esc(t.cycle || '—') + (t.topic ? ' · ' + DZ.esc(t.topic) : '') + '</span>';
+    }
+    h += '</div>';
+    return h;
+  }
+
+  // ---------- 事件绑定（仅绑容器，避免 document 级重复监听） ----------
+  function bindRoot(){
+    const box = root();
+    if (!box || box.dataset.repBound === '1') return;
+    box.dataset.repBound = '1';
+    box.addEventListener('click', onRootClick);
+    box.addEventListener('keydown', onRootKey);
+  }
+  function onRootKey(e){
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    const el = e.target.closest && e.target.closest('[data-act]');
+    if (!el) return;
+    const tag = el.tagName;
+    if (tag === 'BUTTON' || tag === 'A' || tag === 'INPUT' || tag === 'SELECT') return;
+    e.preventDefault();
+    el.click();
+  }
+  function onRootClick(e){
+    const el = e.target.closest && e.target.closest('[data-act]');
+    if (!el) return;
+    const act = el.getAttribute('data-act');
+    if (act === 'query'){ onQuery(); return; }
+    if (act === 'back'){ S.step = 1; S.dept = ''; S.status = ''; render(); return; }
+    if (act === 'pick'){ pickTask(el.getAttribute('data-task')); return; }
+    if (act === 'dept' || act === 'line'){ openLine(el.getAttribute('data-key') || ''); return; }
+    if (act === 'status'){ setStatus(el.getAttribute('data-status') || ''); return; }
+    if (act === 'org'){ S.org = el.getAttribute('data-org') || ''; render(); return; }
+    if (act === 'cycle'){ S.cycle = el.getAttribute('data-cycle') || ''; render(); return; }
+    if (act === 'export'){ exportReport(); return; }
+    if (act === 'row'){ toggleRow(el); return; }
+  }
+  function onQuery(){
+    if (S.step === 1) loadTasks();
+    else if (S.step === 2) loadOverview();
+    else loadItems();
+  }
+
+  // ---------- 取数 ----------
+  async function loadTasks(){
+    if (S.step !== 1){ S.step = 1; }
+    render();
+    setBody(DZ.skeleton(4));
+    const d = await DZ.get(API.tasks);
+    if (!d || d.error){ setBody(DZ.banner('bad', '任务清单加载失败：' + errMsg(d), loadTasks)); return; }
+    S.tasks = Array.isArray(d.tasks) ? d.tasks : [];
+    render();
+  }
+
+  async function loadOverview(){
+    if (!S.taskId){ S.step = 1; render(); return; }
+    render();
+    setBody(DZ.skeleton(5));
+    const d = await DZ.get(API.overview(S.taskId));
+    if (!d || d.error){ setBody(DZ.banner('bad', '任务总览加载失败：' + errMsg(d), loadOverview)); return; }
+    S.overview = d;
+    render();
+  }
+
+  async function loadItems(){
+    if (!S.taskId){ S.step = 1; render(); return; }
+    render();
+    setBody(DZ.skeleton(5));
+    const d = await DZ.get(API.items(S.taskId, { lineCode: S.dept, status: S.status }));
+    if (!d || d.error){ setBody(DZ.banner('bad', '检查项加载失败：' + errMsg(d), loadItems)); return; }
+    S.items = Array.isArray(d.items) ? d.items : [];
+    render();
+  }
+
+  // ---------- 交互动作 ----------
+  function pickTask(taskId){
+    if (!taskId) return;
+    S.taskId = taskId; S.dept = ''; S.status = ''; S.overview = null;
+    S.step = 2;
+    render();
+    loadOverview();
+  }
+  function openLine(key){
+    S.dept = key || ''; S.status = ''; S.items = null;
+    S.step = 3;
+    render();
+    loadItems();
+  }
+  function setStatus(st){
+    S.status = st || ''; S.items = null;
+    render();
+    loadItems();
+  }
+  function exportReport(){
+    if (!S.taskId) return;
+    const a = document.createElement('a');
+    a.href = API.exportMd(S.taskId);
+    a.setAttribute('download', '自查报告-' + S.taskId + '.md');
+    document.body.appendChild(a);
+    a.click();
+    a.parentNode.removeChild(a);
+    DZ.toast('已开始导出报告', 'ok');
+  }
+  function toggleRow(tr){
+    const code = tr.getAttribute('data-code') || '';
+    const detail = root().querySelector('tr[data-detail="' + code + '"]');
+    if (!detail) return;
+    detail.hidden = !detail.hidden;
+    const caret = tr.querySelector('[data-caret]');
+    if (caret) caret.textContent = detail.hidden ? '▸' : '▾';
+  }
+
+  // ---------- 步骤一：任务选择 ----------
+  function step1Html(){
+    if (!S.tasks.length){
+      return DZ.empty('暂无可查看的自查任务', '<button class="ghost" data-act="query">重新查询</button>');
+    }
+    const orgs = uniq(S.tasks.map(function(t){ return t.orgName; }).filter(Boolean));
+    const cycles = uniq(S.tasks.map(function(t){ return t.cycle; }).filter(Boolean));
+    let html = '';
+    if (orgs.length > 1){
+      html += '<div class="dz-chipbar"><span class="muted" style="align-self:center">组织</span>' +
+        orgChip('全部组织', !S.org, '') +
+        orgs.map(function(o){ return orgChip(o, S.org === o, o); }).join('') + '</div>';
+    }
+    if (cycles.length > 1){
+      html += '<div class="dz-chipbar"><span class="muted" style="align-self:center">周期</span>' +
+        cycleChip('全部周期', !S.cycle, '') +
+        cycles.map(function(c){ return cycleChip(c, S.cycle === c, c); }).join('') + '</div>';
+    }
+    const list = S.tasks.filter(function(t){
+      return (!S.org || t.orgName === S.org) && (!S.cycle || t.cycle === S.cycle);
     });
-    const compliance = total ? round1(pass / total * 100) : 0;
+    if (!list.length) return html + DZ.empty('当前筛选条件下暂无自查任务');
+    return html + '<div class="grid2">' + list.map(taskCard).join('') + '</div>';
+  }
+  function orgChip(label, on, val){
+    return '<button class="dz-chip' + (on ? ' on' : '') + '" data-act="org" data-org="' + DZ.esc(val) +
+      '" title="按组织筛选">' + DZ.esc(label) + '</button>';
+  }
+  function cycleChip(label, on, val){
+    return '<button class="dz-chip' + (on ? ' on' : '') + '" data-act="cycle" data-cycle="' + DZ.esc(val) +
+      '" title="按周期筛选">' + DZ.esc(label) + '</button>';
+  }
+  function taskCard(t){
+    const kind = STATUS_KIND[t.status] || '';
+    let h = '<div class="card" data-act="pick" data-task="' + DZ.esc(t.taskId) + '" role="button" tabindex="0" style="cursor:pointer">';
+    h += '<div class="row" style="justify-content:space-between">' +
+      '<span class="dz-tag-soft">' + DZ.esc(t.cycle || '—') + '</span>' +
+      DZ.badge(kind, t.statusLabel || '—') + '</div>';
+    h += '<h3 style="margin:10px 0 4px">' + DZ.esc(t.orgName || '—') + '</h3>';
+    h += '<div class="muted">' + DZ.esc(t.topic || '—') + (t.stage ? ' · ' + DZ.esc(t.stage) : '') + '</div>';
+    h += '<div class="dz-metric"><span class="dz-metric-k">负责人</span><span class="dz-metric-v">' +
+      DZ.esc(t.ownerName || t.owner || '—') + '</span></div>';
+    h += '<div class="dz-metric"><span class="dz-metric-k">起止日期</span><span class="dz-metric-v">' +
+      DZ.esc(t.startDate || '—') + ' ~ ' + DZ.esc(t.endDate || '—') + '</span></div>';
+    h += '<div class="dz-metric"><span class="dz-metric-k">检查项</span><span class="dz-metric-v">' +
+      DZ.number(t.itemCount) + ' 项</span></div>';
+    h += '<div class="dz-metric"><span class="dz-metric-k">完成度</span><span class="dz-metric-v">' +
+      DZ.number(clampPct(t.progress)) + '%</span></div>';
+    h += DZ.bar(clampPct(t.progress));
+    h += '<div class="row" style="margin-top:10px">' +
+      DZ.resultBadge(t.verdict && t.verdict.result) + DZ.severityBadge(t.riskLevel) +
+      '<span class="muted">点击查看完成情况</span></div>';
+    h += '</div>';
+    return h;
+  }
 
+  // ---------- 步骤二：任务总览看板 ----------
+  function step2Html(){
+    if (!S.overview) return DZ.skeleton(5);
+    return kpiRow(S.overview) +
+      '<div class="grid2">' +
+        '<div class="card"><h3>自查结论</h3>' + conclusion(S.overview) + '</div>' +
+        '<div class="card"><h3>判定构成</h3>' + statusChart(S.overview) + '</div>' +
+      '</div>' +
+      '<div class="card"><h3>各部门完成比例</h3>' + deptChart(S.overview) + '</div>';
+  }
+  function kpiRow(o){
+    const c = o.counts || {}, t = o.task || {};
+    const evReq = Number(c.evidenceRequired) || 0, evPro = Number(c.evidenceProvided) || 0;
+    const evPct = evReq ? Math.round(evPro / evReq * 100) : 0;
     const row = [
-      DZ.kpi('自查任务', DZ.number(kpis.tasks), '任务总数', ''),
-      DZ.kpi('进行中', DZ.number(kpis.inProgress), '任务总数中的进行中', 'warn'),
-      DZ.kpi('已闭环', DZ.number(kpis.closed), '任务总数中的已闭环', 'ok'),
-      DZ.kpi('草稿', DZ.number(kpis.draft), '任务总数中的草稿', ''),
-      DZ.kpi('平均进度', DZ.number(kpis.avgProgress) + '%', '全部任务的平均完成度', ''),
-      DZ.kpi('合规率', compliance + '%', '符合 ' + DZ.number(pass) + ' / 合计 ' + DZ.number(total), scoreKind(compliance))
+      DZ.kpi('检查项总数', DZ.number(c.total), '本任务全部检查项', ''),
+      DZ.kpi('完成度', DZ.number(clampPct(t.progress)) + '%', '任务整体完成进度', pctKind(t.progress)),
+      DZ.kpi('符合', DZ.number(c.pass), '判定为符合', 'ok'),
+      DZ.kpi('部分符合', DZ.number(c.partial), '判定为部分符合', 'warn'),
+      DZ.kpi('不符合', DZ.number(c.fail), '判定为不符合', 'bad'),
+      DZ.kpi('需补充', DZ.number(c.supplement), '判定为需补充', ''),
+      DZ.kpi('证据齐备率', evPct + '%', '已提供 ' + DZ.number(evPro) + ' / ' + DZ.number(evReq), pctKind(evPct))
     ].join('');
-    DZ.render('#rep_kpis', '<div class="dz-kpi-row">' + row + '</div>');
+    return '<div class="dz-kpi-row">' + row + '</div>';
   }
-
-  // ---------- 条线进度分布（纯 CSS 条形） ----------
-  function renderByLine(list){
-    if (!list.length){ DZ.render('#rep_byline', DZ.empty('暂无条线进度数据')); return; }
-    const html = list.map(function(x){
-      const p = round1(clampPct(x.progress));
-      return '<div style="margin-bottom:12px">' +
-        '<div class="dz-metric"><span class="dz-metric-k">' + DZ.esc(x.line || '—') + '</span>' +
-        '<span class="dz-metric-v">' + p + '%</span></div>' + DZ.bar(p) + '</div>';
-    }).join('');
-    DZ.render('#rep_byline', html);
+  function conclusion(o){
+    const v = o.verdict || {};
+    const basis = v.basis || {};
+    return '<div class="dz-metric"><span class="dz-metric-k">判定结论</span><span class="dz-metric-v">' +
+        DZ.resultBadge(v.result) + '</span></div>' +
+      '<div class="dz-metric"><span class="dz-metric-k">得分</span><span class="dz-metric-v">' +
+        DZ.number(v.score, 1) + ' 分</span></div>' +
+      '<div class="dz-metric"><span class="dz-metric-k">风险等级</span><span class="dz-metric-v">' +
+        DZ.severityBadge(v.riskLevel) + '</span></div>' +
+      '<div class="dz-metric"><span class="dz-metric-k">检查项总数</span><span class="dz-metric-v">' +
+        DZ.number(basis.total) + ' 项</span></div>' +
+      '<div class="dz-metric"><span class="dz-metric-k">数据时间</span><span class="dz-metric-v">' +
+        DZ.esc(DZ.date(o.computedAt)) + '</span></div>';
   }
-
-  // ---------- 风险等级分布（按风险着色） ----------
-  function renderByRisk(list){
-    if (!list.length){ DZ.render('#rep_byrisk', DZ.empty('暂无风险分布数据')); return; }
-    const total = list.reduce(function(s, x){ return s + (Number(x.count) || 0); }, 0) || 1;
-    const html = list.map(function(x){
-      const p = round1((Number(x.count) || 0) / total * 100);
-      return '<div style="margin-bottom:12px" title="风险等级：' + DZ.esc(riskText(x.risk)) + '，共 ' + DZ.number(x.count) + ' 个任务">' +
-        '<div class="dz-metric"><span class="dz-metric-k">' + DZ.severityBadge(x.risk) + '</span>' +
-        '<span class="dz-metric-v">' + DZ.number(x.count) + ' 个 · ' + p + '%</span></div>' +
-        colorBar(p, RISK_COLOR[x.risk] || 'var(--unk)') + '</div>';
-    }).join('');
-    DZ.render('#rep_byrisk', html);
-  }
-
-  // ---------- 四态结论分布（按结论着色） ----------
-  function renderByResult(list){
-    if (!list.length){ DZ.render('#rep_byresult', DZ.empty('暂无结论分布数据')); return; }
-    const total = list.reduce(function(s, x){ return s + (Number(x.count) || 0); }, 0) || 1;
-    const html = list.map(function(x){
-      const p = round1((Number(x.count) || 0) / total * 100);
-      return '<div style="margin-bottom:12px" title="结论：' + DZ.esc(verdictText(x.result)) + '，共 ' + DZ.number(x.count) + ' 条">' +
-        '<div class="dz-metric"><span class="dz-metric-k">' + DZ.resultBadge(x.result) + '</span>' +
-        '<span class="dz-metric-v">' + DZ.number(x.count) + ' 条 · ' + p + '%</span></div>' +
-        colorBar(p, RESULT_COLOR[x.result] || 'var(--unk)') + '</div>';
-    }).join('');
-    DZ.render('#rep_byresult', html);
-  }
-
-  // ---------- 整改趋势（纯内联样式柱状时序，标注"演示数据"） ----------
-  function renderTrend(list){
-    if (!list.length){ DZ.render('#rep_trend', DZ.empty('暂无趋势数据')); return; }
-    const maxTotal = Math.max.apply(null, list.map(function(x){ return Number(x.total) || 0; }).concat([1]));
-    const cols = list.map(function(x){
-      const total = Number(x.total) || 0;
-      const closed = Number(x.closed) || 0;
-      const hTotal = Math.max(4, Math.round(total / maxTotal * 110));
-      const hClosed = closed > 0 ? Math.max(4, Math.round(closed / maxTotal * 110)) : 0;
-      return '<div style="flex:1;min-width:56px;text-align:center" title="' + DZ.esc(x.cycle) +
-          '：任务总数 ' + total + '，已闭环 ' + closed + '">' +
-        '<div style="display:flex;gap:4px;align-items:flex-end;justify-content:center;height:120px">' +
-          '<div aria-label="' + DZ.esc(x.cycle) + ' 任务总数 ' + total + '" style="width:16px;height:' + hTotal +
-            'px;background:var(--brand-bg);border:1px solid var(--brand-border);border-radius:4px 4px 0 0"></div>' +
-          '<div aria-label="' + DZ.esc(x.cycle) + ' 已闭环 ' + closed + '" style="width:16px;height:' + hClosed +
-            'px;background:var(--brand);border-radius:4px 4px 0 0"></div>' +
-        '</div>' +
-        '<div class="dz-mini">' + DZ.esc(x.cycle) + '</div>' +
-        '<div class="dz-mini">' + closed + '/' + total + '</div>' +
+  function statusChart(o){
+    const cmap = {};
+    (o.byStatus || []).forEach(function(x){ cmap[x.status] = Number(x.count) || 0; });
+    const total = Number((o.counts || {}).total) || 0;
+    let any = false;
+    const rows = ['pass', 'partial', 'fail', 'supplement'].map(function(k){
+      const n = cmap[k] || 0;
+      if (n) any = true;
+      const pct = total ? Math.round(n / total * 100) : 0;
+      return '<div style="margin-bottom:10px">' +
+        '<div class="dz-metric"><span class="dz-metric-k">' + DZ.resultBadge(k) + '</span>' +
+        '<span class="dz-metric-v">' + DZ.number(n) + ' 项 · ' + pct + '%</span></div>' +
+        '<div class="dz-bar"><i style="width:' + pct + '%;background:' + (RESULT_COLOR[k] || 'var(--unk)') + '"></i></div>' +
       '</div>';
     }).join('');
-    const legend = '<div class="dz-legend">' +
-      '<span title="该周期自查任务总数"><b style="background:var(--brand-bg);border:1px solid var(--brand-border)"></b>任务总数</span>' +
-      '<span title="该周期已闭环任务数"><b style="background:var(--brand)"></b>已闭环</span>' +
-      '<span class="muted">演示数据</span></div>';
-    DZ.render('#rep_trend', legend +
-      '<div style="display:flex;gap:16px;align-items:flex-end;overflow:auto;padding-top:6px">' + cols + '</div>');
+    return any ? rows : DZ.empty('暂无判定分布数据');
   }
-
-  // ---------- 任务表（点行或按钮 → 查看报告） ----------
-  function renderTasks(tasks){
-    if (!tasks.length){
-      DZ.render('#rep_tasks', DZ.empty('暂无自查任务',
-        '<button class="ghost" id="rep_goto_dsc" title="前往安全自查" aria-label="前往安全自查">前往安全自查</button>'));
-      DZ.on('#rep_goto_dsc', 'click', function(){ if (typeof window.showView === 'function') window.showView('dsc'); });
-      return;
-    }
-    const rows = tasks.map(function(t){
-      const sel = t.taskId === state.selectedTaskId;
-      const name = (t.cycle || '—') + (t.topic ? ' · ' + t.topic : '');
-      return '<tr data-task-id="' + DZ.esc(t.taskId) + '" role="button" tabindex="0" ' +
-          'title="点击查看该任务的行业版报告" aria-label="查看 ' + DZ.esc(t.orgName || '') + ' 的报告"' +
-          (sel ? ' style="background:var(--brand-soft)"' : '') + '>' +
-        '<td>' + DZ.esc(name) + '</td>' +
-        '<td>' + DZ.esc(t.orgName || '—') + '</td>' +
-        '<td style="min-width:140px">' +
-          '<div class="dz-mini" style="margin-bottom:4px">' + round1(clampPct(t.progress)) + '%</div>' +
-          DZ.bar(clampPct(t.progress)) + '</td>' +
-        '<td>' + DZ.severityBadge(t.riskLevel) + '</td>' +
-        '<td>' + DZ.statusBadge(t.status) + '</td>' +
-        '<td><div class="row">' +
-          '<button class="ghost dz-report-btn" data-task-id="' + DZ.esc(t.taskId) + '" ' +
-            'title="查看行业版报告" aria-label="查看 ' + DZ.esc(t.orgName || '') + ' 的报告">查看报告</button>' +
-          (sel ? DZ.pill('已选') : '') +
-        '</div></td></tr>';
+  function deptChart(o){
+    const list = Array.isArray(o.byDept) ? o.byDept : [];
+    if (!list.length) return DZ.empty('暂无部门完成数据');
+    return list.map(function(d){
+      const pct = clampPct(d.progress);
+      return '<div data-act="dept" data-key="' + DZ.esc(d.key) + '" role="button" tabindex="0" ' +
+          'style="cursor:pointer;padding:10px 0;border-bottom:1px solid var(--line)" title="点击查看该部门检查项">' +
+        '<div class="row" style="justify-content:space-between">' +
+          '<span style="font-weight:600;color:var(--brand-deep)">' + DZ.esc(d.label || '—') + '</span>' +
+          '<span class="muted">已完成 ' + DZ.number(d.done) + ' / ' + DZ.number(d.total) + '</span>' +
+        '</div>' +
+        '<div class="row" style="gap:10px;margin:6px 0">' +
+          '<div style="flex:1;min-width:80px">' + DZ.bar(pct) + '</div>' +
+          '<span class="muted" style="min-width:44px;text-align:right">' + DZ.number(pct) + '%</span>' +
+        '</div>' +
+        '<div class="row" style="gap:10px">' + distBadges(d) + DZ.severityBadge(d.riskLevel) + '</div>' +
+      '</div>';
     }).join('');
-    DZ.render('#rep_tasks',
-      '<table><thead><tr><th>名称</th><th>机构</th><th>进度</th><th>风险</th><th>状态</th><th>操作</th></tr></thead>' +
-      '<tbody>' + rows + '</tbody></table>');
-
-    // 行点击
-    DZ.on('#rep_tasks tbody tr', 'click', function(){
-      selectTask(this.getAttribute('data-task-id'), true);
+  }
+  function distBadges(d){
+    const parts = [];
+    [['pass', d.pass], ['partial', d.partial], ['fail', d.fail], ['supplement', d.supplement]].forEach(function(x){
+      if (x[1]) parts.push('<span>' + DZ.resultBadge(x[0]) + ' ' + DZ.number(x[1]) + '</span>');
     });
-    // 键盘可达：Enter / Space 触发
-    DZ.on('#rep_tasks tbody tr', 'keydown', function(e){
-      if (e.key === 'Enter' || e.key === ' '){ e.preventDefault(); selectTask(this.getAttribute('data-task-id'), true); }
-    });
-    // 按钮点击（阻止冒泡，避免与行点击重复触发）
-    DZ.on('#rep_tasks .dz-report-btn', 'click', function(e){
-      e.stopPropagation();
-      selectTask(this.getAttribute('data-task-id'), true);
-    });
+    return parts.join('　');
   }
 
-  // ---------- 选择任务并加载报告 ----------
-  async function selectTask(taskId, refreshTable){
-    if (!taskId) return;
-    state.selectedTaskId = taskId;
-    if (refreshTable) renderTasks(state.tasks);
-    await loadReport(taskId);
+  // ---------- 步骤三：检查项明细 ----------
+  function step3Html(){
+    if (!S.items) return DZ.skeleton(5);
+    const o = S.overview || {};
+    const depts = Array.isArray(o.byDept) ? o.byDept : [];
+    let html = '<div class="dz-chipbar"><span class="muted" style="align-self:center">条线</span>' +
+      lineChip('全部', !S.dept, '') +
+      depts.map(function(d){ return lineChip(d.label || d.key, S.dept === d.key, d.key); }).join('') + '</div>';
+    html += '<div class="dz-chipbar"><span class="muted" style="align-self:center">判定</span>' +
+      OPTS.map(function(x){
+        return '<button class="dz-chip' + (S.status === x[0] ? ' on' : '') + '" data-act="status" data-status="' +
+          x[0] + '" title="按判定筛选">' + x[1] + '</button>';
+      }).join('') + '</div>';
+    if (!S.items.length) return html + DZ.empty('当前筛选条件下暂无检查项');
+    const labelOf = deptLabelMap();
+    const rows = S.items.map(function(it){ return itemRow(it, labelOf[it.lineCode]); }).join('');
+    return html + '<div class="dz-table-wrap"><table><thead><tr>' +
+      '<th>检查项编号</th><th>标题</th><th>条线</th><th>适用性</th><th>判定</th><th>责任人</th>' +
+      '<th>证据</th><th>实际值</th><th>说明</th><th>更新时间</th><th>明细</th>' +
+      '</tr></thead><tbody>' + rows + '</tbody></table></div>';
   }
-
-  async function loadReport(taskId){
-    DZ.render('#rep_report', DZ.skeleton(5));
-    const data = await DZ.get(API.report(taskId));
-    if (!data || data.error){
-      DZ.render('#rep_report', DZ.banner('bad', '报告加载失败：' + errMsg(data), function(){ loadReport(taskId); }));
-      return;
-    }
-    renderReport(taskId, data);
+  function lineChip(label, on, val){
+    return '<button class="dz-chip' + (on ? ' on' : '') + '" data-act="line" data-key="' + DZ.esc(val) +
+      '" title="按条线筛选">' + DZ.esc(label) + '</button>';
   }
-
-  // ---------- 渲染行业版报告 ----------
-  function renderReport(taskId, rep){
-    const meta = rep.meta || {};
-    const summary = rep.summary || {};
-    const items = Array.isArray(rep.items) ? rep.items : [];
-    const gaps = rep.gapSummary || {};
-    const opinions = Array.isArray(rep.expertOpinions) ? rep.expertOpinions : [];
-    const total = items.length;
-    const evOk = items.filter(function(i){ return !!i.evidenceComplete; }).length;
-    const ctOk = items.filter(function(i){ return !!i.contentAdequate; }).length;
-    const evPct = total ? round1(evOk / total * 100) : 0;
-    const ctPct = total ? round1(ctOk / total * 100) : 0;
-
-    // 导出按钮：直接指向报告接口，带 download 属性
-    const dlName = '自查报告-' + String(taskId) + '.md';
-    const dlBtn = '<a class="dz-chip" style="text-decoration:none" download="' + DZ.esc(dlName) + '" ' +
-      'href="' + API.reportMd(taskId) + '" title="下载自查报告" aria-label="下载自查报告">下载自查报告</a>';
-
-    // 页脚（footer 字段 + 前端兜底标识）
-    let foot = String(rep.footer || '').trim();
-    if (foot.indexOf('脱敏') < 0) foot = (foot ? foot + ' ' : '') + '脱敏样例，仅供演示使用。';
-
-    let html = '';
-    // 报告头
-    html += '<div class="dz-toolbar">' +
-      '<span class="pill" title="报告模板">' + DZ.esc(meta.template || '行业版报告') + '</span>' +
-      '<span class="muted" title="报告元信息">' + DZ.esc(meta.orgName || '') + ' · ' + DZ.esc(meta.cycle || '') +
-        ' · 行业 ' + DZ.esc(meta.industry || '—') + ' · 生成于 ' + DZ.esc(DZ.date(meta.generatedAt)) + '</span>' +
-      dlBtn + '</div>';
-
-    // 摘要 KPI
-    html += '<div class="dz-kpi-row">' +
-      DZ.kpi('合规率', (summary.score != null ? summary.score : 0) + '%', '符合 / 合计', scoreKind(summary.score)) +
-      DZ.kpi('判定结论', verdictText(summary.verdict), '按最差项聚合', verdictKind(summary.verdict)) +
-      DZ.kpi('风险等级', riskText(summary.riskLevel), '综合风险等级', riskKind(summary.riskLevel)) +
-      DZ.kpi('佐证完整性', evPct + '%', evOk + ' / ' + total, evPct >= 80 ? 'ok' : 'warn') +
-      DZ.kpi('内容完备性', ctPct + '%', ctOk + ' / ' + total, ctPct >= 80 ? 'ok' : 'warn') +
-    '</div>';
-
-    // 符合 / 部分符合 / 不符合 / 需补充 计数
-    html += '<h4>结论计数</h4><div class="row" title="四态结论计数">' +
-      '<span>' + DZ.resultBadge('pass') + ' ' + DZ.number(summary.pass) + '</span>' +
-      '<span>' + DZ.resultBadge('partial') + ' ' + DZ.number(gaps.partial) + '</span>' +
-      '<span>' + DZ.resultBadge('fail') + ' ' + DZ.number(gaps.fail) + '</span>' +
-      '<span>' + DZ.resultBadge('supplement') + ' ' + DZ.number(gaps.supplement) + '</span>' +
-    '</div>';
-
-    // 报告五项结构（白皮书第 3 章 / 附录 B）
-    html += renderFive(rep.five);
-
-    // 逐条检查项（不符合 / 部分符合默认展开）
-    html += '<h4>逐条检查项（' + total + '）</h4>';
-    if (!total){
-      html += DZ.empty('该报告暂无检查项详情');
-    } else {
-      html += items.map(renderReportItem).join('');
-    }
-
-    // 差距汇总
-    html += '<h4>差距汇总</h4><div class="row" title="差距汇总">' +
-      '<span class="pill">不符合 ' + DZ.number(gaps.fail) + '</span>' +
-      '<span class="pill">部分符合 ' + DZ.number(gaps.partial) + '</span>' +
-      '<span class="pill">需补充 ' + DZ.number(gaps.supplement) + '</span></div>';
-
-    // 专家意见汇总
-    if (opinions.length){
-      html += '<h4>专家意见汇总</h4><div class="why">' +
-        '<ul style="margin:0 0 0 18px">' +
-        opinions.map(function(o){ return '<li>' + DZ.esc(o) + '</li>'; }).join('') +
-        '</ul></div>';
-    }
-
-    // 页脚标识
-    html += '<div class="dz-cite" title="报告标识"><div>' + DZ.esc(foot) + '</div>' +
-      '<div class="dz-cite-src">脱敏样例 · 生成于 ' + DZ.esc(DZ.date(meta.generatedAt)) + '</div></div>';
-
-    DZ.render('#rep_report', html);
+  function deptLabelMap(){
+    const o = S.overview || {}, m = {};
+    (o.byDept || []).forEach(function(d){ if (m[d.key] == null) m[d.key] = d.label; });
+    (o.sections || []).forEach(function(s){ if (m[s.lineCode] == null) m[s.lineCode] = s.lineLabel; });
+    return m;
   }
-
-  // ---------- 报告五项结构（问题清单 / 依据条款 / 责任归属 / 证据缺口 / 下一步建议） ----------
-  function renderFive(five){
-    five = five || {};
-    const problems  = Array.isArray(five.problems)      ? five.problems      : [];
-    const bases     = Array.isArray(five.bases)         ? five.bases         : [];
-    const ownership = Array.isArray(five.ownership)     ? five.ownership     : [];
-    const gaps      = Array.isArray(five.evidenceGaps)  ? five.evidenceGaps  : [];
-    const nexts     = Array.isArray(five.nextSteps)     ? five.nextSteps     : [];
-
-    function ul(list, textOf){
-      if (!list.length) return '<div class="muted">无</div>';
-      return '<ul style="margin:0 0 0 18px">' + list.map(function(x){ return '<li>' + DZ.esc(textOf(x)) + '</li>'; }).join('') + '</ul>';
-    }
-    function use(txt){ return ' <span class="muted">' + DZ.esc(txt) + '</span>'; }
-
-    let html = '<h4>报告五项结构</h4>';
-    if (five.note) html += '<div class="muted" style="margin-bottom:8px">' + DZ.esc(five.note) + '</div>';
-
-    html += '<div class="grid2">' +
-      '<div class="card"><h3>一、问题清单' + use('给牵头部门掌握全貌') + '</h3>' +
-        ul(problems, function(p){ return p.text; }) + '</div>' +
-      '<div class="card"><h3>二、依据条款' + use('复核时可直接对照') + '</h3>' +
-        '<div class="dz-table-wrap"><table>' +
-          '<thead><tr><th>监管要求</th><th>判定口径</th></tr></thead><tbody>' +
-          (bases.length ? bases.map(function(b){
-            return '<tr><td>' + DZ.esc(b.requirement) + '</td><td>' + DZ.esc(b.criterion) + '</td></tr>';
-          }).join('') : '<tr><td colspan="2" class="muted">无</td></tr>') +
-        '</tbody></table></div>' +
-        '<div class="muted" style="margin-top:6px">此处不列具体条号，引用以公开文件为准。</div></div>' +
-    '</div>';
-
-    html += '<div class="card"><h3>三、责任归属' + use('拆到条线的派单依据') + '</h3>' +
-      (ownership.length ? '<div class="dz-table-wrap"><table>' +
-        '<thead><tr><th style="min-width:200px">环节</th><th>发起</th><th>审批</th><th>复核</th><th>问责</th></tr></thead><tbody>' +
-        ownership.map(function(o){
-          return '<tr><td>' + DZ.esc(o.title) + '<br><span class="muted">' + DZ.esc(o.code) + '</span></td>' +
-            '<td>' + DZ.esc(o.initiator) + '</td><td>' + DZ.esc(o.approver) + '</td>' +
-            '<td>' + DZ.esc(o.reviewer) + '</td><td>' + DZ.esc(o.accountable) + '</td></tr>';
-        }).join('') + '</tbody></table></div>' : '<div class="muted">无</div>') + '</div>';
-
-    html += '<div class="grid2">' +
-      '<div class="card"><h3>四、证据缺口' + use('下一轮补齐的起点') + '</h3>' +
-        ul(gaps, function(g){ return g.text; }) + '</div>' +
-      '<div class="card"><h3>五、下一步建议' + use('形成地图的第一条路线') + '</h3>' +
-        (nexts.length ? nexts.map(function(n){
-          return '<div class="dz-metric"><span class="dz-metric-k">' + DZ.esc(n.priority) + '</span>' +
-            '<span class="dz-metric-v" style="font-weight:400;text-align:right;max-width:70%">' + DZ.esc(n.text) + '</span></div>';
-        }).join('') : '<div class="muted">无</div>') + '</div>' +
-    '</div>';
-
-    return html;
-  }
-
-  // ---------- 报告脱敏样例（附录 B 形态，复用五项结构渲染） ----------
-  function renderSample(d){
-    if (!d || d.error){
-      const msg = errMsg(d);
-      DZ.render('#rep_sample', DZ.banner('bad', '样例加载失败：' + msg, function(){ loadSample(true); }));
-      return;
-    }
-    const h = d.header || {};
-    let html = '<div class="dz-toolbar">' +
-      '<span class="pill" title="样例机构">' + DZ.esc(h.org || '—') + '</span>' +
-      '<span class="muted" title="样例主题">' + DZ.esc(h.topic || '') +
-        (h.cycle ? ' · ' + DZ.esc(h.cycle) : '') + '</span></div>' +
-      (h.review ? '<div class="muted" style="margin-bottom:8px">' + DZ.esc(h.review) + '</div>' : '') +
-      '<div class="muted" style="margin-bottom:8px">样例为脱敏示例，机构、系统、岗位、主题、字段与数据均为示例化、代号化内容。</div>';
-    html += renderFive(d.five);
-    DZ.render('#rep_sample', html);
-  }
-
-  async function loadSample(force){
-    if (state.sample && !force){ renderSample(state.sample); return; }
-    if (force) DZ.render('#rep_sample', DZ.skeleton(4));
-    const d = await DZ.get(API.sample);
-    state.sample = d;
-    renderSample(d);
-  }
-
-  // 单条检查项：checkCode / title / result / priority / 佐证完整性 / 内容完备性 / 是否合规 / 差距 / 整改建议 / 专家意见
-  function renderReportItem(it){
-    const open = (it.result === 'fail' || it.result === 'partial');
-    const head = '<span class="dz-tag-soft" title="条款编码">' + DZ.esc(it.checkCode || '—') + '</span> ' +
-      DZ.esc(it.title || it.checkCode || '') + ' ' +
-      DZ.resultBadge(it.result) + ' ' + priorityBadge(it.priority);
-
-    const gapList = (Array.isArray(it.gaps) && it.gaps.length)
-      ? '<ul style="margin:4px 0 0 18px">' + it.gaps.map(function(g){ return '<li>' + DZ.esc(g) + '</li>'; }).join('') + '</ul>'
-      : '<div class="muted">无</div>';
-
-    const body =
-      '<div class="dz-metric"><span class="dz-metric-k">条款依据</span>' +
-        '<span class="dz-metric-v">' + DZ.esc(it.checkCode || '—') + ' · ' + DZ.esc(it.title || '') + '</span></div>' +
-      '<div class="dz-metric"><span class="dz-metric-k">佐证完整性</span>' +
-        '<span class="dz-metric-v">' + boolBadge(it.evidenceComplete, '齐备', '缺失') + '</span></div>' +
-      '<div class="dz-metric"><span class="dz-metric-k">内容完备性</span>' +
-        '<span class="dz-metric-v">' + boolBadge(it.contentAdequate, '完备', '不完备') + '</span></div>' +
-      '<div class="dz-metric"><span class="dz-metric-k">是否符合监管要求</span>' +
-        '<span class="dz-metric-v">' + boolBadge(it.compliant, '符合', '不符合') + '</span></div>' +
-      '<h4>差距</h4>' + gapList +
-      '<h4>整改建议</h4><div class="why">' +
-        (it.remediation ? DZ.esc(it.remediation) : '<span class="muted">无</span>') + '</div>' +
-      '<h4>专家意见</h4><div class="why">' +
-        (it.expertOpinion ? DZ.esc(it.expertOpinion) : '<span class="muted">无</span>') + '</div>';
-
-    return '<details' + (open ? ' open' : '') + '>' +
-      '<summary title="点击展开 / 收起检查项详情">' + head + '</summary>' + body + '</details>';
+  function itemRow(it, lineLabel){
+    const ev = Array.isArray(it.evidence) ? it.evidence : [];
+    const code = it.checkCode || '';
+    let h = '<tr data-act="row" data-code="' + DZ.esc(code) + '" role="button" tabindex="0" style="cursor:pointer">';
+    h += '<td><span class="dz-tag-soft">' + DZ.esc(code || '—') + '</span></td>';
+    h += '<td>' + DZ.esc(it.title || '—') + '</td>';
+    h += '<td>' + DZ.esc(lineLabel || '—') + '</td>';
+    h += '<td>' + DZ.esc(APPLY[it.applicability] || '—') + '</td>';
+    h += '<td>' + DZ.resultBadge(it.status) + '</td>';
+    h += '<td>' + DZ.esc(it.ownerName || it.owner || '—') + '</td>';
+    h += '<td>' + (ev.length ? ev.map(function(e){ return DZ.esc(e.name || '—'); }).join('、')
+                             : '<span class="muted">证据缺失</span>') + '</td>';
+    h += '<td>' + DZ.esc(it.actualValue || '—') + '</td>';
+    h += '<td>' + DZ.esc(it.note || '—') + '</td>';
+    h += '<td>' + DZ.esc(DZ.date(it.updatedAt)) + '</td>';
+    h += '<td data-caret="1">▸</td>';
+    h += '</tr>';
+    const evLine = ev.length
+      ? ev.map(function(e){ return DZ.esc(e.name || '—') + ' ' + DZ.badge('ok', EVID[e.status] || '已提供'); }).join('　')
+      : '<span class="muted">证据缺失</span>';
+    h += '<tr data-detail="' + DZ.esc(code) + '" hidden><td colspan="11">' +
+      '<div class="dz-metric"><span class="dz-metric-k">证据清单</span><span class="dz-metric-v">' + evLine + '</span></div>' +
+      '<div class="dz-metric"><span class="dz-metric-k">备注</span><span class="dz-metric-v">' + DZ.esc(it.note || '无') + '</span></div>' +
+    '</td></tr>';
+    return h;
   }
 
   // ---------- 注册视图 ----------

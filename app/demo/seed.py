@@ -16,7 +16,7 @@ import datetime
 
 from . import store
 
-SEED_VERSION = "demo-v1.6"
+SEED_VERSION = "demo-v1.9"
 
 # ===========================================================================
 # 可引用的知识库清单（演示目录）
@@ -313,151 +313,6 @@ GOV_FRAME_CHAIN = [
     {"no": 6, "name": "整改验收", "desc": "复检、验收与根因分析，回到下一轮"},
 ]
 
-# ===========================================================================
-# 知识底座五层架构 · 知识 / 编排 / 接入 / 能力 / 证据
-# ---------------------------------------------------------------------------
-# 口径：五层讲的是「能力怎么被组织起来并被调用」；每层只交代它承载什么，
-#      不列条目数、不指定具体产品。全代号化。
-# ===========================================================================
-ARCH_LAYERS = [
-    {"no": 1, "name": "知识层", "desc": "制度、依据、检查项与案例的统一底座。",
-     "modules": ["知识库", "法规与检查项", "案例与术语"]},
-    {"no": 2, "name": "编排层", "desc": "把自查、诊断、整改组织成可执行的作业。",
-     "modules": ["自查作业", "现状诊断", "整改闭环"]},
-    {"no": 3, "name": "接入层", "desc": "统一接入方式，让能力可被调用。",
-     "modules": ["接口接入", "智能体接入"]},
-    {"no": 4, "name": "能力层", "desc": "按需调用的数据安全技术能力。",
-     "modules": ["分类分级", "脱敏与水印", "敏感数据识别", "接口与日志监测"]},
-    {"no": 5, "name": "证据层", "desc": "把过程与结论留成可复核、可追溯的资产。",
-     "modules": ["证据归集", "复核签署", "审计留痕"]},
-]
-
-# ===========================================================================
-# 十四能力域目录（白皮书第 7 章能力域总览 + 附录 E 全量清单）
-# ---------------------------------------------------------------------------
-# 口径：按工作环节而非按产品编排；每项只写中文通用能力名称、用途、对应检查
-#      主题编号与接入后的交付物；全代号化、只读。
-# 实例层：仅「数据资产与分类分级」「脱敏与测试数据」已接入插件实例，其余待接入。
-# ===========================================================================
-CAPABILITY_DOMAINS = [
-    {"no": 1, "name": "治理与制度支撑",
-     "usage": "制度与文档集中管理、责任矩阵台账、标准作业程序与自查模板、判定口径库、培训与考核记录、审批工作流与电子留痕",
-     "checks": ["①", "⑨", "贯穿"],
-     "deliverable": "统一口径的制度文件、责任矩阵、审批留痕",
-     "status": "planned", "instances": []},
-    {"no": 2, "name": "数据资产与分类分级",
-     "usage": "数据资产发现与目录、非结构化数据识别、元数据管理、自动分类分级打标、分级结果与控制策略联动、目录动态维护",
-     "checks": ["②", "⑧"],
-     "deliverable": "目录清单、分级打标结果、逐项对账记录",
-     "status": "ready", "instances": ["数据分级插件", "数据分类插件", "敏感数据识别插件"]},
-    {"no": 3, "name": "身份与访问／特权账号",
-     "usage": "统一身份认证、岗位角色权限模型、特权账号管理、临时提权与到期回收、僵尸与共享账号检测、运维安全审计、高权限操作审计",
-     "checks": ["①", "⑥", "⑦"],
-     "deliverable": "实名账号台账、授权配置、高权限操作审计日志",
-     "status": "planned", "instances": []},
-    {"no": 4, "name": "加密与密钥",
-     "usage": "传输加密、字段级与存储加密、文件与透明加密、下载加密、密钥管理、凭据托管与明文凭据清理",
-     "checks": ["③", "④", "⑤", "⑥"],
-     "deliverable": "加密策略配置、密钥轮换记录、凭据清理记录",
-     "status": "planned", "instances": []},
-    {"no": 5, "name": "脱敏与测试数据",
-     "usage": "静态脱敏、动态脱敏、服务端与接口脱敏、日志脱敏过滤、测试数据管理与脱敏有效性验证、数字水印与溯源",
-     "checks": ["②", "③", "④"],
-     "deliverable": "脱敏生效核查记录、测试环境脱敏证明、水印记录",
-     "status": "ready", "instances": ["脱敏插件", "水印插件"]},
-    {"no": 6, "name": "数据防泄漏与办公渠道",
-     "usage": "数据防泄漏（邮件／云盘／终端／网络）、邮件敏感附件外发管控、云盘敏感文件与凭据检测、终端与移动介质管控、策略对抗性验证、告警处置与复核",
-     "checks": ["⑤", "⑨"],
-     "deliverable": "策略配置、对抗性验证记录、告警处置与复核记录",
-     "status": "planned", "instances": []},
-    {"no": 7, "name": "导出与流转管控",
-     "usage": "统一导出入口、导出审批工作流、字段级最小化与最短期限控制、到期回收与安全销毁、共享流转审批、导出行为审计",
-     "checks": ["②", "③", "⑦"],
-     "deliverable": "导出审批单、回收与删除验证记录、完整证据链",
-     "status": "planned", "instances": []},
-    {"no": 8, "name": "接口与应用安全",
-     "usage": "接口资产梳理与台账、接口返回内容核查、接口鉴权与越权检测、应用安全检测、外链脚本与接口调用检测、应用日志敏感字段扫描",
-     "checks": ["②", "④", "⑦", "⑧"],
-     "deliverable": "接口台账、展示层与接口比对记录、日志扫描报告",
-     "status": "planned", "instances": []},
-    {"no": 9, "name": "日志审计与监测告警",
-     "usage": "日志集中采集与留存、日志关联分析、数据库审计、漏洞扫描、告警分级与工单化、问题台账与整改时限管理、复测验收与根因分析",
-     "checks": ["⑥", "⑨", "贯穿"],
-     "deliverable": "告警分析记录、问题台账、复测验收与根因分析报告",
-     "status": "planned", "instances": []},
-    {"no": 10, "name": "第三方与外包",
-     "usage": "第三方准入评估与合同管理、第三方账号与远程接入管控、第三方数据交付脱敏、第三方行为监控与审计、删除返还与退出验证、第三方台账",
-     "checks": ["⑥", "⑦"],
-     "deliverable": "准入评估与合同、持续监测报告、退出与删除验证记录",
-     "status": "planned", "instances": []},
-    {"no": 11, "name": "移动应用与组件",
-     "usage": "移动应用安全检测、第三方组件成分分析、多渠道应用与组件台账、个人信息采集与权限调用检测、上线与变更升级前评估与动态检测",
-     "checks": ["⑧"],
-     "deliverable": "分渠道组件台账、发布前评估与检测报告",
-     "status": "planned", "instances": []},
-    {"no": 12, "name": "备份归档与销毁",
-     "usage": "归档与证据留存、到期回收与安全销毁、销毁验证与记录、副本与留存台账",
-     "checks": ["③", "⑦", "支撑性"],
-     "deliverable": "归档清单、销毁验证记录、副本去向台账",
-     "status": "planned", "instances": []},
-    {"no": 13, "name": "个人信息保护",
-     "usage": "个人信息识别与清单、个人信息采集合规检测、个人信息去标识化与脱敏、个人信息流转与共享管控、个人信息处理活动记录",
-     "checks": ["②", "④", "⑦", "⑧", "支撑性"],
-     "deliverable": "个人信息清单、处理活动记录、共享管控记录",
-     "status": "planned", "instances": []},
-    {"no": 14, "name": "策略编排与工具接入",
-     "usage": "可扩展能力框架、标准协议接入适配、机构内部知识接入、第三方工具与服务按需对接、工具注册与能力目录、插件生命周期管理、策略编排与联动下发、统一证据与结果归集",
-     "checks": ["①–⑨", "贯穿"],
-     "deliverable": "能力目录、插件登记、策略编排记录、统一证据台账",
-     "status": "planned", "instances": []},
-]
-
-# ===========================================================================
-# 实施路径 · 四阶段 × 六列（白皮书第 9 章实施路径表）
-# ---------------------------------------------------------------------------
-# 口径：首轮起点主题不预设，按机构当前关注点自选；之后按同一条链逐轮走，
-#      每轮从上一轮确认过的结论开始。四阶段逐列给出 6 列内容。
-# 全代号化、只读；无机构真名、无绝对路径、无条目数承诺、无厂商与产品名称。
-# ===========================================================================
-IMPLEMENTATION_PATH = [
-    {"stage": "一", "start": "按机构当前关注点自选一个主题",
-     "goal": "完成一次自查；牵头部门认领，交出自查报告与已确认的问题清单",
-     "gate": "报告经指定人员复核确认，每项问题有依据、责任与举证情况",
-     "tools": "随需调用自查与报告整理插件，按标准方式接入",
-     "asset": "自查报告 + 已确认的问题清单"},
-    {"stage": "二", "start": "承接上一轮的证据缺口",
-     "goal": "五个维度补证、分级结果与使用场景对账；各条线认领，交出应用与业务层台账",
-     "gate": "台账逐项可核验，控制生效有运行记录",
-     "tools": "接入对账、目录、接口与日志核查工具插件",
-     "asset": "应用与业务层台账"},
-    {"stage": "三", "start": "承接对账结论",
-     "goal": "逐类落实管理策略与技术防护策略，把整改闭环固化为流程；交出责任、时限、复测、验收审批与根因分析记录",
-     "gate": "每项问题有认领、有复测、有验收审批记录",
-     "tools": "按问题类别调用对应能力插件，证据统一回到问题台账",
-     "asset": "可复用的流程与记录"},
-    {"stage": "四", "start": "由已确认的结果驱动",
-     "goal": "把控制持续生效纳入日常核查；交出核查基准与知识资产",
-     "gate": "上一轮确认过的结论成为下一轮对照基准",
-     "tools": "监测与常态化能力按需接入，知识底座与安全治理工具随需调用",
-     "asset": "机构自己的知识资产"},
-]
-
-# ===========================================================================
-# 留存资产 · 四类（白皮书第 11 章留存资产）
-# ---------------------------------------------------------------------------
-# 口径：四类资产＝台账 / 自查报告 / 方法与模板 / 已确认结果；逐类给出「由哪一轮
-#      留下」与「下一轮怎么用」。全代号化、只读。
-# ===========================================================================
-RETAINED_ASSETS = [
-    {"no": 1, "name": "台账", "intro": "记下数据在哪里、在什么场景下被谁使用、应当受什么控制",
-     "stage": "现状诊断", "use": "分级结果对账、控制补证的依据"},
-    {"no": 2, "name": "自查报告", "intro": "把一轮的问题、依据、责任、证据缺口与下一步建议固定下来",
-     "stage": "首轮自查", "use": "作为下一轮的起点与对照基准"},
-    {"no": 3, "name": "方法与模板", "intro": "让新主题、新条线不必从零设计",
-     "stage": "逐轮交付", "use": "新主题、新条线直接复用"},
-    {"no": 4, "name": "已确认结果", "intro": "给下一轮一个不必重新争论的起点",
-     "stage": "每轮复核后", "use": "驱动新场景的切入位置"},
-]
 
 # ===========================================================================
 # 第八轮：8 个扩展视图功能化 · 作业种子
@@ -466,35 +321,6 @@ RETAINED_ASSETS = [
 #      输入输出与流程节点；所有内容均为合成脱敏、全代号化示例。
 # ===========================================================================
 
-# —— 能力接入登记：已接入的能力实例（输入 / 输出 / 类别 / 状态）——
-CAPABILITY_ACCESS_MODES = ["接口接入", "智能体接入", "内置部署", "数据同步"]
-
-CAPABILITY_INSTANCES = [
-    {"domain_no": 2, "name": "数据分级插件", "kind": "分类分级",
-     "input": "待分级字段清单与分级规则", "output": "分级结果与打标记录", "status": "active"},
-    {"domain_no": 2, "name": "数据分类插件", "kind": "分类分级",
-     "input": "数据表与字段元数据", "output": "分类结果与目录条目", "status": "active"},
-    {"domain_no": 2, "name": "敏感数据识别插件", "kind": "敏感数据识别",
-     "input": "样本数据与识别规则", "output": "敏感字段清单与命中规则", "status": "active"},
-    {"domain_no": 5, "name": "脱敏插件", "kind": "脱敏",
-     "input": "原始字段与脱敏策略", "output": "脱敏结果与生效核查记录", "status": "active"},
-    {"domain_no": 5, "name": "水印插件", "kind": "水印溯源",
-     "input": "导出文件与标识信息", "output": "带水印文件与溯源记录", "status": "active"},
-]
-
-# —— 平台架构 · 层模块接入登记：接入方式按层归口 ——
-ARCH_MODULE_ACCESS = {
-    "知识层": "数据同步", "编排层": "内置部署", "接入层": "接口接入",
-    "能力层": "接口接入", "证据层": "内置部署",
-}
-
-# —— 实施路径 · 四阶段转段判据（每阶段逐项判定，全过方可转段）——
-PATH_GATE_ITEMS = {
-    "一": ["报告经指定人员复核确认", "每项问题有依据、责任与举证情况"],
-    "二": ["台账逐项可核验", "控制生效有运行记录"],
-    "三": ["每项问题有认领", "有复测记录", "有验收审批记录"],
-    "四": ["上一轮确认过的结论成为下一轮对照基准"],
-}
 
 # —— 逐类问题处置：已在流转中的处置工单 ——
 ISSUE_SEED_DISPOSALS = [
@@ -638,7 +464,7 @@ ROLE_META = [
 # ---- 组织树（bank / insurance 两条完整树）----
 ORG_NODES = [
     # 银行：L0 → L1×3 → 各 L2×2 → 各 L3×1
-    ("bank-hq", None, "L0", "中金银行总行", "hq", "", "bank", 0),
+    ("bank-hq", None, "L0", "示范银行总行", "hq", "", "bank", 0),
     ("bank-east", "bank-hq", "L1", "华东分行", "branch", "east", "bank", 1),
     ("bank-north", "bank-hq", "L1", "华北分行", "branch", "north", "bank", 2),
     ("bank-south", "bank-hq", "L1", "华南分行", "branch", "south", "bank", 3),
@@ -655,7 +481,7 @@ ORG_NODES = [
     ("bank-south-1-1", "bank-south-1", "L3", "天河网点", "outlet", "south", "bank", 104),
     ("bank-south-2-1", "bank-south-2", "L3", "福田网点", "outlet", "south", "bank", 105),
     # 保险：L0 → L1×2 → 各 L2×2 → 各 L3×1
-    ("ins-hq", None, "L0", "中金保险总公司", "hq", "", "insurance", 200),
+    ("ins-hq", None, "L0", "示范保险总公司", "hq", "", "insurance", 200),
     ("ins-east", "ins-hq", "L1", "华东分公司", "branch", "east", "insurance", 201),
     ("ins-north", "ins-hq", "L1", "华北分公司", "branch", "north", "insurance", 202),
     ("ins-east-1", "ins-east", "L2", "上海中心支公司", "subbranch", "east", "insurance", 210),
@@ -899,6 +725,8 @@ def _seed_all() -> None:
     _seed_plugins_scenarios(now)
     # ---- 第八轮：8 个扩展视图功能化作业种子 ----
     _seed_extended(now)
+    # ---- 第九轮：闭环工作流 / 知识发布治理 / 资产台账 / 插件治理 / 权限精细化 ----
+    _seed_round9(now)
     # ---- 审计（≥60，哈希链）----
     _seed_audit(now)
 
@@ -1350,54 +1178,6 @@ def _seed_plugins_scenarios(now):
 
 def _seed_extended(now: str) -> None:
     """第八轮：8 个扩展视图功能化的作业种子（让页面一进入就有在办状态）。"""
-    # —— 能力接入实例 ——
-    cap_by_no = {c["no"]: c for c in CAPABILITY_DOMAINS}
-    for i, inst in enumerate(CAPABILITY_INSTANCES, start=1):
-        dom = cap_by_no.get(inst["domain_no"], {})
-        store.insert("capability_instance", {
-            "instance_id": f"cap-{i}", "domain_no": inst["domain_no"],
-            "domain_name": dom.get("name", ""), "name": inst["name"], "kind": inst["kind"],
-            "input_desc": inst["input"], "output_desc": inst["output"],
-            "status": inst["status"], "owner": "kbops", "created_by": "kbops",
-            "created_at": now, "updated_at": now})
-
-    # —— 架构层模块接入登记 ——
-    n = 0
-    for L in ARCH_LAYERS:
-        mode = ARCH_MODULE_ACCESS.get(L["name"], "内置部署")
-        for m in L["modules"]:
-            n += 1
-            store.insert("arch_module", {
-                "module_id": f"am-{n}", "layer_no": L["no"], "layer_name": L["name"],
-                "name": m, "access_mode": m if L["name"] == "接入层" else mode,
-                "bound_capability": "", "status": "active",
-                "owner": "admin", "created_by": "admin",
-                "created_at": now, "updated_at": now})
-
-    # —— 实施路径：阶段一已完成，阶段二进行中（首项判据已判定）——
-    stage_status = {"一": "done", "二": "in_progress", "三": "pending", "四": "pending"}
-    for s in IMPLEMENTATION_PATH:
-        st = s["stage"]
-        stat = stage_status.get(st, "pending")
-        store.insert("path_stage_state", {
-            "stage": st, "stage_name": f"阶段{st}", "status": stat,
-            "started_at": now if stat in ("done", "in_progress") else None,
-            "finished_at": now if stat == "done" else None,
-            "updated_by": "admin", "updated_at": now})
-        for seq, text in enumerate(PATH_GATE_ITEMS.get(st, []), start=1):
-            checked = 1 if stat == "done" else (1 if (st == "二" and seq == 1) else 0)
-            store.insert("path_gate_item", {
-                "item_id": f"pg-{st}-{seq}", "stage": st, "seq": seq, "text": text,
-                "checked": checked, "checked_by": "admin" if checked else None,
-                "checked_at": now if checked else None})
-
-    # —— 留存资产登记 ——
-    for a in RETAINED_ASSETS:
-        store.insert("retained_asset_record", {
-            "asset_id": f"asset-{a['no']}", "name": a["name"], "category": a["name"],
-            "source_stage": a["stage"], "ref": a["intro"], "status": "在册",
-            "owner": "admin", "created_by": "admin", "created_at": now,
-            "archived_at": None, "updated_at": now})
 
     # —— 闭合链在办案件 ——
     for i, case in enumerate(FRAME_SEED_CASES, start=1):
@@ -1450,7 +1230,7 @@ def _seed_audit(now):
     base = datetime.datetime.fromisoformat(now)
     entries = [
         ("admin", "系统管理员（演示）", "auth.login", "session", {"ip": "10.0.0.10"}, "ok"),
-        ("admin", "系统管理员（演示）", "role.update", "role:l1_review", {"capabilities": 6}, "ok"),
+        ("admin", "系统管理员（演示）", "role.update", "角色：L1 复核", {"capabilities": 6}, "ok"),
         ("kbops", "刘运营（演示）", "kb.publish", "run-20261110", {"mode": "incremental"}, "ok"),
         ("kbops", "刘运营（演示）", "kb.fetch", "checks:jg24", {"n": 116}, "ok"),
         ("kbops", "刘运营（演示）", "kb.collect.run", "collect", {"new": 2}, "ok"),
@@ -1473,14 +1253,15 @@ def _seed_audit(now):
         ("kbops", "刘运营（演示）", "review.proposal", "p-3", {"decision": "approve"}, "ok"),
         ("lijb", "李经办（演示）", "evidence.upload", "ev-t1-1", {"size": 245678}, "ok"),
         ("lifh", "李复核（演示）", "hitl.decide", "h-3", {"decision": "approve"}, "ok"),
-        ("admin", "系统管理员（演示）", "capability.instance.create", "cap-5", {"domainNo": 5}, "ok"),
-        ("admin", "系统管理员（演示）", "arch.module.create", "am-11", {"layerNo": 3}, "ok"),
-        ("admin", "系统管理员（演示）", "path.gate.check", "二", {"seq": 1}, "ok"),
+        ("admin", "系统管理员（演示）", "gov.issue.create", "GY-2026-001", {"severity": "high"}, "ok"),
+        ("admin", "系统管理员（演示）", "gov.issue.triage", "GY-2026-001", {"category": "资产层"}, "ok"),
+        ("admin", "系统管理员（演示）", "gov.issue.dispatch", "GY-2026-001", {"dept": "数据管理部"}, "ok"),
         ("admin", "系统管理员（演示）", "frame.ring.record", "fc-1", {"ringNo": 3}, "ok"),
         ("admin", "系统管理员（演示）", "diag.answer.save", "da-1", {"dimNo": 1}, "ok"),
-        ("admin", "系统管理员（演示）", "ledger.row.create", "lr-8", {"result": "missing"}, "ok"),
-        ("admin", "系统管理员（演示）", "issue.disposal.assign", "disp-1", {"org": "数据管理部"}, "ok"),
-        ("admin", "系统管理员（演示）", "asset.archive", "asset-2", {"status": "已归档"}, "ok"),
+        ("admin", "系统管理员（演示）", "diag.generate", "da-1", {"inputs": 4}, "ok"),
+        ("admin", "系统管理员（演示）", "asset.create", "中国银联接口清单", {"category": "接口清单"}, "ok"),
+        ("kbops", "刘运营（演示）", "kb.doc.publish", "数据分类分级操作指引", {"kb": "内部制度知识库"}, "ok"),
+        ("kbops", "刘运营（演示）", "asset.kb.upload", "数据安全管理办法", {"kb": "内部制度知识库"}, "ok"),
     ]
     # 复制一轮并逐条错开时间，凑足 ≥60 条（真实感）
     all_rows = []
@@ -1490,3 +1271,317 @@ def _seed_audit(now):
     for i, (actor, name, action, target, params, result) in enumerate(all_rows):
         ts = (base - datetime.timedelta(minutes=(len(all_rows) - i) * 7)).isoformat(timespec="seconds")
         store.write_audit(actor, action, target, params, result=result, actor_name=name, ts=ts)
+
+
+# ===========================================================================
+# 第九轮：闭环工作流 / 知识发布治理 / 资产台账 / 插件治理 / 权限精细化
+# ===========================================================================
+# 权限菜单目录（与左侧功能菜单一一对应；菜单键保持机器可读）
+MENU_CATALOG = [
+    ("selfcheck", "合规自查"), ("dsc", "安全自查"), ("rep", "报告与看板"),
+    ("diag", "现状诊断"), ("ledger", "资产台账"), ("issues", "安全治理"),
+    ("kbdash", "知识库"), ("pipeline", "知识发布"),
+    ("scenario", "场景包"), ("plugin", "工具插件"),
+    ("gov", "权限与组织"), ("dsk", "运行驾驶舱"), ("frame", "治理框架"),
+]
+
+# 角色 → 可见菜单（其余角色未列出的菜单默认不可见）
+ROLE_MENUS = {
+    "sys_admin": [m[0] for m in MENU_CATALOG],
+    "kb_ops": ["kbdash", "pipeline", "scenario", "plugin", "dsk"],
+    "l0_lead": ["selfcheck", "dsc", "rep", "diag", "ledger", "issues", "dsk"],
+    "l1_handle": ["dsc", "rep", "issues", "ledger", "kbdash"],
+    "l1_review": ["dsc", "rep", "issues", "ledger"],
+    "l2_handle": ["dsc", "rep", "issues"],
+    "l3_exec": ["dsc", "rep"],
+    "manager": ["rep", "dsk", "diag"],
+}
+# 角色 → 数据可见范围（ALL 全部 / ORG_AND_CHILD 本级及下级 / ORG_ONLY 本级 / SELF 本人）
+ROLE_DATA_SCOPE = {
+    "sys_admin": "ALL", "kb_ops": "ALL", "l0_lead": "ORG_AND_CHILD",
+    "l1_handle": "ORG_AND_CHILD", "l1_review": "ORG_AND_CHILD",
+    "l2_handle": "ORG_ONLY", "l3_exec": "SELF", "manager": "ORG_AND_CHILD",
+}
+
+# 插件默认配置（config 键值随能力而异；schema 由后端按能力给出）
+_PLUGIN_SEEDS = [
+    ("pl-grading", "grading", 1, "builtin",
+     {"levels": "四级（核心/重要/敏感/内部）", "defaultLevel": "内部", "autoApply": True}),
+    ("pl-class", "classification", 1, "builtin",
+     {"taxonomy": "行业数据分类目录", "minConfidence": 0.75, "reviewLowConfidence": True}),
+    ("pl-mask", "masking", 1, "builtin",
+     {"algorithm": "掩码（保留首尾）", "fields": "证件号、手机号、银行卡号", "reversible": False}),
+    ("pl-scan", "scan", 1, "builtin",
+     {"ruleset": "行业敏感数据识别规则集", "deepScan": True, "timeout": 30}),
+    ("pl-watermark", "watermark", 1, "builtin",
+     {"text": "内部资料·仅限授权使用", "opacity": 0.18, "tile": True}),
+    ("pl-ocr", "ocr", 1, "builtin",
+     {"lang": "中文（简体）", "layout": True, "tableExtract": True}),
+    ("pl-dlp", "dlp", 0, "uploaded",
+     {"channel": "邮件、终端外发", "action": "告警并留痕", "whitelist": "已授权报送通道"}),
+]
+
+# 安全治理闭环工单（多角色、多部门流转）
+_GOV_ISSUES = [
+    ("gv-1", "GY-2026-001", "数据分类分级覆盖不完整", "自查发现", "资产层", "high",
+     "bank-hq", "数据管理部", "pos-datagov", "数据治理岗", "pending_confirm",
+     "2026-12-05", "补齐数据分类分级目录，覆盖核心与重要数据", "已复检，判定通过"),
+    ("gv-2", "GY-2026-002", "重要数据目录未与责任矩阵对齐", "监管检查", "治理层", "high",
+     "bank-hq", "风险管理部", "pos-risk", "风险管理岗", "rechecking",
+     "2026-12-10", "重排重要数据目录与责任矩阵映射，明确到岗", ""),
+    ("gv-3", "GY-2026-003", "数据共享审批留痕不完整", "内部审计", "流程层", "medium",
+     "bank-acct", "零售业务部", "pos-acct", "业务经办岗", "remediating",
+     "2026-12-15", "补齐数据共享审批流转记录，统一留痕口径", ""),
+    ("gv-4", "GY-2026-004", "离职账号回收不及时", "自查发现", "技术层", "medium",
+     "bank-hq", "信息科技部", "pos-ops", "运维岗", "dispatched",
+     "2026-12-18", "建立离职即时停用与定期复核机制", ""),
+    ("gv-5", "GY-2026-005", "敏感数据外发未脱敏", "事件驱动", "技术层", "high",
+     "bank-credit", "信贷管理部", "pos-credit", "信贷管理岗", "closed",
+     "2026-11-20", "外发通道强制脱敏并留痕", "已复检，判定通过"),
+    ("gv-6", "GY-2026-006", "外包人员数据访问权限过宽", "自查发现", "治理层", "medium",
+     "bank-hq", "信息科技部", "pos-outsrc", "外包管理岗", "accepted",
+     "2026-12-22", "按最小必要重排外包人员数据权限", ""),
+]
+# 工单流转记录（每一步动作与操作角色，体现多角色互动）
+_GOV_TRANSITIONS = [
+    ("gv-1", "open", "triaged", "triage", "admin", "系统管理员（演示）", "定级为高，归入资产层"),
+    ("gv-1", "triaged", "dispatched", "dispatch", "admin", "系统管理员（演示）", "下发数据管理部"),
+    ("gv-1", "dispatched", "accepted", "accept", "inszhou", "周总保（演示）", "数据管理部已接收"),
+    ("gv-1", "accepted", "remediating", "start", "inszhou", "周总保（演示）", "启动整改"),
+    ("gv-1", "remediating", "responded", "respond", "inszhou", "周总保（演示）", "提交整改回复与佐证"),
+    ("gv-1", "responded", "rechecking", "recheck", "lifh", "李复核（演示）", "提交复检反馈"),
+    ("gv-1", "rechecking", "pending_confirm", "confirm", "admin", "系统管理员（演示）", "待数据安全管理部门核查确认"),
+    ("gv-2", "open", "triaged", "triage", "admin", "系统管理员（演示）", "定级为高，归入治理层"),
+    ("gv-2", "triaged", "dispatched", "dispatch", "admin", "系统管理员（演示）", "下发风险管理部"),
+    ("gv-2", "dispatched", "accepted", "accept", "fengsh", "冯审查（演示）", "风险管理部已接收"),
+    ("gv-2", "accepted", "remediating", "start", "fengsh", "冯审查（演示）", "启动整改"),
+    ("gv-2", "remediating", "responded", "respond", "fengsh", "冯审查（演示）", "提交整改回复"),
+    ("gv-2", "responded", "rechecking", "recheck", "admin", "系统管理员（演示）", "复检中，核对映射台账"),
+    ("gv-3", "open", "triaged", "triage", "admin", "系统管理员（演示）", "定级为中，归入流程层"),
+    ("gv-3", "triaged", "dispatched", "dispatch", "admin", "系统管理员（演示）", "下发零售业务部"),
+    ("gv-3", "dispatched", "accepted", "accept", "zhaogui", "赵柜员（演示）", "零售业务部已接收"),
+    ("gv-3", "accepted", "remediating", "start", "zhaogui", "赵柜员（演示）", "启动整改"),
+    ("gv-4", "open", "triaged", "triage", "admin", "系统管理员（演示）", "定级为中，归入技术层"),
+    ("gv-4", "triaged", "dispatched", "dispatch", "admin", "系统管理员（演示）", "下发信息科技部"),
+    ("gv-5", "open", "triaged", "triage", "admin", "系统管理员（演示）", "定级为高，归入技术层"),
+    ("gv-5", "triaged", "dispatched", "dispatch", "admin", "系统管理员（演示）", "下发信贷管理部"),
+    ("gv-5", "dispatched", "accepted", "accept", "zhangjb", "张经办（演示）", "信贷管理部已接收"),
+    ("gv-5", "accepted", "remediating", "start", "zhangjb", "张经办（演示）", "启动整改"),
+    ("gv-5", "remediating", "responded", "respond", "zhangjb", "张经办（演示）", "提交整改回复与佐证"),
+    ("gv-5", "responded", "rechecking", "recheck", "lifh", "李复核（演示）", "提交复检反馈"),
+    ("gv-5", "rechecking", "pending_confirm", "confirm", "admin", "系统管理员（演示）", "提交核查确认"),
+    ("gv-5", "pending_confirm", "closed", "close", "admin", "系统管理员（演示）", "确认整改完成，归档"),
+    ("gv-6", "open", "triaged", "triage", "admin", "系统管理员（演示）", "定级为中，归入治理层"),
+    ("gv-6", "triaged", "dispatched", "dispatch", "admin", "系统管理员（演示）", "下发信息科技部"),
+    ("gv-6", "dispatched", "accepted", "accept", "kbops", "刘运营（演示）", "信息科技部已接收"),
+]
+_GOV_EVIDENCE = [
+    ("gv-1", "整改回复", "分类分级目录（修订版）.pdf", "覆盖核心与重要数据共 86 项", "inszhou"),
+    ("gv-1", "复检反馈", "复检记录-分类分级.xlsx", "抽查 20 项，判定与佐证一致", "lifh"),
+    ("gv-2", "整改回复", "责任矩阵映射表.xlsx", "重排后的目录-责任映射", "fengsh"),
+    ("gv-3", "整改回复", "共享审批流转记录.pdf", "近三个月审批留痕补齐", "zhaogui"),
+    ("gv-5", "整改回复", "外发通道脱敏配置说明.pdf", "强制脱敏策略与留痕截图", "zhangjb"),
+    ("gv-5", "复检反馈", "复检记录-外发脱敏.pdf", "抽测 10 条外发样本，均已脱敏", "lifh"),
+]
+
+# 目标知识库（对接后台知识库平台后同步得出）
+_KB_TARGETS = [
+    ("kt-reg", "监管法规知识库", "法规", 216),
+    ("kt-inner", "内部制度知识库", "制度", 148),
+    ("kt-case", "案例与检查知识库", "案例", 97),
+]
+# 知识文档（含审核状态与版本）
+_KB_DOCS = [
+    ("doc-1", "kt-inner", "数据安全管理办法", "制度", "manual", "v3", "published", "kbops"),
+    ("doc-2", "kt-inner", "重要数据目录（2026版）", "目录", "auto", "v1", "pending_review", "kbops"),
+    ("doc-3", "kt-reg", "银行保险数据安全办法要点解读", "解读", "auto", "v2", "published", "kbops"),
+    ("doc-4", "kt-inner", "数据分类分级操作指引", "指引", "manual", "v1", "published", "lijb"),
+    ("doc-5", "kt-case", "典型违规案例汇编", "案例", "manual", "v1", "published", "kbops"),
+    ("doc-6", "kt-reg", "个人信息保护合规审计要点", "解读", "auto", "v1", "pending_review", "kbops"),
+    ("doc-7", "kt-inner", "数据共享与委托处理规范", "制度", "manual", "v1", "draft", "lijb"),
+]
+_KB_REVIEWS = [
+    ("doc-1", "fengsh", "冯审查（演示）", "approve", "内容准确，同意入库", "published"),
+    ("doc-3", "fengsh", "冯审查（演示）", "approve", "与监管口径一致", "published"),
+    ("doc-4", "fengsh", "冯审查（演示）", "approve", "分类分级口径清晰", "published"),
+    ("doc-5", "fengsh", "冯审查（演示）", "approve", "案例已脱敏，同意入库", "published"),
+    ("doc-6", "fengsh", "冯审查（演示）", "pending", "", "pending_review"),
+]
+_KB_CALLS = [
+    ("doc-1", "lijb", "安全自查", "数据安全管理办法 责任分工"),
+    ("doc-1", "fengsh", "现状诊断", "制度条款与证据要求"),
+    ("doc-3", "wangzong", "安全自查", "数据分类分级监管要求"),
+    ("doc-4", "lijb", "安全自查", "分类分级落地方法"),
+    ("doc-5", "admin", "安全治理", "同类问题处置范例"),
+    ("doc-2", "chenzong", "报告与看板", "重要数据目录口径"),
+]
+
+# 资产台账（应用资产 / 配置管理 / 制度办法 / 数据资产 / 接口清单）
+_ASSET_SEED = [
+    ("应用资产", "银行卡核心业务系统", "系统对接", "bank-hq", "信息科技部", "v2.4", "在册"),
+    ("应用资产", "信贷管理系统", "系统对接", "bank-credit", "信贷管理部", "v3.1", "在册"),
+    ("应用资产", "客户关系管理系统", "手工上传", "bank-acct", "零售业务部", "v1.8", "在册"),
+    ("配置管理", "生产环境网络拓扑", "系统对接", "bank-hq", "信息科技部", "v5", "在册"),
+    ("配置管理", "服务器与中间件清单", "系统对接", "bank-hq", "信息科技部", "v12", "在册"),
+    ("数据资产", "重要数据目录", "手工上传", "bank-hq", "数据管理部", "v2", "在册"),
+    ("数据资产", "客户主数据模型", "系统对接", "bank-hq", "数据管理部", "v4", "在册"),
+    ("制度办法", "数据安全管理办法", "手工上传", "bank-hq", "数据管理部", "v3", "在册"),
+    ("制度办法", "数据分类分级操作指引", "手工上传", "bank-hq", "数据管理部", "v1", "在册"),
+    ("制度办法", "数据共享与委托处理规范", "手工上传", "bank-hq", "数据管理部", "v1", "待更新"),
+    ("接口清单", "对外开放接口台账", "系统对接", "bank-open", "开放银行部", "v2", "在册"),
+    ("接口清单", "第三方数据交互清单", "手工上传", "bank-hq", "信息科技部", "v1", "待更新"),
+]
+
+# 场最包扩展明细（知识来源 / 知识库 / 部门岗位角色 / 工具 / 系统 / 模板）
+_SCENARIO_DETAIL = {
+    "sp-selfcheck": ("知识库 + 内部制度", ["kt-inner", "kt-reg"],
+                     ["数据管理部", "合规部"], ["数据治理岗", "合规审查岗"],
+                     ["l1_handle", "l1_review"], ["数据分级插件", "敏感数据识别插件"],
+                     ["数据资产目录", "自查管理"], ["自查报告模板（标准版）"]),
+    "sp-report": ("监管法规", ["kt-reg"],
+                  ["数据管理部"], ["数据治理岗"], ["l0_lead"],
+                  ["数据分类插件"], ["报送管理"], ["监管报送模板"]),
+    "sp-itgrading": ("内部制度 + 案例", ["kt-inner", "kt-case"],
+                     ["信息科技部", "风险管理部"], ["运维岗", "风险管理岗"],
+                     ["l1_handle", "manager"], ["数据分类插件"], ["配置管理", "运维审计"],
+                     ["信息科技评级模板"]),
+    "sp-dsra": ("监管法规 + 案例", ["kt-reg", "kt-case"],
+                ["风险管理部", "理赔部"], ["风险管理岗", "业务经办岗"],
+                ["l1_handle", "manager"], ["数据脱敏插件"], ["理赔系统"],
+                ["数据安全风险评估模板"]),
+    "sp-rating": ("监管法规", ["kt-reg"],
+                  ["数据管理部", "风险管理部"], ["数据治理岗", "风险管理岗"],
+                  ["l0_lead"], ["数据分级插件"], ["指标管理"], ["机构评级模板"]),
+    "sp-compliance": ("监管法规 + 内部制度", ["kt-reg", "kt-inner"],
+                      ["信息科技部", "数据管理部"], ["运维岗", "数据治理岗"],
+                      ["l1_handle", "l1_review"], ["OCR 识别插件"], ["等保管理", "密评管理"],
+                      ["等保自评估模板"]),
+    "sp-pipl": ("监管法规", ["kt-reg"],
+                ["合规部", "零售业务部"], ["合规审查岗", "业务经办岗"],
+                ["l1_review", "manager"], ["数据脱敏插件"], ["个人信息管理"],
+                ["合规审计模板"]),
+    "sp-vendor": ("内部制度 + 案例", ["kt-inner", "kt-case"],
+                  ["信息科技部", "合规部"], ["外包管理岗", "合规审查岗"],
+                  ["l1_handle", "l1_review"], ["数据分类插件"], ["供应商管理"],
+                  ["供应商尽调模板"]),
+}
+
+
+def _seed_round9(now: str) -> None:
+    """第九轮作业种子：闭环工作流 / 知识发布治理 / 资产台账 / 插件治理 / 权限精细化。"""
+    # —— 插件治理：注册 OCR / 防泄漏两个增量插件 + 逐插件启停与配置 ——
+    for pid, name, cap, status, lat in [
+            ("pl-ocr", "OCR 识别插件", "ocr", "在线", 260),
+            ("pl-dlp", "数据防泄漏插件", "dlp", "降级", 640)]:
+        store.insert("plugin_registry", {
+            "plugin_id": pid, "name": name, "capability": cap,
+            "io_schema_json": json.dumps({"input": {"type": "object"}, "output": {"type": "object"}},
+                                         ensure_ascii=False),
+            "auth_type": "bearer", "rate_limit": "600/min", "status": status,
+            "vendor": "平台自研" if status == "在线" else "第三方（离线）", "latency_ms": lat})
+    for pid, cap, enabled, kind, cfg in _PLUGIN_SEEDS:
+        store.insert("plugin_setting", {
+            "plugin_id": pid, "enabled": enabled, "kind": kind,
+            "config_json": json.dumps(cfg, ensure_ascii=False),
+            "config_schema_json": None, "loaded_at": now, "updated_by": "admin", "updated_at": now})
+
+    # —— 安全治理闭环：工单 + 流转 + 证据 ——
+    for (iid, no, title, source, cat, sev, dept_id, dept_name, pos_id, pos_name,
+         status, due, plan, recheck) in _GOV_ISSUES:
+        closed = now if status == "closed" else None
+        store.insert("gov_issue", {
+            "issue_id": iid, "issue_no": no, "title": title, "source": source, "category": cat,
+            "severity": sev, "dept_id": dept_id, "dept_name": dept_name,
+            "position_id": pos_id, "position_name": pos_name, "owner": "admin", "status": status,
+            "due_date": due, "plan": plan, "recheck_result": recheck,
+            "created_by": "admin", "created_at": now, "updated_at": now, "closed_at": closed})
+    for i, (iid, frm, to, action, actor, name, comment) in enumerate(_GOV_TRANSITIONS, start=1):
+        store.insert("gov_transition", {
+            "transition_id": f"gt-{i}", "issue_id": iid, "from_status": frm, "to_status": to,
+            "action": action, "actor": actor, "actor_name": name, "comment": comment,
+            "created_at": now})
+    for i, (iid, step, fname, note, by) in enumerate(_GOV_EVIDENCE, start=1):
+        store.insert("gov_evidence", {
+            "evidence_id": f"ge-{i}", "issue_id": iid, "step": step, "file_name": fname,
+            "note": note, "uploaded_by": by, "uploaded_at": now})
+
+    # —— 知识发布治理：目标库 / 文档 / 版本 / 变更 / 调用 / 审核 ——
+    for kb_id, name, kind, cnt in _KB_TARGETS:
+        store.insert("kb_target", {"kb_id": kb_id, "name": name, "kind": kind,
+                                   "doc_count": cnt, "synced_at": now})
+    for doc_id, kb_id, title, dtype, src, ver, status, by in _KB_DOCS:
+        store.insert("kb_document", {
+            "doc_id": doc_id, "kb_id": kb_id, "title": title, "doc_type": dtype, "source": src,
+            "version": ver, "status": status, "owner": by, "uploaded_by": by,
+            "created_at": now, "updated_at": now})
+        store.insert("kb_doc_version", {
+            "version_id": f"kv-{doc_id}-{ver}", "doc_id": doc_id, "version": ver,
+            "content_hash": _synthetic_hash(f"{doc_id}|{ver}"), "note": "初始版本（演示）",
+            "created_by": by, "created_at": now})
+        store.insert("kb_change_log", {
+            "change_id": f"kc-{doc_id}-1", "doc_id": doc_id, "change_type": "create",
+            "summary": f"新建《{title}》", "actor": by, "created_at": now})
+    for i, (doc_id, rev, revname, decision, comment, status) in enumerate(_KB_REVIEWS, start=1):
+        store.insert("kb_review", {
+            "review_id": f"kr-{i}", "doc_id": doc_id, "reviewer": rev, "reviewer_name": revname,
+            "decision": decision, "comment": comment, "created_at": now,
+            "decided_at": now if decision != "pending" else None})
+    for i, (doc_id, caller, scene, query) in enumerate(_KB_CALLS, start=1):
+        store.insert("kb_call_log", {
+            "call_id": f"kl-{i}", "doc_id": doc_id, "caller": caller, "scene": scene,
+            "query": query, "created_at": now})
+
+    # —— 资产台账 ——
+    for i, (cat, name, src, dept_id, dept_name, ver, status) in enumerate(_ASSET_SEED, start=1):
+        store.insert("asset_record", {
+            "asset_id": f"as-{i}", "name": name, "category": cat, "source": src,
+            "dept_id": dept_id, "dept_name": dept_name, "owner": "admin", "version": ver,
+            "status": status, "kb_doc_id": None, "note": "",
+            "created_by": "admin", "created_at": now, "updated_at": now})
+
+    # —— 场景包扩展明细 ——
+    for pack_id, (ks, kbs, depts, positions, roles, tools, systems, templates) in _SCENARIO_DETAIL.items():
+        store.insert("scenario_detail", {
+            "pack_id": pack_id, "knowledge_source": ks,
+            "kb_ids_json": json.dumps(kbs, ensure_ascii=False),
+            "depts_json": json.dumps(depts, ensure_ascii=False),
+            "positions_json": json.dumps(positions, ensure_ascii=False),
+            "roles_json": json.dumps(roles, ensure_ascii=False),
+            "tools_json": json.dumps(tools, ensure_ascii=False),
+            "systems_json": json.dumps(systems, ensure_ascii=False),
+            "templates_json": json.dumps(templates, ensure_ascii=False),
+            "updated_by": "admin", "updated_at": now})
+
+    # —— 权限精细化：角色-菜单操作权限 + 角色-数据权限 ——
+    actions_all = json.dumps(["view", "create", "update", "delete", "approve", "export"],
+                             ensure_ascii=False)
+    for rid, menus in ROLE_MENUS.items():
+        for mk in menus:
+            acts = actions_all if rid == "sys_admin" else json.dumps(
+                ["view"] + (["create", "update"] if rid in ("l0_lead", "l1_handle", "kb_ops") else []),
+                ensure_ascii=False)
+            store.insert("role_menu_perm", {
+                "perm_id": f"rmp-{rid}-{mk}", "role_id": rid, "menu_key": mk, "actions_json": acts})
+        st = ROLE_DATA_SCOPE.get(rid, "ORG_ONLY")
+        store.insert("role_data_scope", {
+            "scope_id": f"rds-{rid}", "role_id": rid, "scope_type": st,
+            "scope_json": json.dumps({}, ensure_ascii=False), "updated_by": "admin",
+            "updated_at": now})
+
+    # —— 轻量单点登录配置 ——
+    for k, v in [("enabled", True), ("protocol", "OIDC 授权码"),
+                 ("issuer", "https://sso.demo.example.com/realms/datasec"),
+                 ("clientId", "datasec-platform"), ("mapping", "账号由身份源的账号标识映射"),
+                 ("syncMode", "定时同步 + 登录时即时更新"), ("jitProvision", True),
+                 ("updatedBy", "admin"), ("updatedAt", now)]:
+        store.insert("sso_config", {"k": k, "v": json.dumps(v, ensure_ascii=False)})
+
+    # —— 现状诊断输入材料（历史自查报告 / 工作佐证 / 资产配置 / 资产清单）——
+    for i, (kind, fname, note) in enumerate([
+            ("历史自查报告", "2026Q3 银行自查报告.pdf", "上季度自查结论与问题清单"),
+            ("工作佐证", "数据分类分级培训与宣贯记录.pdf", "责任分工宣贯留痕"),
+            ("资产配置信息", "数据资产目录（导出）.xlsx", "含分级与责任人"),
+            ("资产清单", "重要数据清单.xlsx", "重要数据项与责任部门")], start=1):
+        store.insert("diag_input", {
+            "input_id": f"din-{i}", "assessment_id": "da-1", "kind": kind, "file_name": fname,
+            "note": note, "size": 180000 + i * 24000, "uploaded_by": "admin", "uploaded_at": now})

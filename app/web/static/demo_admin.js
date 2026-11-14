@@ -1,8 +1,9 @@
 /* ============================================================
    权限与组织（视图 id: gov / 容器 #gov_root）· demo_admin.js
    严格只用 DZ.* 与 dz- 前缀 class；颜色 / 圆角仅走现有 CSS 变量。
-   六个页签：组织架构 / 角色与能力矩阵 / 人员·角色·机构绑定 /
-            文号注册（三步接入）/ 审计日志 / 治理看板。
+   九个页签：组织 / 角色能力 / 人员绑定 / 菜单权限 / 数据范围 /
+            单点登录 / 文号注册 / 审计日志 / 治理看板。
+   新增页签取数惰性加载（切到该页签才请求后端）。
    所有异步先骨架屏；失败横幅 + 重试；空数据空态；写操作处理中反馈。
    ============================================================ */
 (function () {
@@ -26,18 +27,30 @@
     docReg:     '/api/admin/doc-registry',
     docConfirm: function (k) { return '/api/admin/doc-registry/' + encodeURIComponent(k); },
     gov:        '/api/admin/gov-dashboard',
+    menuPerms:  '/api/admin/menu-perms',
+    dataScopes: '/api/admin/data-scopes',
+    dataScope:  function (rid) { return '/api/admin/data-scopes/' + encodeURIComponent(rid); },
+    ssoConfig:  '/api/admin/sso-config',
     session:    '/api/auth/session'
   };
 
   var INDUSTRY_LABEL = { bank: '银行', insurance: '保险' };
+  // 层级与组织节点类型（后端枚举 → 中文），仅用于展示，提交值仍为英文编码
+  var LEVEL_LABEL = { L0: '总行级', L1: '分行级', L2: '支行级', L3: '网点级' };
+  var KIND_LABEL = { hq: '总部', branch: '分行', subbranch: '支行', outlet: '网点', counter: '柜面' };
+  function levelLabel(l) { return LEVEL_LABEL[l] || l || '—'; }
+  function kindLabel(k) { return KIND_LABEL[k] || k || '—'; }
 
   var TABS = [
-    { key: 'org',     label: '组织架构' },
-    { key: 'roles',   label: '角色与能力矩阵' },
-    { key: 'binding', label: '人员·角色·机构' },
-    { key: 'docreg',  label: '文号注册（三步接入）' },
+    { key: 'org',     label: '组织' },
+    { key: 'roles',   label: '角色能力' },
+    { key: 'binding', label: '人员绑定' },
+    { key: 'menu',    label: '菜单权限' },
+    { key: 'scope',   label: '数据范围' },
+    { key: 'sso',     label: '单点登录' },
+    { key: 'docreg',  label: '文号注册' },
     { key: 'audit',   label: '审计日志' },
-    { key: 'gov',     label: '治理看板（G2.8）' }
+    { key: 'gov',     label: '治理看板' }
   ];
 
   // 模块级状态（跨页签保留选择）
@@ -51,7 +64,12 @@
     matrix: {},
     docs: [],
     users: [],
-    session: null
+    session: null,
+    menuData: null,
+    menuRoleSel: null,
+    scopeData: null,
+    ssoData: null,
+    ssoNames: {}
   };
 
   // ---------- 通用工具 ----------
@@ -112,7 +130,9 @@
     S.session = (s && !s.error) ? s : null;
   }
 
-  var RENDERERS = { org: renderOrg, roles: renderRoles, binding: renderBindings, docreg: renderDocReg, audit: renderAudit, gov: renderGov };
+  var RENDERERS = { org: renderOrg, roles: renderRoles, binding: renderBindings,
+    menu: renderMenu, scope: renderScope, sso: renderSso,
+    docreg: renderDocReg, audit: renderAudit, gov: renderGov };
 
   function renderTab() {
     var body = document.querySelector('#gov_body');
@@ -166,13 +186,13 @@
 
   function levelBadge(level) {
     var k = { L0: 'p0', L1: 'p1', L2: 'p2', L3: 'unk' }[level] || 'unk';
-    return DZ.badge(k, level || '—');
+    return DZ.badge(k, levelLabel(level));
   }
   function treeRenderer(nodes) {
     return '<ul class="treelist">' + (nodes || []).map(function (n) {
-      return '<li><a title="' + DZ.esc(n.name) + '（' + DZ.esc(n.level) + '，' + DZ.esc(n.kind) + '）" ' +
+      return '<li><a title="' + DZ.esc(n.name) + '（' + DZ.esc(levelLabel(n.level)) + '，' + DZ.esc(kindLabel(n.kind)) + '）" ' +
         'aria-label="组织节点 ' + DZ.esc(n.name) + '">' + levelBadge(n.level) + ' ' + DZ.esc(n.name) +
-        '<span class="muted"> ' + DZ.esc(n.node_id) + ' · ' + DZ.esc(n.kind) + '</span></a>' +
+        '<span class="muted"> ' + DZ.esc(n.node_id) + ' · ' + DZ.esc(kindLabel(n.kind)) + '</span></a>' +
         (n.children && n.children.length ? treeRenderer(n.children) : '') + '</li>';
     }).join('') + '</ul>';
   }
@@ -183,15 +203,15 @@
       '<div><label for="nn_name">节点名称 *</label><input id="nn_name" placeholder="如：浦东新区支行" autocomplete="off" /></div>' +
       '<div class="grid2">' +
         '<div><label for="nn_parent">上级节点</label><select id="nn_parent">' + emptyOpt('（作为根节点）') +
-          opts(nodes, 'node_id', function (n) { return n.name + '（' + n.level + '）'; }, '') + '</select></div>' +
+          opts(nodes, 'node_id', function (n) { return n.name + '（' + levelLabel(n.level) + '）'; }, '') + '</select></div>' +
         '<div><label for="nn_level">层级</label><select id="nn_level">' +
-          ['L1', 'L2', 'L3'].map(function (l) { return '<option' + (l === 'L3' ? ' selected' : '') + '>' + l + '</option>'; }).join('') + '</select></div>' +
+          ['L1', 'L2', 'L3'].map(function (l) { return '<option value="' + l + '"' + (l === 'L3' ? ' selected' : '') + '>' + levelLabel(l) + '</option>'; }).join('') + '</select></div>' +
       '</div>' +
       '<div class="grid2">' +
         '<div><label for="nn_kind">节点类型</label><select id="nn_kind">' +
           [['branch', '分行'], ['subbranch', '支行'], ['outlet', '网点'], ['counter', '柜面'], ['hq', '总部']]
             .map(function (k) { return '<option value="' + k[0] + '">' + k[1] + '</option>'; }).join('') + '</select></div>' +
-        '<div><label for="nn_line">条线编码</label><input id="nn_line" placeholder="可选，如 east" autocomplete="off" /></div>' +
+        '<div><label for="nn_line">条线编码</label><input id="nn_line" placeholder="可选，如：华东" autocomplete="off" /></div>' +
       '</div>' +
       '<div class="dz-actions" style="justify-content:flex-start;margin-top:10px">' +
         '<button id="nn_submit" title="提交新增组织节点" aria-label="提交新增组织节点">新增节点</button></div>');
@@ -244,11 +264,9 @@
         '<div>' + (isGlobal ? DZ.badge('ok', '全层级可见') : DZ.badge('warn', '受限可见')) + '</div>' +
       '</div>' +
       '<div class="dz-flow" style="margin-top:10px">' + flow + '</div>' +
-      '<div class="why">规则：<b>上级可见下级汇总、下级只见本级详情</b>。当前账号位于 <code>' + DZ.esc(lv) + '</code>' +
-        (isGlobal ? '（系统管理员 / 兜底账号）' : '') + '：' +
-        (isGlobal ? '可查看全部层级的汇总与详情。' :
-          '可查看 <b>本级及其下级</b> 的汇总与详情，<b>上级节点不可见</b>。') + '</div>' +
-      '<div class="muted" style="margin-top:6px">示例：L1 分行经办可见 L1→L3（辖内），不可见 L0 总行；L0 可见全行汇总。</div>');
+      '<div class="why">当前账号所属层级 <b>' + DZ.esc(levelLabel(lv)) + '</b>：' +
+        (isGlobal ? '可查看各层级的汇总与详情。' :
+          '可查看 <b>本级及其下级</b> 的汇总与详情，<b>上级节点不可见</b>。') + '</div>');
   }
 
   function positionsCard(p, retry) {
@@ -299,9 +317,8 @@
       var on = S.roleSel === r.roleId;
       return '<tr data-rid="' + DZ.esc(r.roleId) + '" role="button" tabindex="0" style="cursor:pointer" title="查看/编辑角色 ' + DZ.esc(r.name) + '" ' +
         'aria-label="角色 ' + DZ.esc(r.name) + '">' +
-        '<td>' + (on ? '<b>' + DZ.esc(r.name) + '</b>' : DZ.esc(r.name)) +
-          '<div class="muted">' + DZ.esc(r.roleId) + '</div></td>' +
-        '<td>' + DZ.pill(r.levelVisibility || '—') + '</td>' +
+        '<td>' + (on ? '<b>' + DZ.esc(r.name) + '</b>' : DZ.esc(r.name)) + '</td>' +
+        '<td>' + DZ.pill(levelLabel(r.levelVisibility)) + '</td>' +
         '<td>' + DZ.statusBadge(r.status) + (r.builtin ? ' ' + DZ.badge('unk', '内置') : '') + '</td></tr>';
     }).join('');
     document.querySelector('#role_side').innerHTML = card('角色列表（' + roles.length + '）',
@@ -343,14 +360,14 @@
 
     document.querySelector('#role_main').innerHTML = card(isNew ? '新建角色' : '角色详情 · ' + cur.name,
       '<div class="grid2">' +
-        '<div><label for="rc_id">角色 ID *</label><input id="rc_id" value="' + DZ.esc(cur ? cur.roleId : '') + '" ' +
-          (isNew ? 'placeholder="如：auditor"' : 'disabled') + ' autocomplete="off" /></div>' +
+        '<div><label for="rc_id">角色编码 *</label><input id="rc_id" value="' + DZ.esc(cur ? cur.roleId : '') + '" ' +
+          (isNew ? 'placeholder="请输入角色编码"' : 'disabled') + ' autocomplete="off" /></div>' +
         '<div><label for="rc_name">角色名称</label><input id="rc_name" value="' + DZ.esc(cur ? cur.name : '') + '" placeholder="如：审计员" autocomplete="off" /></div>' +
       '</div>' +
       '<div class="grid2">' +
         '<div><label for="rc_lv">可见层级</label><select id="rc_lv">' +
           ['L0', 'L1', 'L2', 'L3'].map(function (l) {
-            return '<option value="' + l + '"' + ((cur ? cur.levelVisibility : 'L1') === l ? ' selected' : '') + '>' + l + '</option>';
+            return '<option value="' + l + '"' + ((cur ? cur.levelVisibility : 'L1') === l ? ' selected' : '') + '>' + levelLabel(l) + '</option>';
           }).join('') + '</select></div>' +
         '<div><label for="rc_status">状态</label><select id="rc_status">' +
           '<option value="active"' + ((!cur || cur.status === 'active') ? ' selected' : '') + '>启用</option>' +
@@ -407,8 +424,7 @@
     var body = roles.map(function (r) {
       var sel = expandCaps(r.capabilities);
       var selMap = {}; sel.forEach(function (k) { selMap[k] = 1; });
-      return '<tr><td title="' + DZ.esc(r.name) + '"><b>' + DZ.esc(r.name) + '</b>' +
-        '<div class="muted">' + DZ.esc(r.roleId) + '</div></td>' +
+      return '<tr><td><b>' + DZ.esc(r.name) + '</b></td>' +
         caps.map(function (c) {
           return '<td style="text-align:center" title="' + DZ.esc(r.name) + ' × ' + DZ.esc(c.label) + '">' +
             (selMap[c.key] ? '<span style="color:var(--ok-ink);font-weight:700" aria-label="具备">●</span>' : '<span class="muted" aria-label="不具备">—</span>') + '</td>';
@@ -416,7 +432,6 @@
     }).join('');
     el.innerHTML = card('能力基准矩阵（角色 × 能力，§2.8）',
       '<div class="dz-table-wrap"><table><thead>' + head + '</thead><tbody>' + body + '</tbody></table></div>' +
-      '<div class="muted" style="margin-top:8px">● 表示角色具备该能力；系统管理员 <code>sys_admin</code> 能力为通配 <code>*</code>（展开为全部能力）。</div>' +
       '<details style="margin-top:8px"><summary title="展开能力字典" aria-label="能力字典">能力字典（' + caps.length + '）</summary>' +
         '<div class="dz-table-wrap"><table><thead><tr><th>能力键</th><th>中文</th></tr></thead><tbody>' +
         caps.map(function (c) { return '<tr><td><code>' + DZ.esc(c.key) + '</code></td><td>' + DZ.esc(c.label) + '</td></tr>'; }).join('') +
@@ -471,10 +486,10 @@
     if (!bindings.length) return card('绑定列表', DZ.empty('暂无绑定关系', ''));
     var rows = bindings.map(function (b) {
       return '<tr><td>' + DZ.esc(b.account) + '<div class="muted">' + DZ.esc(b.displayName || '') + '</div></td>' +
-        '<td>' + DZ.esc(roleName(b.roleId)) + '<div class="muted">' + DZ.esc(b.roleId) + '</div></td>' +
+        '<td>' + DZ.esc(roleName(b.roleId)) + '</td>' +
         '<td>' + DZ.esc(b.orgNodeName || b.orgNodeId || '—') + '</td>' +
         '<td>' + DZ.esc(b.positionName || b.positionId || '—') + '</td>' +
-        '<td>' + DZ.pill(b.levelVisibility || '—') + '</td></tr>';
+        '<td>' + DZ.pill(levelLabel(b.levelVisibility)) + '</td></tr>';
     }).join('');
     return card('绑定列表（' + bindings.length + '）',
       '<div class="dz-table-wrap"><table><thead><tr><th>账号</th><th>角色</th><th>机构</th><th>岗位</th><th>可见层级</th></tr></thead>' +
@@ -487,17 +502,16 @@
         '<div><label for="bd_account">账号 *</label><select id="bd_account">' + emptyOpt('请选择账号') +
           opts(users, 'account', function (u) { return u.displayName + '（' + u.account + '）'; }, '') + '</select></div>' +
         '<div><label for="bd_role">角色 *</label><select id="bd_role">' + emptyOpt('请选择角色') +
-          opts(roles, 'roleId', function (r) { return r.name + '（' + r.roleId + '）'; }, '') + '</select></div>' +
+          opts(roles, 'roleId', function (r) { return r.name; }, '') + '</select></div>' +
       '</div>' +
       '<div class="grid2">' +
         '<div><label for="bd_org">机构</label><select id="bd_org">' + emptyOpt('（可选）') +
-          opts(nodes, 'node_id', function (n) { return n.name + '（' + n.level + '）'; }, '') + '</select></div>' +
+          opts(nodes, 'node_id', function (n) { return n.name + '（' + levelLabel(n.level) + '）'; }, '') + '</select></div>' +
         '<div><label for="bd_pos">岗位</label><select id="bd_pos">' + emptyOpt('（可选）') +
           opts(positions, 'positionId', function (p) { return p.name; }, '') + '</select></div>' +
       '</div>' +
       '<div class="dz-actions" style="justify-content:flex-start;margin-top:10px">' +
         '<button id="bd_submit" title="新增人员角色机构绑定" aria-label="新增绑定">新增绑定</button></div>' +
-      '<div class="muted" style="margin-top:6px">绑定即建立「账号 × 角色 × 机构 × 岗位」的授权关系；同一账号可绑定多角色（用于职责分离演示）。</div>' +
       '<div id="bd_msg"></div>');
   }
 
@@ -561,6 +575,394 @@
   }
 
   // =========================================================================
+  // 3A. 菜单操作权限（角色 × 菜单 × 操作）
+  // =========================================================================
+  function roleLabelOf(roles, rid) {
+    var f = (roles || []).filter(function (r) { return r.roleId === rid; })[0];
+    return f ? f.name : rid;
+  }
+
+  async function renderMenu(body) {
+    body.innerHTML = '<div id="mp_top">' + DZ.skeleton(2) + '</div>' +
+      '<div id="mp_matrix" style="margin-top:14px">' + DZ.skeleton(6) + '</div>';
+    var r = await DZ.get(API.menuPerms);
+    if (r && r.error) {
+      document.querySelector('#mp_top').innerHTML = card('菜单操作权限', fail(r.error, function () { renderMenu(body); }));
+      document.querySelector('#mp_matrix').innerHTML = '';
+      return;
+    }
+    S.menuData = r;
+    var roles = (r && r.roles) || [];
+    var has = roles.some(function (x) { return x.roleId === S.menuRoleSel; });
+    if (!has) S.menuRoleSel = (roles[0] || {}).roleId || null;
+    renderMenuPanels(body);
+  }
+
+  function renderMenuPanels(body) {
+    var d = S.menuData || {};
+    var roles = d.roles || [];
+    var role = S.menuRoleSel;
+    var isAdmin = (role === 'sys_admin');
+    var roleOpts = roles.map(function (x) {
+      return '<option value="' + DZ.esc(x.roleId) + '"' + (x.roleId === role ? ' selected' : '') + '>' + DZ.esc(x.name) + '</option>';
+    }).join('');
+    var hint = isAdmin
+      ? '系统管理员须至少保留「查看」权限，该列不可取消；其余操作可按需调整。'
+      : '勾选表示该角色在该功能菜单上拥有的操作；「查看」为其余操作的隐含前提。';
+    document.querySelector('#mp_top').innerHTML = card('角色与操作权限',
+      '<div class="row" style="justify-content:space-between;flex-wrap:wrap;gap:10px">' +
+        '<div class="row" style="gap:8px;align-items:center">' +
+          '<label for="mp_role" style="margin:0">角色</label>' +
+          '<select id="mp_role" title="选择角色" aria-label="选择角色">' + roleOpts + '</select>' +
+        '</div>' +
+        '<div class="row" style="gap:8px">' +
+          '<button id="mp_all" class="ghost" title="全部菜单全选" aria-label="全部菜单全选">全选</button>' +
+          '<button id="mp_clear" class="ghost" title="全部菜单清空" aria-label="全部菜单清空">清空</button>' +
+          '<button id="mp_save" title="保存该角色的菜单操作权限" aria-label="保存菜单操作权限">保存</button>' +
+        '</div>' +
+      '</div>' +
+      '<div id="mp_status" class="muted" style="margin-top:8px">' + DZ.esc(hint) + '</div>');
+    renderMenuMatrix(body);
+
+    var sel = document.querySelector('#mp_role');
+    if (sel) sel.onchange = function () { S.menuRoleSel = sel.value; renderMenuPanels(body); };
+    var all = document.querySelector('#mp_all');
+    if (all) all.onclick = function () { menuBulk(true); };
+    var clr = document.querySelector('#mp_clear');
+    if (clr) clr.onclick = function () { menuBulk(false); };
+    var save = document.querySelector('#mp_save');
+    if (save) save.onclick = function () { menuSave(body, save); };
+  }
+
+  function renderMenuMatrix(body) {
+    var d = S.menuData || {};
+    var role = S.menuRoleSel;
+    var isAdmin = (role === 'sys_admin');
+    var menus = d.menus || [], actions = d.actions || [], labels = d.actionLabels || {};
+    var perm = (d.perms && d.perms[role]) || {};
+    var el = document.querySelector('#mp_matrix');
+    if (!el) return;
+    if (!menus.length || !actions.length) { el.innerHTML = card('菜单 × 操作权限矩阵', DZ.empty('无菜单或操作字典', '')); return; }
+    var head = '<tr><th style="min-width:130px">功能菜单</th>' + actions.map(function (a) {
+      return '<th title="' + DZ.esc(labels[a] || a) + '">' + DZ.esc(labels[a] || a) + '</th>';
+    }).join('') + '<th>整行</th></tr>';
+    var rows = menus.map(function (m) {
+      var acts = perm[m.key] || [];
+      var cells = actions.map(function (a) {
+        var on = acts.indexOf(a) >= 0;
+        var lock = (isAdmin && a === 'view');
+        var lbl = labels[a] || a;
+        var cb = lock
+          ? '<input type="checkbox" class="mp_cb" data-act="view" checked disabled title="系统管理员须保留查看权限" aria-label="' + DZ.esc(m.label + ' ' + lbl) + '" />'
+          : '<input type="checkbox" class="mp_cb" data-act="' + DZ.esc(a) + '"' + (on ? ' checked' : '') +
+            ' title="' + DZ.esc(m.label + ' × ' + lbl) + '" aria-label="' + DZ.esc(m.label + ' ' + lbl) + '" />';
+        return '<td style="text-align:center">' + cb + '</td>';
+      }).join('');
+      return '<tr data-menu="' + DZ.esc(m.key) + '"><td><b>' + DZ.esc(m.label) + '</b></td>' + cells +
+        '<td style="white-space:nowrap">' +
+          '<button class="ghost mp_rowall" title="该行全选" aria-label="' + DZ.esc(m.label) + ' 行全选">全选</button> ' +
+          '<button class="ghost mp_rowclear" title="该行清空" aria-label="' + DZ.esc(m.label) + ' 行清空">清空</button>' +
+        '</td></tr>';
+    }).join('');
+    el.innerHTML = card('菜单 × 操作权限矩阵 · ' + roleLabelOf(d.roles, role),
+      '<div class="dz-table-wrap"><table><thead>' + head + '</thead><tbody>' + rows + '</tbody></table></div>' +
+      '<div class="muted" style="margin-top:8px">' + (isAdmin ? '系统管理员的「查看」不可取消。' : '可按功能菜单逐行授予或收回操作权限。') + '</div>');
+
+    el.querySelectorAll('tbody tr').forEach(function (tr) {
+      var a = tr.querySelector('.mp_rowall'), c = tr.querySelector('.mp_rowclear');
+      if (a) a.onclick = function () { tr.querySelectorAll('input.mp_cb').forEach(function (cb) { if (!cb.disabled) cb.checked = true; }); };
+      if (c) c.onclick = function () { tr.querySelectorAll('input.mp_cb').forEach(function (cb) { if (!cb.disabled) cb.checked = false; }); };
+    });
+  }
+
+  function menuBulk(on) {
+    var el = document.querySelector('#mp_matrix');
+    if (!el) return;
+    el.querySelectorAll('input.mp_cb').forEach(function (cb) { if (!cb.disabled) cb.checked = on; });
+  }
+
+  function menuSave(body, btn) {
+    var d = S.menuData || {};
+    var role = S.menuRoleSel;
+    var isAdmin = (role === 'sys_admin');
+    var menus = d.menus || [];
+    var el = document.querySelector('#mp_matrix');
+    var st = document.querySelector('#mp_status');
+    if (!el) return;
+    function setSt(t) { if (st) st.textContent = t; }
+
+    var changed = [];
+    el.querySelectorAll('tbody tr').forEach(function (tr) {
+      var key = tr.getAttribute('data-menu');
+      var arr = [];
+      tr.querySelectorAll('input.mp_cb').forEach(function (cb) { if (cb.checked) arr.push(cb.getAttribute('data-act')); });
+      if (isAdmin && arr.indexOf('view') < 0) arr.unshift('view');
+      var orig = (((d.perms && d.perms[role] && d.perms[role][key]) || []).slice()).sort();
+      var next = arr.slice().sort();
+      if (orig.join('|') !== next.join('|')) {
+        var m = menus.filter(function (x) { return x.key === key; })[0] || { label: key };
+        changed.push({ menuKey: key, actions: arr, label: m.label });
+      }
+    });
+    if (!changed.length) { setSt('没有需要保存的变更。'); DZ.toast('权限未发生变化', 'warn'); return; }
+
+    busy(btn, '处理中…', async function () {
+      for (var i = 0; i < changed.length; i++) {
+        setSt('保存中…（' + i + '/' + changed.length + '）' + changed[i].label);
+        var resp = await DZ.put(API.menuPerms, { roleId: role, menuKey: changed[i].menuKey, actions: changed[i].actions });
+        if (resp && resp.error) {
+          var msg = resp.error.message || '保存失败';
+          if (st) st.innerHTML = DZ.banner('bad', msg);
+          DZ.toast('保存失败：' + msg, 'bad');
+          return;
+        }
+      }
+      DZ.toast('已保存「' + roleLabelOf(d.roles, role) + '」的菜单操作权限（' + changed.length + ' 项），已写入审计', 'ok');
+      renderMenu(body);
+    });
+  }
+
+  // =========================================================================
+  // 3B. 数据可见范围（角色 × 组织 / 条线）
+  // =========================================================================
+  async function renderScope(body) {
+    body.innerHTML = '<div id="ds_table">' + DZ.skeleton(5) + '</div>' +
+      '<div id="ds_form" style="margin-top:18px"></div>';
+    var r = await DZ.get(API.dataScopes);
+    if (r && r.error) {
+      document.querySelector('#ds_table').innerHTML = card('数据可见范围', fail(r.error, function () { renderScope(body); }));
+      document.querySelector('#ds_form').innerHTML = '';
+      return;
+    }
+    S.scopeData = r;
+    document.querySelector('#ds_table').innerHTML = scopeTable(r);
+    document.querySelector('#ds_form').innerHTML = '';
+    document.querySelectorAll('#ds_table .ds_set').forEach(function (b) {
+      b.onclick = function () { openScopeForm(b.getAttribute('data-role'), body); };
+    });
+  }
+
+  function deptNameMap(depts) {
+    var m = {};
+    (depts || []).forEach(function (d) { m[d.deptId] = d.name; });
+    return m;
+  }
+
+  function scopeDetail(sc, dmap) {
+    if (sc.scopeType !== 'CUSTOM') return '<span class="muted">—</span>';
+    var s = sc.scope || {};
+    var ds = (s.depts || []).map(function (d) { return dmap[d] || d; });
+    var ls = (s.lines || []);
+    var parts = [];
+    if (ds.length) parts.push('组织：' + ds.join('、'));
+    if (ls.length) parts.push('条线：' + ls.join('、'));
+    return parts.length ? DZ.esc(parts.join('；')) : '<span class="muted">—</span>';
+  }
+
+  function scopeTable(r) {
+    var list = (r && r.scopes) || [];
+    var dmap = deptNameMap((r && r.depts) || []);
+    var types = (r && r.types) || [];
+    var descMap = {};
+    types.forEach(function (t) { descMap[t.type] = t.desc || ''; });
+    if (!list.length) return card('数据可见范围', DZ.empty('暂无角色数据范围', ''));
+    var rows = list.map(function (sc) {
+      var desc = descMap[sc.scopeType] || '';
+      return '<tr><td><b>' + DZ.esc(sc.roleName) + '</b></td>' +
+        '<td>' + DZ.esc(sc.scopeLabel) + (desc ? '<div class="muted">' + DZ.esc(desc) + '</div>' : '') + '</td>' +
+        '<td>' + scopeDetail(sc, dmap) + '</td>' +
+        '<td>' + DZ.esc(sc.updatedBy || '—') + '</td>' +
+        '<td>' + DZ.date(sc.updatedAt) + '</td>' +
+        '<td><button class="ghost ds_set" data-role="' + DZ.esc(sc.roleId) + '" title="设置数据可见范围" ' +
+          'aria-label="设置 ' + DZ.esc(sc.roleName) + ' 的数据可见范围">设置</button></td></tr>';
+    }).join('');
+    return card('数据可见范围（' + list.length + '）',
+      '<div class="dz-table-wrap"><table><thead><tr><th>角色</th><th>可见范围类型</th><th>自定义范围</th><th>更新人</th><th>更新时间</th><th>操作</th></tr></thead>' +
+      '<tbody>' + rows + '</tbody></table></div>');
+  }
+
+  function openScopeForm(roleId, body) {
+    var d = S.scopeData || {};
+    var sc = (d.scopes || []).filter(function (x) { return x.roleId === roleId; })[0] || {};
+    var types = d.types || [];
+    var depts = d.depts || [];
+    var curType = sc.scopeType || (types[0] && types[0].type) || '';
+    var curScope = sc.scope || {};
+    var typeOpts = types.map(function (t) {
+      return '<option value="' + DZ.esc(t.type) + '"' + (t.type === curType ? ' selected' : '') + '>' + DZ.esc(t.label) + '</option>';
+    }).join('');
+    var selDepts = {};
+    (curScope.depts || []).forEach(function (x) { selDepts[x] = 1; });
+    var deptOpts = depts.map(function (dp) {
+      return '<option value="' + DZ.esc(dp.deptId) + '"' + (selDepts[dp.deptId] ? ' selected' : '') + '>' +
+        DZ.esc(dp.name + '（' + levelLabel(dp.level) + '）') + '</option>';
+    }).join('');
+    var linesVal = (curScope.lines || []).join(',');
+
+    document.querySelector('#ds_form').innerHTML = card('设置数据可见范围 · ' + DZ.esc(sc.roleName || roleLabelOf(S.roles, roleId)),
+      '<div class="form-narrow">' +
+        '<div><label for="ds_type">范围类型</label><select id="ds_type">' + typeOpts + '</select>' +
+          '<div id="ds_type_desc" class="muted" style="margin-top:4px"></div></div>' +
+        '<div id="ds_custom" style="margin-top:12px">' +
+          '<label for="ds_depts">自定义组织（可多选）</label>' +
+          '<select id="ds_depts" multiple size="6" aria-label="自定义组织">' + deptOpts + '</select>' +
+          '<div style="margin-top:10px"><label for="ds_lines">自定义条线编码（逗号分隔，可留空）</label>' +
+            '<input id="ds_lines" value="' + DZ.esc(linesVal) + '" placeholder="多个条线编码以逗号分隔，可留空" autocomplete="off" /></div>' +
+        '</div>' +
+        '<div class="dz-actions" style="justify-content:flex-start;margin-top:12px">' +
+          '<button id="ds_save" title="保存数据可见范围" aria-label="保存数据可见范围">保存</button>' +
+          '<button id="ds_cancel" class="ghost" title="取消设置" aria-label="取消设置">取消</button>' +
+        '</div>' +
+        '<div id="ds_msg"></div>' +
+      '</div>');
+
+    var typeSel = document.querySelector('#ds_type');
+    function syncDesc() {
+      var t = types.filter(function (x) { return x.type === typeSel.value; })[0] || {};
+      var dsc = document.querySelector('#ds_type_desc');
+      if (dsc) dsc.textContent = t.desc || '';
+      var cus = document.querySelector('#ds_custom');
+      if (cus) cus.classList.toggle('hidden', typeSel.value !== 'CUSTOM');
+    }
+    typeSel.onchange = syncDesc;
+    syncDesc();
+
+    var cancel = document.querySelector('#ds_cancel');
+    if (cancel) cancel.onclick = function () { document.querySelector('#ds_form').innerHTML = ''; };
+    var save = document.querySelector('#ds_save');
+    if (save) save.onclick = function () {
+      var st = typeSel.value;
+      var scope = {};
+      if (st === 'CUSTOM') {
+        var dep = [];
+        document.querySelectorAll('#ds_depts option:checked').forEach(function (o) { dep.push(o.value); });
+        var ln = (document.querySelector('#ds_lines').value || '').split(',').map(function (x) { return x.trim(); }).filter(function (x) { return x; });
+        if (!dep.length && !ln.length) { DZ.toast('自定义范围须至少指定一个组织或条线', 'warn'); return; }
+        scope = { depts: dep, lines: ln };
+      }
+      busy(save, '处理中…', async function () {
+        await DZ.delay(300);
+        var r = await DZ.put(API.dataScope(roleId), { scopeType: st, scope: scope });
+        if (r && r.error) {
+          var msg = r.error.message || '保存失败';
+          var m = document.querySelector('#ds_msg');
+          if (m) m.innerHTML = DZ.banner('bad', msg);
+          DZ.toast('保存失败：' + msg, 'bad');
+          return;
+        }
+        DZ.toast('已更新「' + (sc.roleName || roleId) + '」的数据可见范围，已写入审计', 'ok');
+        renderScope(body);
+      });
+    };
+  }
+
+  // =========================================================================
+  // 3C. 单点登录（轻量对接统一身份源）
+  // =========================================================================
+  async function renderSso(body) {
+    body.innerHTML = '<div id="sso_card">' + DZ.skeleton(4) + '</div>' +
+      '<div id="sso_form" style="margin-top:18px">' + DZ.skeleton(4) + '</div>';
+    var res = await Promise.all([DZ.get(API.ssoConfig), DZ.get(API.users, { delay: false })]);
+    var r = res[0], us = res[1];
+    if (r && r.error) {
+      document.querySelector('#sso_card').innerHTML = card('单点登录', fail(r.error, function () { renderSso(body); }));
+      document.querySelector('#sso_form').innerHTML = '';
+      return;
+    }
+    var nameMap = {};
+    ((us && us.users) || []).forEach(function (u) { nameMap[u.account] = u.displayName || u.account; });
+    S.ssoData = r; S.ssoNames = nameMap;
+    renderSsoPanels(body);
+  }
+
+  function ssoMetric(k, v) {
+    return '<div class="dz-metric"><span class="dz-metric-k">' + DZ.esc(k) + '</span>' +
+      '<span class="dz-metric-v" style="text-align:right">' + v + '</span></div>';
+  }
+
+  function renderSsoPanels(body) {
+    var d = S.ssoData || {};
+    var cfg = d.config || {};
+    var protocols = d.protocols || [];
+    var syncModes = d.syncModes || [];
+    var names = S.ssoNames || {};
+    var updBy = cfg.updatedBy ? (names[cfg.updatedBy] || cfg.updatedBy) : '—';
+
+    document.querySelector('#sso_card').innerHTML = card('当前配置',
+      '<div class="dz-metric"><span class="dz-metric-k">启用状态</span>' +
+        '<span class="dz-metric-v">' + (cfg.enabled ? DZ.badge('ok', '已启用') : DZ.badge('unk', '未启用')) + '</span></div>' +
+      ssoMetric('协议', DZ.esc(cfg.protocol || '—')) +
+      ssoMetric('发行方地址', DZ.esc(cfg.issuer || '—')) +
+      ssoMetric('客户端标识', DZ.esc(cfg.clientId || '—')) +
+      ssoMetric('账号映射说明', DZ.esc(cfg.mapping || '—')) +
+      ssoMetric('同步方式', DZ.esc(cfg.syncMode || '—')) +
+      ssoMetric('自动开通账号', cfg.jitProvision ? DZ.badge('ok', '首次登录自动开通') : DZ.badge('unk', '不自动开通')) +
+      ssoMetric('最近更新', DZ.esc(updBy) + ' · ' + DZ.date(cfg.updatedAt)));
+
+    var protoOpts = protocols.map(function (p) {
+      return '<option value="' + DZ.esc(p) + '"' + (p === cfg.protocol ? ' selected' : '') + '>' + DZ.esc(p) + '</option>';
+    }).join('');
+    var syncOpts = syncModes.map(function (m) {
+      return '<option value="' + DZ.esc(m) + '"' + (m === cfg.syncMode ? ' selected' : '') + '>' + DZ.esc(m) + '</option>';
+    }).join('');
+
+    document.querySelector('#sso_form').innerHTML = card('编辑配置',
+      '<div class="form-narrow">' +
+        '<div class="grid2">' +
+          '<div><label for="sso_proto">协议</label><select id="sso_proto">' + protoOpts + '</select></div>' +
+          '<div><label for="sso_sync">同步方式</label><select id="sso_sync">' + syncOpts + '</select></div>' +
+        '</div>' +
+        '<div><label for="sso_issuer">发行方地址 *</label><input id="sso_issuer" value="' + DZ.esc(cfg.issuer || '') + '" placeholder="如：https://sso.example.com/realms/datasec" autocomplete="off" /></div>' +
+        '<div><label for="sso_client">客户端标识</label><input id="sso_client" value="' + DZ.esc(cfg.clientId || '') + '" autocomplete="off" /></div>' +
+        '<div><label for="sso_mapping">账号映射说明</label><input id="sso_mapping" value="' + DZ.esc(cfg.mapping || '') + '" autocomplete="off" /></div>' +
+        '<div class="row" style="gap:18px;margin-top:10px;flex-wrap:wrap">' +
+          '<label class="pick"><input type="checkbox" id="sso_enabled"' + (cfg.enabled ? ' checked' : '') + ' />' +
+            '<span class="pick-name">启用单点登录</span></label>' +
+          '<label class="pick"><input type="checkbox" id="sso_jit"' + (cfg.jitProvision ? ' checked' : '') + ' />' +
+            '<span class="pick-name">首次登录自动开通账号</span></label>' +
+        '</div>' +
+        '<div class="dz-actions" style="justify-content:flex-start;margin-top:12px">' +
+          '<button id="sso_save" title="保存单点登录配置" aria-label="保存单点登录配置">保存</button>' +
+        '</div>' +
+        '<div id="sso_msg"></div>' +
+      '</div>');
+
+    var save = document.querySelector('#sso_save');
+    if (save) save.onclick = function () {
+      var payload = {
+        enabled: document.querySelector('#sso_enabled').checked,
+        protocol: document.querySelector('#sso_proto').value,
+        issuer: (document.querySelector('#sso_issuer').value || '').trim(),
+        clientId: (document.querySelector('#sso_client').value || '').trim(),
+        mapping: (document.querySelector('#sso_mapping').value || '').trim(),
+        syncMode: document.querySelector('#sso_sync').value,
+        jitProvision: document.querySelector('#sso_jit').checked
+      };
+      if (payload.enabled && !payload.issuer) { DZ.toast('启用单点登录须填写身份源地址', 'warn'); return; }
+      busy(save, '处理中…', async function () {
+        await DZ.delay(300);
+        var r = await DZ.put(API.ssoConfig, payload);
+        if (r && r.error) {
+          var msg = r.error.message || '保存失败';
+          var m = document.querySelector('#sso_msg');
+          if (m) m.innerHTML = DZ.banner('bad', msg);
+          DZ.toast('保存失败：' + msg, 'bad');
+          return;
+        }
+        DZ.toast('单点登录配置已保存，已写入审计', 'ok');
+        renderSso(body);
+      });
+    };
+
+    var syncList = syncModes.length
+      ? '<ul style="margin:6px 0 0;padding-left:18px">' + syncModes.map(function (m) { return '<li>' + DZ.esc(m) + '</li>'; }).join('') + '</ul>'
+      : '<div class="muted">—</div>';
+    document.querySelector('#sso_form').insertAdjacentHTML('beforeend',
+      card('可选账号同步方式',
+        '<div class="muted">按身份源同步账号信息的方式：</div>' + syncList));
+  }
+
+  // =========================================================================
   // 4. 文号注册三步接入（K1.3 / 零代码扩展）
   // =========================================================================
   async function renderDocReg(body) {
@@ -593,7 +995,7 @@
         return '<li class="dz-step ' + s.state + '" title="' + DZ.esc(s.hint) + '" aria-label="步骤 ' + s.no + ' ' + DZ.esc(s.label) + '">' +
           '<span class="dz-step-no">' + s.no + '</span>' + DZ.esc(s.label) + '</li>';
       }).join('') + '</ul>' +
-      '<div class="muted">当前待确认文号 ' + pending + ' 个；演示数据中的「中国人民银行令〔2026〕第8号」可走通「登记 → 推断 → 确认」全流程。</div>');
+      '<div class="muted">当前待确认文号 ' + pending + ' 个。</div>');
   }
 
   function docTableCard(docs, body) {
@@ -747,8 +1149,7 @@
     }).join('');
     tbl.innerHTML = card('审计日志（' + list.length + ' 条）',
       '<div class="dz-table-wrap"><table><thead><tr><th>时间</th><th>操作者</th><th>动作</th><th>目标</th><th>参数</th><th>结果</th><th>哈希链</th></tr></thead>' +
-      '<tbody>' + rows + '</tbody></table></div>' +
-      '<div class="muted" style="margin-top:8px">哈希列显示「前序哈希」前 10 位 → 「当前哈希」前 10 位，悬停可查看完整值。</div>');
+      '<tbody>' + rows + '</tbody></table></div>');
   }
 
   function resultBadgeAudit(res) {
@@ -808,8 +1209,7 @@
     bars += card('审计结果分布', barList(audit.byResult, audit.total || 1, { ok: '成功', degraded: '降级', failed: '失败', denied: '拒绝' }));
     bars += card('重建作业统计', barList(listToMap(rebuild.runs), sumCounts(rebuild.runs), { success: '成功', failed: '失败', running: '进行中', partial: '部分' }) +
       '<div class="muted" style="margin-top:8px">当前版本：<code>' + DZ.esc(rebuild.currentVersion || '—') + '</code></div>');
-    bars += card('来源命中率 / 降级率', barList({ '来源命中': d.sourceHitRate, '降级': d.degradeRate }, 1, null) +
-      '<div class="muted" style="margin-top:8px">命中率 = 知识取数命中真实来源占比；降级率 = 插件不可用转人工的占比。</div>');
+    bars += card('来源命中率 / 降级率', barList({ '来源命中': d.sourceHitRate, '降级': d.degradeRate }, 1, null));
     bars += card('知识质量 · 清单状态', barList(listToMap(kq.manifest), sumCounts(kq.manifest), { published: '已发布', pending: '待发布', failed: '失败', draft: '草稿' }) +
       '<div class="muted" style="margin-top:8px">综合评分：' + pct(kq.score) + '。</div>');
 

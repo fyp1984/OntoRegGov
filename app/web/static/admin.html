@@ -23,7 +23,7 @@
   </div>
   <a data-v="kbdash" class="active">知识库</a>
   <a data-v="kbproc">知识加工</a>
-  <a data-v="llmset">LLM 配置</a>
+  <a data-v="llmset">模型服务配置</a>
 </nav>
 <button class="nav-open" id="nav_open" onclick="navToggle()" title="展开左侧菜单">»</button>
 <main>
@@ -41,9 +41,9 @@
       <div id="kb_meta" class="muted" style="margin:-8px 0 12px"></div>
       <div class="page" id="kb_app"></div>
       <div class="kb-foot">
-        <span class="f-brand">数据安全知识库</span> · <span class="f-brand">中金安服</span> 出品
+        <span class="f-brand">金融行业数据安全知识库和智能体平台</span> 出品
         · 版本 <span class="f-ver" id="kb_ver">—</span>
-        · 内容以 CC BY-SA 4.0 发布
+        · 内容仅用于演示与内部学习交流
         · 知识由知识库平台实时提供
         · 生成于 <span id="kb_genat">—</span>
       </div>
@@ -71,18 +71,18 @@
   </section>
 
   <section id="llmset" class="view hidden">
-    <div class="card"><h3>LLM 配置（OpenAI 兼容）</h3>
+    <div class="card"><h3>模型服务配置</h3>
       <p class="muted">配置保存后立即生效（六维生成 / 法规问答 / 自然语言查库共用），无需重启；
-      未配置 API Key 时自动降级为确定性规则抽取，不阻断流程。</p>
+      未配置访问密钥时自动降级为确定性规则抽取，不阻断流程。</p>
       <div style="max-width:640px">
-        <label>Base URL</label>
-        <input id="llm_base" placeholder="如 https://api.openai.com/v1（本地网关亦可）"
+        <label>服务地址</label>
+        <input id="llm_base" placeholder="如 https://网关地址/v1（本地网关亦可）"
           style="width:100%;box-sizing:border-box;padding:9px 12px;border:1px solid #dfe1e5;border-radius:8px;margin:4px 0 12px">
-        <label>API Key</label>
-        <input id="llm_key" type="password" placeholder="已设置的 Key 不回显；留空=保留当前 Key"
+        <label>访问密钥</label>
+        <input id="llm_key" type="password" placeholder="已设置的密钥不回显；留空=保留当前密钥"
           autocomplete="off" style="width:100%;box-sizing:border-box;padding:9px 12px;border:1px solid #dfe1e5;border-radius:8px;margin:4px 0 12px">
-        <label>Model</label>
-        <input id="llm_model" placeholder="如 gpt-4o-mini"
+        <label>模型</label>
+        <input id="llm_model" placeholder="如 模型名称"
           style="width:100%;box-sizing:border-box;padding:9px 12px;border:1px solid #dfe1e5;border-radius:8px;margin:4px 0 12px">
         <div class="row">
           <button onclick="llmTest()">测试连通</button>

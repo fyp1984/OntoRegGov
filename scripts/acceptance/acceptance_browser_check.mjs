@@ -23,22 +23,18 @@ import os from 'node:os';
 const BASE_URL = (process.env.BASE_URL || 'http://127.0.0.1:8420').replace(/\/$/, '');
 const ARGS = process.argv.slice(2);
 
-// 视图清单（与 app/web/static/index.html 的 nav + section 对齐）
+// 视图清单（与 app/web/static/index.html 的 nav + section 对齐，5 组 13 视图）
 // 说明：checkslib（监管检查库）已并入知识库上方标签 #kb_nav（data-nav="checks"）；
-//       kbqa（知识检索问答）、selfcheck（合规自查）已按需求下线。
-const MAIN_VIEWS = ['kbdash', 'dsk', 'pipeline', 'dsc', 'rem', 'rep', 'diag', 'ledger', 'issues', 'gov', 'ext', 'frame', 'arch', 'capability', 'path', 'assets'];
+//       rem 已并入 issues（安全治理）；ext 已拆为 scenario + plugin；
+//       arch / capability / path / assets 四个视图已按下线要求彻底删除。
+const MAIN_VIEWS = ['selfcheck', 'dsc', 'rep', 'diag', 'ledger', 'issues',
+                    'kbdash', 'pipeline', 'scenario', 'plugin', 'gov', 'dsk', 'frame'];
 const KB_ROUTES = ['home', 'graph', 'path', 'timeline', 'cases', 'controls', 'checks'];
 
-// 数据一致性期望值（白皮书口径：第 7/9/11 章、附录 A.1-补 / B / E；与差距对照表一致）
-const EXPECT_DOMAINS = [
-  '治理与制度支撑', '数据资产与分类分级', '身份与访问／特权账号', '加密与密钥',
-  '脱敏与测试数据', '数据防泄漏与办公渠道', '导出与流转管控', '接口与应用安全',
-  '日志审计与监测告警', '第三方与外包', '移动应用与组件', '备份归档与销毁',
-  '个人信息保护', '策略编排与工具接入'
-];
-const EXPECT_STAGE_KEYS = ['stage', 'start', 'goal', 'gate', 'tools', 'asset'];
-const EXPECT_ASSETS = ['台账', '自查报告', '方法与模板', '已确认结果'];
+// 数据一致性期望值（白皮书口径：第 7/9/11 章、附录 A.1-补 / B；与差距对照表一致）
 const EXPECT_FIVE = ['problems', 'bases', 'ownership', 'evidenceGaps', 'nextSteps'];
+// 安全治理闭环状态机（登记 → 定级 → 派单 → 接收 → 整改 → 回复 → 复检 → 会签 → 归档）
+const EXPECT_FLOW_MIN = 8;
 
 // 降级/异常"状态"短语（判定必须是状态化，见 detectInPage）
 const BAD_TEXT = ['来源不可用', '知识库暂不可达', '暂不可用'];
@@ -337,56 +333,114 @@ async function main(chromium) {
     }
   }
 
-  /* [3.6] 交互冒烟：报告与看板 · 报告样例页签（只验入口不足，必须真点一次） */
-  hr('[3.6] 交互冒烟 · 报告与看板（切「报告样例」页签 → 五项结构）');
+  /* [3.6] 交互冒烟：报告与看板 · 三步下钻（选任务 → 看板图表 → 部门下钻条目明细） */
+  hr('[3.6] 交互冒烟 · 报告与看板（选任务 → 看板 → 部门下钻 → 条目明细）');
   {
     await page.locator('#nav a[data-v="rep"]').first().click();
-    await page.waitForTimeout(1200);
-    const tab = page.locator('#rep_tabs button.dz-tab[data-key="sample"]');
-    if (!(await tab.count())) {
-      problems.push('报告样例页签缺失（#rep_tabs .dz-tab[data-key="sample"]）');
-      log('FAIL  报告样例页签缺失');
+    await page.waitForTimeout(1500);
+    const pick = page.locator('#rep_body [data-act="pick"]');
+    if (!(await pick.count())) {
+      problems.push('报告与看板：任务选择卡片缺失（#rep_body [data-act="pick"]）');
+      log('FAIL  任务选择卡片缺失');
     } else {
-      await tab.first().click();
-      await page.waitForTimeout(2000);
-      const r = await page.evaluate(() => {
-        const box = document.getElementById('rep_sample');
-        return {
-          len: (box?.innerText || '').replace(/\s+/g, ' ').trim().length,
-          heads: box?.querySelectorAll('h3').length || 0,
-          tables: box?.querySelectorAll('table').length || 0,
-          hasBad: !!(box?.querySelector('.badge.b-bad, .dz-banner.bad')),
-        };
-      });
-      const ok = r.len > 300 && r.heads >= 5 && r.tables >= 2 && !r.hasBad;
-      if (!ok) problems.push('报告样例未正常渲染：len=' + r.len + ' heads=' + r.heads +
-                             ' tables=' + r.tables + ' bad=' + r.hasBad);
-      log((ok ? 'PASS' : 'FAIL').padEnd(5), '报告样例五项结构',
-          '字符=' + String(r.len).padStart(5),
-          '分块=' + String(r.heads).padStart(3),
-          '表格=' + String(r.tables).padStart(3),
-          ok ? '' : '→ 未正常渲染');
+      await pick.first().click();
+      await page.waitForTimeout(1800);
+      const board = await page.evaluate(() => ({
+        kpi: document.querySelectorAll('#rep_body .dz-kpi-row').length,
+        bars: document.querySelectorAll('#rep_body [data-act="dept"]').length,
+        textLen: ((document.getElementById('rep_body') || {}).innerText || '').replace(/\s+/g, ' ').trim().length,
+      }));
+      const boardOk = board.kpi >= 1 && board.bars >= 1 && board.textLen > 200;
+      if (!boardOk) problems.push('报告与看板：看板未渲染 kpi=' + board.kpi +
+                                  ' bars=' + board.bars + ' text=' + board.textLen);
+      log((boardOk ? 'PASS' : 'FAIL').padEnd(5), '看板（完成情况 + 部门比例）',
+          'KPI=' + String(board.kpi).padStart(3),
+          '部门条=' + String(board.bars).padStart(3),
+          boardOk ? '' : '→ 未渲染');
       checked++;
+      const bar = page.locator('#rep_body [data-act="dept"]').first();
+      if (await bar.count()) {
+        await bar.click();
+        await page.waitForTimeout(1800);
+        const rows = await page.evaluate(() =>
+          document.querySelectorAll('#rep_body table tbody tr[data-act="row"]').length);
+        const ok2 = rows >= 1;
+        if (!ok2) problems.push('报告与看板：部门下钻未渲染自查条目明细');
+        log((ok2 ? 'PASS' : 'FAIL').padEnd(5), '部门下钻 → 自查条目明细',
+            '条目=' + String(rows).padStart(4), ok2 ? '' : '→ 无条目');
+        checked++;
+      }
     }
   }
 
-  /* [5] 数据一致性校验（白皮书口径：能力域 / 实施路径 / 资产 / 报告样例 / 场景包 / 九类问题） */
+  /* [3.7] 交互冒烟：安全自查 · 新建自查行业档案（填写 → 创建 → 现有档案列表刷新 → 复位） */
+  hr('[3.7] 交互冒烟 · 新建自查行业档案（填写 → 创建 → 现有档案列表刷新）');
+  {
+    await page.locator('#nav a[data-v="dsc"]').first().click();
+    await page.waitForTimeout(1200);
+    const tab = page.locator('#dsc_tabs .dz-tab[data-key="profile"]');
+    if (!(await tab.count())) {
+      problems.push('新建自查行业档案：页签缺失（#dsc_tabs .dz-tab[data-key="profile"]）');
+      log('FAIL  页签缺失');
+      checked++;
+    } else {
+      await tab.first().click();
+      await page.waitForTimeout(900);
+      const form = await page.evaluate(() => ({
+        code: !!document.getElementById('ip_code'),
+        name: !!document.getElementById('ip_name'),
+        lines: !!document.getElementById('ip_lines'),
+        btn: !!document.querySelector('[data-act="create-industry-profile"]'),
+        rows: document.querySelectorAll('#dsc_pane table tbody tr').length,
+      }));
+      const formOk = form.code && form.name && form.lines && form.btn && form.rows >= 2;
+      if (!formOk) problems.push('新建自查行业档案：表单或列表未渲染 ' + JSON.stringify(form));
+      log((formOk ? 'PASS' : 'FAIL').padEnd(5), '行业档案新建表单 + 现有列表',
+          '表单字段=4', '现有档案=' + String(form.rows).padStart(2), formOk ? '' : '→ 未渲染');
+      checked++;
+
+      const code = 'smoke' + Date.now().toString().slice(-5);
+      await page.fill('#ip_code', code);
+      await page.fill('#ip_name', '冒烟行业');
+      await page.fill('#ip_lines', 'sm1|冒烟条线一\nsm2|冒烟条线二');
+      await page.click('[data-act="create-industry-profile"]');
+      await page.waitForTimeout(2200);
+      const created = await page.evaluate((c) => {
+        const box = document.getElementById('dsc_pane');
+        return { hit: ((box || {}).innerText || '').indexOf(c) >= 0,
+                 rows: document.querySelectorAll('#dsc_pane table tbody tr').length };
+      }, code);
+      if (!created.hit) problems.push('新建自查行业档案：创建后列表未出现新档案 ' + code);
+      log((created.hit ? 'PASS' : 'FAIL').padEnd(5), '创建行业档案 → 列表刷新',
+          '新增=' + code, '列表=' + String(created.rows).padStart(2), created.hit ? '' : '→ 未出现');
+      checked++;
+
+      await fetch(BASE_URL + '/api/demo/reset', { method: 'POST' }).catch(() => {});
+      await page.waitForTimeout(600);
+    }
+  }
+
+  /* [5] 数据一致性校验（白皮书口径：报告样例 / 场景包 / 九类问题 / 治理闭环 / 资产台账 / 知识发布 / 插件 / 组织） */
   hr('[5] 数据一致性校验（白皮书口径）');
   let dataChecked = 0;
   {
     const probes = [
-      { name: '能力域目录（附录 E · 14 项）', url: '/api/capabilities', pick: (j) => j.capabilities,
-        check: (a) => a.length === 14 && a.map((x) => x.name).join('|') === EXPECT_DOMAINS.join('|') },
-      { name: '实施路径（第 9 章 · 四阶段×六列）', url: '/api/implementation/path', pick: (j) => j.stages,
-        check: (a) => a.length === 4 && a.every((s) => EXPECT_STAGE_KEYS.every((k) => s[k] != null && s[k] !== '')) },
-      { name: '留存资产（第 11 章 · 四类）', url: '/api/assets', pick: (j) => j.assets,
-        check: (a) => a.length === 4 && EXPECT_ASSETS.every((n, i) => (a[i] || {}).name === n) },
       { name: '报告样例（附录 B · 五项结构）', url: '/api/report/sample', pick: (j) => j.five,
         check: (f) => !!f && EXPECT_FIVE.every((k) => Array.isArray(f[k]) && f[k].length > 0) },
       { name: '场景包（平台扩展场景 · 八项）', url: '/api/scenario-packs', pick: (j) => j.packs,
         check: (a) => a.length === 8 },
       { name: '典型问题归类（附录 A.1-补 · 九类）', url: '/api/issues/classes', pick: (j) => j.classes,
-        check: (a) => a.length === 9 }
+        check: (a) => a.length === 9 },
+      { name: '安全治理闭环（状态机 ≥ 8 态）', url: '/api/gov/issues', pick: (j) => j.flow,
+        check: (a) => Array.isArray(a) && a.length >= EXPECT_FLOW_MIN },
+      { name: '资产台账（资产记录非空）', url: '/api/asset-ledger', pick: (j) => j.assets,
+        check: (a) => Array.isArray(a) && a.length > 0 && a.every((x) => x.assetId && x.category) },
+      { name: '知识发布（目标知识库非空）', url: '/api/kb/targets', pick: (j) => j.targets,
+        check: (a) => Array.isArray(a) && a.length > 0 },
+      { name: '工具插件（插件清单非空）', url: '/api/plugin-settings', pick: (j) => j.plugins,
+        check: (a) => Array.isArray(a) && a.length > 0 },
+      { name: '组织（组织节点 ≥ 20）', url: '/api/admin/org-nodes', pick: (j) => j.total,
+        check: (n) => typeof n === 'number' && n >= 20 }
     ];
     for (const pr of probes) {
       let ok = false, note = '';
@@ -414,9 +468,10 @@ async function main(chromium) {
 
   /* 汇总 */
   hr('汇总');
+  const smokeChecked = checked - MAIN_VIEWS.length - KB_ROUTES.length;
   log('核验项数：' + (checked + dataChecked) +
       '（主视图 ' + MAIN_VIEWS.length + ' + 知识子路由 ' + KB_ROUTES.length +
-      ' + 交互冒烟 2 + 数据一致性 ' + dataChecked + '）');
+      ' + 交互冒烟 ' + smokeChecked + ' + 数据一致性 ' + dataChecked + '）');
   if (problems.length === 0) {
     log('结论：PASS —— 全部视图渲染正常，无降级状态、无 JS 异常、无失败请求');
     return 0;
