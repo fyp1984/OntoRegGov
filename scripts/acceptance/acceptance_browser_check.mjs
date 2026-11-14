@@ -389,12 +389,18 @@ async function main(chromium) {
       log('FAIL  任务选择卡片缺失');
     } else {
       await pick.first().click();
-      await page.waitForTimeout(1800);
-      const board = await page.evaluate(() => ({
+      // 轮询等待看板渲染（固定时长在冷启动下存在竞态：/items 冷路径取数可达数秒）
+      const readBoard = () => page.evaluate(() => ({
         kpi: document.querySelectorAll('#rep_body .dz-kpi-row').length,
         bars: document.querySelectorAll('#rep_body [data-act="dept"]').length,
         textLen: ((document.getElementById('rep_body') || {}).innerText || '').replace(/\s+/g, ' ').trim().length,
       }));
+      let board = { kpi: 0, bars: 0, textLen: 0 }, boardWaited = 0;
+      while (boardWaited < 12000) {
+        await page.waitForTimeout(250); boardWaited += 250;
+        board = await readBoard();
+        if (board.kpi >= 1 && board.bars >= 1 && board.textLen > 200) break;
+      }
       const boardOk = board.kpi >= 1 && board.bars >= 1 && board.textLen > 200;
       if (!boardOk) problems.push('报告与看板：看板未渲染 kpi=' + board.kpi +
                                   ' bars=' + board.bars + ' text=' + board.textLen);
@@ -406,9 +412,15 @@ async function main(chromium) {
       const bar = page.locator('#rep_body [data-act="dept"]').first();
       if (await bar.count()) {
         await bar.click();
-        await page.waitForTimeout(1800);
-        const rows = await page.evaluate(() =>
+        // 轮询等待条目明细渲染（同上：冷启动取数可达数秒，固定等待会误判为失败）
+        const readRows = () => page.evaluate(() =>
           document.querySelectorAll('#rep_body table tbody tr[data-act="row"]').length);
+        let rows = 0, rowsWaited = 0;
+        while (rowsWaited < 12000) {
+          await page.waitForTimeout(250); rowsWaited += 250;
+          rows = await readRows();
+          if (rows >= 1) break;
+        }
         const ok2 = rows >= 1;
         if (!ok2) problems.push('报告与看板：部门下钻未渲染自查条目明细');
         log((ok2 ? 'PASS' : 'FAIL').padEnd(5), '部门下钻 → 自查条目明细',

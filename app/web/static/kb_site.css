@@ -403,9 +403,12 @@
 }
 .kbsite .ck-col {
   display: flex; flex-direction: column; margin-bottom: 0;
-  /* 视口高度扣除页眉/子导航/面包屑（约 235px）与视图尾部留白（约 205px），
-   * 使两栏整体落在首屏内，无需拖动页面滚动条。 */
-  max-height: calc(100vh - 452px); min-height: 240px;
+  /* 两栏按宿主可视区的剩余高度撑满：由 kb_site.js 的 fitChecksHeight() 实测后写入
+   * --ck-avail-h（窗口尺寸 / 视图显隐变化时自动重算），从而适配不同终端窗口大小；
+   * 脚本未就绪（首帧、无脚本）时回退到视口高度估算，行内滚动仍由 .ck-scroll 承担。 */
+  height: var(--ck-avail-h, calc(100vh - 320px));
+  height: var(--ck-avail-h, calc(100dvh - 320px));
+  min-height: 240px;
 }
 .kbsite .ck-col > h3, .kbsite .ck-col > .dz-toolbar { flex: none; }
 .kbsite .ck-scroll { flex: 1; min-height: 0; overflow: auto; }
@@ -677,8 +680,9 @@
 @media (max-width: 1024px) {
   .kbsite .detail-wrap { grid-template-columns: 1fr; }
   .kbsite .ck-split { grid-template-columns: 1fr; }
-  /* 窄屏堆叠：两栏各自限高内部滚动，避免 344 行长列表把页面撑爆 */
-  .kbsite .ck-col { max-height: 56vh; }
+  /* 窄屏堆叠：两栏各自限高内部滚动（高度交还 CSS，忽略脚本实测值），
+     避免长列表把页面撑爆 */
+  .kbsite .ck-col { height: auto; max-height: 56vh; }
   .kbsite .side-card { position: static; }
   .kbsite .type-grid { grid-template-columns: repeat(2, 1fr); }
   .kbsite .card-grid { grid-template-columns: repeat(2, 1fr); }
