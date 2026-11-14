@@ -396,6 +396,19 @@
 .kbsite .ext-link:hover { color: var(--brand); border-color: var(--brand-400); text-decoration: none; }
 .kbsite .ext-link svg { display: block; }
 .kbsite .detail-wrap { display: grid; grid-template-columns: minmax(0,1fr) 300px; gap: 22px; align-items: start; }
+/* 监管检查库：列表 ↔ 六维详情 双栏（两栏各自内部滚动，免页面滚动条对照查看） */
+.kbsite .ck-split {
+  display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr);
+  gap: 18px; align-items: start;
+}
+.kbsite .ck-col {
+  display: flex; flex-direction: column; margin-bottom: 0;
+  /* 视口高度扣除页眉/子导航/面包屑（约 235px）与视图尾部留白（约 205px），
+   * 使两栏整体落在首屏内，无需拖动页面滚动条。 */
+  max-height: calc(100vh - 452px); min-height: 240px;
+}
+.kbsite .ck-col > h3, .kbsite .ck-col > .dz-toolbar { flex: none; }
+.kbsite .ck-scroll { flex: 1; min-height: 0; overflow: auto; }
 .kbsite .prose-card, .kbsite .side-card {
   background: var(--surface); border: 1px solid var(--border-soft); border-radius: var(--r-md);
   box-shadow: var(--shadow-xs);
@@ -663,6 +676,9 @@
 .kbsite .footer .f-ver { font-family: var(--font-mono); }
 @media (max-width: 1024px) {
   .kbsite .detail-wrap { grid-template-columns: 1fr; }
+  .kbsite .ck-split { grid-template-columns: 1fr; }
+  /* 窄屏堆叠：两栏各自限高内部滚动，避免 344 行长列表把页面撑爆 */
+  .kbsite .ck-col { max-height: 56vh; }
   .kbsite .side-card { position: static; }
   .kbsite .type-grid { grid-template-columns: repeat(2, 1fr); }
   .kbsite .card-grid { grid-template-columns: repeat(2, 1fr); }
