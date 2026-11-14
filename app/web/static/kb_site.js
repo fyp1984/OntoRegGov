@@ -954,6 +954,39 @@ window.KbSite = (function () {
    *   - 元素 id 与内联 onchange/oninput 调用保持与既往实现一致（#ck_doc/#ck_domain/
    *     #ck_pri/#ck_kw → #ck_list、点击行 → #ck_detail）；
    *   - 取数统一走 /api/checks（统一信封 + 降级链），页面不做分支渲染。 */
+
+  /* 双栏高度自适应：按「宿主可视区剩余高度」实测后写入 --ck-avail-h，
+   * 两栏因此在任意终端窗口尺寸下都撑满页面可视高度、内部各自滚动。
+   * 可视高度取视口高度（宿主 <main> 高度随内容增长，不能作为可视区依据）；
+   * 触发时机：首次渲染 + 窗口尺寸变化 + 两栏自身尺寸变化（含视图由隐藏转为显示）。 */
+  var ckRO = null;
+  function fitChecksHeight() {
+    var split = appEl && appEl.querySelector ? appEl.querySelector('.ck-split') : null;
+    if (!split || !split.getClientRects().length) return;   // 视图隐藏时不测量，等可见后再算
+    if (window.matchMedia && window.matchMedia('(max-width: 1024px)').matches) {
+      split.style.removeProperty('--ck-avail-h');            // 窄屏堆叠：高度交还 CSS 限高
+      return;
+    }
+    var host = (appEl.closest && appEl.closest('main')) || document.documentElement;
+    var padBottom = parseFloat(window.getComputedStyle(host).paddingBottom) || 0;
+    var visibleBottom = Math.min(window.innerHeight, host.getBoundingClientRect().bottom);
+    var avail = visibleBottom - split.getBoundingClientRect().top - padBottom;
+    if (!(avail > 0)) return;                                // 布局未就绪：沿用回退值
+    var next = Math.round(avail) + 'px';
+    if (split.style.getPropertyValue('--ck-avail-h') !== next) {
+      split.style.setProperty('--ck-avail-h', next);          // 同值不重写，避免观测回调自激
+    }
+  }
+  function bindChecksHeight() {
+    if (typeof ResizeObserver === 'function' && appEl) {
+      var split = appEl.querySelector('.ck-split');
+      if (ckRO) { ckRO.disconnect(); ckRO = null; }
+      if (split) { ckRO = new ResizeObserver(fitChecksHeight); ckRO.observe(split); }
+    }
+    window.removeEventListener('resize', fitChecksHeight);
+    window.addEventListener('resize', fitChecksHeight);
+  }
+
   function renderChecks() {
     var opts = function (vals) {
       return '<option value="">' + vals[0] + '</option>' + vals.slice(1).map(function (v) {
@@ -991,6 +1024,8 @@ window.KbSite = (function () {
         '</div>' +
         '</div>' +
       '</div>';
+    bindChecksHeight();
+    fitChecksHeight();
     if (typeof window.loadChecks === 'function') window.loadChecks();
   }
 
