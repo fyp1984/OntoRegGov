@@ -478,8 +478,8 @@ def _host(url: str) -> str:
 
 TEI_EMBED_URL = _os.environ.get("TEI_EMBED_URL", "http://127.0.0.1:18002/embed")
 RAGFLOW_BASE = _os.environ.get("RAGFLOW_BASE", "http://127.0.0.1:19380").rstrip("/")
-RAGFLOW_API_TOKEN = _os.environ.get(
-    "RAGFLOW_API_TOKEN", "ragflow-6gBYDi-FMuZ7zY7sqdDfG-IkSNCILhbDurLJ0qQ5k54")
+# 令牌一律经环境变量注入，仓库内不保留任何默认口令（未配置则该路自动降级）
+RAGFLOW_API_TOKEN = _os.environ.get("RAGFLOW_API_TOKEN", "").strip()
 RAGFLOW_DATASET_ID = _os.environ.get(
     "RAGFLOW_DATASET_ID", "bf1312d28b3d11f1847f73b364e50e19")
 FUSEKI_ENDPOINT = _cfg.GRAPH_STORE_ENDPOINT

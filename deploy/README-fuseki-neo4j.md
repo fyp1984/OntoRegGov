@@ -11,20 +11,21 @@
 | `GRAPH_STORE_BACKEND` | `memory`（默认）/ `oxigraph` / `fuseki` | 存储轨道后端 |
 | `GRAPH_STORE_ENDPOINT` | `http://127.0.0.1:3030`（默认） | Fuseki 基址（本地容器或远程均可） |
 | `GRAPH_STORE_DATASET` | `ds`（默认） | Fuseki 数据集名 |
-| `GRAPH_STORE_USER` / `GRAPH_STORE_PASSWORD` | 空（默认）/ `admin`/`admin` | Fuseki 更新/写入所需 Basic 鉴权 |
+| `GRAPH_STORE_USER` / `GRAPH_STORE_PASSWORD` | 空（默认） | Fuseki 更新/写入所需 Basic 鉴权；口令经 `.env` 注入，仓库内无默认口令 |
 | `GRAPH_STORE_FILE` | 空（默认）/ 路径 | oxigraph 落盘文件 |
 
 ## 启动 Fuseki（Docker，无需本机 Java）
 
 ```bash
+# 先在 .env 设置 GRAPH_STORE_PASSWORD（Fuseki 管理口令），再启动
 docker compose -f deploy/docker-compose.fuseki.yml up -d
 curl "http://127.0.0.1:3030/$/ping"        # 期望时间戳 JSON
-curl "http://127.0.0.1:3030/$/datasets" -u admin:admin   # 期望包含 /ds（tdb2）
-GRAPH_STORE_BACKEND=fuseki GRAPH_STORE_USER=admin GRAPH_STORE_PASSWORD=admin bash run.sh
+curl "http://127.0.0.1:3030/$/datasets" -u "admin:${GRAPH_STORE_PASSWORD}"   # 期望包含 /ds（tdb2）
+GRAPH_STORE_BACKEND=fuseki GRAPH_STORE_USER=admin GRAPH_STORE_PASSWORD="${GRAPH_STORE_PASSWORD}" bash run.sh
 ```
 
 > 镜像入口按 `FUSEKI_DATASET_<NAME>=<数据集名>` 创建数据集（值即数据集名，非路径）；
-> 查询端点匿名开放，更新/写入端点需要 Basic 鉴权（admin/admin，生产请改）。
+> 查询端点匿名开放，更新/写入端点需要 Basic 鉴权（口令取 `.env` 的 `GRAPH_STORE_PASSWORD`，未设置时用镜像自身默认口令，仅限本机演示）。
 
 ## 验证
 

@@ -19,14 +19,20 @@ import json
 import os
 import re
 from datetime import datetime, timezone, timedelta
+from pathlib import Path
 
 from bs4 import BeautifulSoup, NavigableString
 
 # ---------------------------------------------------------------------------
-# 路径常量（按部署位置修改这里即可）
+# 路径常量（项目根按文件位置推导；绝对路径经环境变量可覆盖，仓库内不写死机器路径）
 # ---------------------------------------------------------------------------
-BASE = "/Users/FYP/Documents/WorkSpace/OntoRegGov"
-SOURCE_HTML = "/Users/FYP/Documents/@西北人的成长/20-Areas/信息安全/数据安全/04_解决方案/知识库产品/金规2024-24号数据安全检查知识库.html"
+ROOT = Path(__file__).resolve().parents[2]          # 仓库根（本文件位于 scripts/etl/）
+BASE = str(ROOT)                                    # 兼容既有 os.path.join 用法
+# 10_知识库工程 为独立知识工程，默认取仓库同级目录；可用环境变量 KB10_ROOT 覆盖
+KB10_ROOT = Path(os.environ.get("KB10_ROOT") or (ROOT / ".." / "10_知识库工程")).resolve()
+# 源 HTML：环境变量 JG24_SOURCE_HTML 优先，否则取 KB10_ROOT 同级的 04_解决方案/知识库产品 下
+SOURCE_HTML = os.environ.get("JG24_SOURCE_HTML") or str(
+    KB10_ROOT / ".." / "04_解决方案" / "知识库产品" / "金规2024-24号数据安全检查知识库.html")
 OUTPUT_JSON = os.path.join(BASE, "data", "checks", "jg24-checks.json")
 
 SOURCE_FILE_NAME = "金规2024-24号数据安全检查知识库.html"

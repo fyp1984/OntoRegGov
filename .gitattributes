@@ -1,0 +1,41 @@
+# 统一行尾策略：Windows / macOS / Linux 三端协作 + 容器内 bash 可执行性
+# 背景：宿主检出为 CRLF 时，Docker COPY 进镜像的 *.sh 会以 CRLF 落盘，
+#      `bash start.sh` 直接报错（set -euo pipefail\r: invalid option）。
+* text=auto
+
+# 脚本：Shell 必须 LF；Windows 批处理必须 CRLF
+*.sh    text eol=lf
+*.bash  text eol=lf
+*.bat   text eol=crlf
+*.cmd   text eol=crlf
+*.ps1   text eol=crlf
+
+# 环境变量模板：必须 LF（CRLF 会把 \r 带进 .env 取值）
+.env*   text eol=lf
+
+# 源码与配置：统一 LF，保证与容器内一致
+*.py    text eol=lf
+*.js    text eol=lf
+*.mjs   text eol=lf
+*.json  text eol=lf
+*.yml   text eol=lf
+*.yaml  text eol=lf
+*.toml  text eol=lf
+*.md    text eol=lf
+*.sql   text eol=lf
+*.txt   text eol=lf
+Makefile text eol=lf
+Dockerfile text eol=lf
+
+# 二进制：禁止行尾转换
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary
+*.pdf  binary
+*.docx binary
+*.xlsx binary
+*.pptx binary
+*.mp3  binary
+*.zip  binary

@@ -35,21 +35,37 @@ OC_CONFIG = OC_HOME / "openclaw.json"
 OC_STATE = OC_HOME / "state"
 OC_ENTRY = OC_HOME / "openclaw.mjs"
 
-# Node 运行时优先级：openclaw 缓存运行时(v26) > 项目内置 > PATH
-_NODE_CANDIDATES = [
-    Path.home() / ".openclaw" / "tools" / "cli-node" / "tools" / "node" / "node.exe",
-    Path("D:/program/nodejs/node.exe"),
-]
+# Node 运行时优先级：显式环境变量 OPENCLAW_NODE_BIN > openclaw 缓存运行时 > PATH
+# （仓库内不含任何机器相关绝对路径；Windows 下缓存运行时文件名为 node.exe）
+_CACHED_NODE = (Path.home() / ".openclaw" / "tools" / "cli-node" / "tools" / "node"
+                / ("node.exe" if os.name == "nt" else "node"))
+
+
+def _ensure_config() -> None:
+    """openclaw.json 缺失时由模板 + 环境变量渲染（密钥不入库、无绝对路径）。"""
+    if OC_CONFIG.exists():
+        return
+    try:
+        from .openclaw_config import render_config
+        render_config(OC_HOME)
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def _node_exe() -> str:
-    for p in _NODE_CANDIDATES:
-        if p.exists():
-            return str(p)
+    explicit = os.environ.get("OPENCLAW_NODE_BIN", "").strip()
+    if explicit and Path(explicit).exists():
+        return explicit
+    if _CACHED_NODE.exists():
+        return str(_CACHED_NODE)
     return shutil.which("node") or "node"
 
 
 def _gateway_base() -> str:
+    """网关基址：OPENCLAW_GATEWAY_URL 优先（容器/跨主机），否则本机 loopback + 端口。"""
+    url = os.environ.get("OPENCLAW_GATEWAY_URL", "").strip()
+    if url:
+        return url.rstrip("/")
     port = os.environ.get("OPENCLAW_GATEWAY_PORT", "18789")
     return f"http://127.0.0.1:{port}"
 
@@ -64,11 +80,15 @@ def _open(req, timeout: float):
 
 
 def _gateway_token() -> str:
+    """网关令牌：优先读 openclaw.json（本机自管），缺失时回落环境变量 OPENCLAW_GATEWAY_TOKEN。"""
     try:
         cfg = json.loads(OC_CONFIG.read_text(encoding="utf-8"))
-        return ((cfg.get("gateway") or {}).get("auth") or {}).get("token", "")
+        token = ((cfg.get("gateway") or {}).get("auth") or {}).get("token", "")
+        if token:
+            return token
     except Exception:  # noqa: BLE001
-        return ""
+        pass
+    return os.environ.get("OPENCLAW_GATEWAY_TOKEN", "").strip()
 
 
 # ---------------- 映射表 ----------------
@@ -127,6 +147,7 @@ def health(timeout: float = 2.0) -> dict:
 
 def ensure_running(auto_start: bool = True) -> dict:
     """gateway 不可达时后台拉起独立进程（幂等、防抖 20s）。永不抛错。"""
+    _ensure_config()
     h = health()
     if h["ok"] or not auto_start or not OC_ENTRY.exists():
         return h
@@ -140,6 +161,7 @@ def ensure_running(auto_start: bool = True) -> dict:
             "OPENCLAW_STATE_DIR": str(OC_STATE),
             "OPENCLAW_CONFIG_PATH": str(OC_CONFIG),
         })
+        OC_STATE.mkdir(parents=True, exist_ok=True)
         log = open(OC_STATE / "gateway.log", "ab")
         kwargs = {}
         if os.name == "nt":
@@ -147,7 +169,9 @@ def ensure_running(auto_start: bool = True) -> dict:
         try:
             subprocess.Popen(
                 [_node_exe(), str(OC_ENTRY), "gateway", "run",
-                 "--bind", "loopback", "--port", "18789", "--allow-unconfigured"],
+                 "--bind", os.environ.get("OPENCLAW_GATEWAY_BIND", "loopback"),
+                 "--port", os.environ.get("OPENCLAW_GATEWAY_PORT", "18789"),
+                 "--allow-unconfigured"],
                 cwd=str(OC_HOME), env=env, stdout=log, stderr=log,
                 stdin=subprocess.DEVNULL, **kwargs)
         except Exception as e:  # noqa: BLE001

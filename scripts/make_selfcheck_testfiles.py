@@ -218,8 +218,11 @@ import os as _os
 import subprocess as _sp
 import urllib.request as _rq
 
-MAAS_BASE = "https://llm-x2b28e85g4rs2bw0.cn-beijing.maas.aliyuncs.com"
-MAAS_KEY = "sk-34ed3e6fe9284409b9e484ce58a24c28"
+# 大模型 MaaS（阿里云百炼）端点/密钥/模型：一律经环境变量注入，仓库内不保留硬编码密钥
+# 未配置密钥时，下方 tts_synth 会因鉴权失败进入 except 分支保留占位（不阻断测试文件集生成）
+MAAS_BASE = _os.environ.get("MAAS_BASE_URL", "https://llm-x2b28e85g4rs2bw0.cn-beijing.maas.aliyuncs.com").rstrip("/")
+MAAS_KEY = _os.environ.get("MAAS_API_KEY", "").strip()
+MAAS_MODEL = _os.environ.get("MAAS_MODEL", "qwen3-tts-flash")
 
 RECORD_SCRIPT = """XX银行2025年第2次党委会会议录音节选，虚构测试数据。
 党委书记：今天议题四，研究本行数据安全工作重大事项。请信息科技部汇报落实金规〔2024〕24号文的情况。
@@ -227,7 +230,7 @@ RECORD_SCRIPT = """XX银行2025年第2次党委会会议录音节选，虚构测
 党委书记：同意。要求党委每半年听取一次数据安全工作汇报。另外，信息科技领域日常工作由分管信息科技的李副行长负责。散会。"""
 
 def tts_synth(text, out_mp3):
-    payload = {"model": "qwen3-tts-flash", "input": {"text": text, "voice": "Dylan",
+    payload = {"model": MAAS_MODEL, "input": {"text": text, "voice": "Dylan",
                  "language_type": "Chinese"}}
     req = _rq.Request(MAAS_BASE + "/api/v1/services/aigc/multimodal-generation/generation",
                       data=_json.dumps(payload).encode("utf-8"),

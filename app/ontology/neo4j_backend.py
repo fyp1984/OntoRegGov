@@ -5,10 +5,10 @@
 - query(sparql): 仅支持有限 Cypher 等价查询（count / 按类型查节点 / 出边 / 入边），
   其余回退 memory 物化（不抛错）
 
-环境变量：
-  WEKNORA_NEO4J_URI=bolt://ekos-weknora-neo4j:7687
-  WEKNORA_NEO4J_USER=neo4j
-  WEKNORA_NEO4J_PASSWORD=weknora_p2_dev_only_change_me
+环境变量（仓库内不保留任何口令默认值，未配置即不可连、自动降级）：
+  WEKNORA_NEO4J_URI=bolt://<host>:7687
+  WEKNORA_NEO4J_USER=<user>
+  WEKNORA_NEO4J_PASSWORD=<password>
 """
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ from ..config import APP_DATA
 
 NEO4J_URI = os.environ.get("WEKNORA_NEO4J_URI", "bolt://ekos-weknora-neo4j:7687")
 NEO4J_USER = os.environ.get("WEKNORA_NEO4J_USER", "neo4j")
-NEO4J_PASSWORD = os.environ.get("WEKNORA_NEO4J_PASSWORD", "weknora_p2_dev_only_change_me")
+NEO4J_PASSWORD = os.environ.get("WEKNORA_NEO4J_PASSWORD", "").strip()
 
 # 命名空间（与 graph_store.py 对齐）
 DSEC_NS = "http://dsec.local/ontology/2026/1#"

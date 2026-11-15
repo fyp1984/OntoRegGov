@@ -3,6 +3,7 @@
 __pycache__/
 *.pyc
 .git/
+.gitattributes
 .DS_Store
 .kb-publish/
 backups/
@@ -13,3 +14,11 @@ deploy/
 evidence/
 app/data/*
 !app/data/.gitkeep
+
+# 环境变量与密钥：绝不进入构建上下文
+.env
+.env.*
+!.env.example
+
+# OpenClaw 构建产物体量巨大（~3GB），容器化时随 profile openclaw 单独挂载
+services/

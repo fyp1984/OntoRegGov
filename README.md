@@ -106,17 +106,21 @@ bash run.sh
   每注册用户在同一 gateway 进程内自动获得专属 agent（轻隔离），未注册访客共用 `default` agent。
 
 ```bash
-# 容器方式（单文件编排，用 profile 选择运行形态）
-# · 独立演示形态（推荐；零外部依赖，使用独立演示库）
-docker compose -f deploy/docker-compose.ontoreggov.yml --profile demo up -d --build
-# · 完整形态（接入本机既有底座：WeKnora / Neo4j）
-docker compose -f deploy/docker-compose.ontoreggov.yml --profile full up -d --build
+# 容器方式（单文件编排 + profile；Windows / macOS / Linux 命令一致）
+cp .env.example .env                                                          # ① 环境变量模板（可先用默认值）
+docker compose -f deploy/docker-compose.ontoreggov.yml --profile demo up -d --build   # ② 独立演示形态（推荐；零外部依赖）
+docker compose -f deploy/docker-compose.ontoreggov.yml --profile full up -d --build   # ② 完整形态（接入既有底座：WeKnora / Neo4j）
+docker compose -f deploy/docker-compose.fuseki.yml up -d                              # ③ 可选：自带图存储 Fuseki
+docker compose -f deploy/docker-compose.ontoreggov.yml --profile demo --profile openclaw up -d  # ③ 可选：合规自查智能体
 ```
 
 **部署说明**
 
-- 两种形态共用同一编排文件与公共段（镜像构建、代码/数据卷、知识库只读卷、健康检查、时区），差异仅由 profile 决定；
-  公共环境变量：`SKIP_SEED=1`、`PORT=8420`、`GRAPH_STORE_BACKEND=memory`、`KB_READ_FROM=canonical`、`KB10_SITE=/app/kb_site`、`TZ=Asia/Shanghai`。
+- 📖 完整技术方案（架构图 / 部署方案 / 运维方案）：[deploy/README-deployment.md](deploy/README-deployment.md)。
+- **环境变量**：所有密钥、口令、宿主绝对路径只经 `.env` 注入，**一律不入库**；模板见 [.env.example](.env.example)，
+  未配置即安全默认（零密钥可 `up` 起服务，能力自动降级，不 5xx）。
+- 各形态共用同一编排文件与公共段（镜像构建、代码/数据卷、知识库只读卷、健康检查、时区），差异仅由 profile 决定；
+  公共环境变量：`SKIP_SEED=1`、`PORT=8420`、`KB_READ_FROM=canonical`、`KB10_SITE=/app/kb_site`、`TZ=Asia/Shanghai`。
 - 就绪判据：`GET /api/health` 返回 200（已豁免网关鉴权）；compose 内置 healthcheck（`interval 30s / timeout 5s / retries 3 / start_period 20s`），
   可 `docker inspect --format '{{.State.Health.Status}}' ontoreggov-demo` 查看。
 - 改前端静态资源即时生效（需 bump `index.html` 内 `?v=` 缓存参数）；改后端 Python 需 `docker restart ontoreggov-demo`。
@@ -140,7 +144,7 @@ OntoRegGov/
 │   ├── web/static/      # H5 业务台（零 CDN，自写 SVG 图谱）
 │   └── data/            # 运行时数据（已 gitignore）
 ├── data/checks/         # ★ 种子数据（入库）：多文号检查项 JSON + 缺口清单
-├── deploy/              # 容器编排（Dockerfile + compose）
+├── deploy/              # 容器编排（Dockerfile + compose）与部署运维方案 README-deployment.md
 ├── scripts/             # 运维与验收脚本（按用途分目录，不再平铺根目录）
 │   ├── acceptance/      #   · 发布门：浏览器逐视图验收 + UI 语言一致性审计
 │   ├── kb/              #   · 知识编译 / 发布 / 入库 / 迁移 / 控制对齐

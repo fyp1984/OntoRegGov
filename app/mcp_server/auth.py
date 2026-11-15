@@ -16,6 +16,7 @@ app/mcp_server/auth.py — 远程模式 Bearer API Key 白名单鉴权（与底�
 from __future__ import annotations
 
 import json
+import os
 import time
 from pathlib import Path
 from typing import Any
@@ -24,7 +25,9 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 CONFIG_DIR = Path(__file__).resolve().parent / "config"
-ALLOWLIST_PATH = CONFIG_DIR / "allowlist.json"
+# 白名单文件位置：默认随包内置的演示钥匙板；生产/容器部署可用环境变量
+# MCP_ALLOWLIST_PATH 指向外部挂载的真实钥匙板（密钥文件不入库，改由环境注入）。
+ALLOWLIST_PATH = Path(os.environ.get("MCP_ALLOWLIST_PATH") or (CONFIG_DIR / "allowlist.json"))
 
 
 class Allowlist:

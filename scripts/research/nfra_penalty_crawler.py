@@ -30,6 +30,8 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+# 项目根按文件位置推导（本文件位于 scripts/research/）
+ROOT = Path(__file__).resolve().parents[2]
 BASE = "https://www.nfra.gov.cn"
 LIST_API = BASE + "/cn/static/data/DocInfo/SelectDocByItemIdAndChild/data_itemId={item_id},pageIndex={page},pageSize={size}.json"
 DETAIL_PAGE = BASE + "/cn/view/pages/ItemDetail.html?docId={doc_id}&itemId={item_id}"
@@ -210,7 +212,7 @@ def main() -> int:
     ap.add_argument("--all", action="store_true", help="持续翻页直到没有数据")
     ap.add_argument("--limit", type=int, default=0, help="最多新增条数(0=不限)")
     ap.add_argument("--sleep", type=float, default=0.8, help="每条间隔秒数，默认 0.8")
-    ap.add_argument("--out", default="/Users/FYP/Documents/WorkSpace/OntoRegGov/data/nfra_penalty_cases",
+    ap.add_argument("--out", default=str(ROOT / "data" / "nfra_penalty_cases"),
                     help="输出目录")
     args = ap.parse_args()
     return crawl(args)

@@ -22,7 +22,7 @@ import os
 
 NEO4J_URI = os.environ.get("WEKNORA_NEO4J_URI", "bolt://ekos-weknora-neo4j:7687")
 NEO4J_USER = os.environ.get("WEKNORA_NEO4J_USER", "neo4j")
-NEO4J_PASSWORD = os.environ.get("WEKNORA_NEO4J_PASSWORD", "weknora_p2_dev_only_change_me")
+NEO4J_PASSWORD = os.environ.get("WEKNORA_NEO4J_PASSWORD", "").strip()
 
 # 平台本体命名空间（与 ontology/neo4j_backend.py 的 DSEC_NS 对齐）
 _DSEC_PREFIX = "http://dsec"

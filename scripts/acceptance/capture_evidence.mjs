@@ -24,10 +24,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { fileURLToPath } from 'node:url';
 
 const BASE_URL = (process.env.BASE_URL || 'http://127.0.0.1:8420').replace(/\/$/, '');
-// 默认输出目录：产出文档唯一落位（03_平台工程/evidence/screenshots）
-const DEFAULT_OUT_DIR = '/Users/FYP/Documents/@西北人的成长/10-Projects/职业项目/数据安全管理平台/03_平台工程/evidence/screenshots';
+// 默认输出目录：仓库内相对路径（reports/evidence/screenshots）；可经环境变量 OUT_DIR 覆盖
+const DEFAULT_OUT_DIR = process.env.OUT_DIR || path.join(
+  path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'reports', 'evidence', 'screenshots');
 const OUT_DIR = process.env.OUT_DIR || DEFAULT_OUT_DIR;
 const ARGS = process.argv.slice(2);
 

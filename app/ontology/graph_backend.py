@@ -36,8 +36,8 @@ FUSEKI_ENDPOINT = os.environ.get("GRAPH_STORE_ENDPOINT", "http://127.0.0.1:3030"
 if os.path.exists("/.dockerenv") and "127.0.0.1" in FUSEKI_ENDPOINT:
     FUSEKI_ENDPOINT = FUSEKI_ENDPOINT.replace("127.0.0.1", "host.docker.internal")
 FUSEKI_DATASET = os.environ.get("GRAPH_STORE_DATASET", "ds").strip() or "ds"
-FUSEKI_USER = os.environ.get("GRAPH_STORE_USER", "admin").strip()
-FUSEKI_PASSWORD = os.environ.get("GRAPH_STORE_PASSWORD", "admin").strip()
+FUSEKI_USER = os.environ.get("GRAPH_STORE_USER", "").strip()
+FUSEKI_PASSWORD = os.environ.get("GRAPH_STORE_PASSWORD", "").strip()
 OXI_FILE = os.environ.get("GRAPH_STORE_FILE", "").strip()
 # P2：平台权威命名图（只增，EKOS 默认图 19,927 三元组只读不动）
 PLATFORM_GRAPH = os.environ.get("GRAPH_PLATFORM_GRAPH", "http://dsec/platform")

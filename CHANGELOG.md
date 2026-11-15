@@ -1,5 +1,29 @@
 # 变更记录
 
+## v1.20.0（2026-11-15，容器化 · 跨平台统一部署与密钥参数化）
+
+- **密钥与路径全量参数化**：移除仓库内全部明文口令 / 令牌 / API Key 与机器相关绝对路径，一律经环境变量注入；
+  未配置即安全默认（**零密钥可起服务**，能力自动降级，不 5xx）。涉及 `app/config.py`（`KB10_ROOT`）、
+  `app/ontology/graph_backend.py`、`app/ontology/neo4j_backend.py`、`app/services/{weknora_graph,
+  weknora_retriever,db_kb,openclaw_svc}.py`、`app/mcp_server/auth.py`（`MCP_ALLOWLIST_PATH`）、
+  `scripts/**`（12 个脚本：ETL / phase / kb / research / acceptance / 测试文件生成）。
+- **OpenClaw 配置模板化**：新增 `services/openclaw/openclaw.template.json`（仅含 `${VAR}` 占位符）、
+  `app/services/openclaw_config.py`（模板 + 环境变量渲染；令牌取环境变量 → 既有配置 → 随机生成一次落盘）、
+  `scripts/ops/render_openclaw_config.py`（CLI，支持 `--force`）；删除含明文密钥的
+  `services/openclaw/openclaw.json` 与 `openclaw.json.last-good`。
+- **容器化统一架构**：`deploy/Dockerfile` 基础版本经 `ARG` 参数化、构建期行尾归一（CRLF→LF）、内置 `HEALTHCHECK`、
+  镜像内不再烘焙任何连接串；`deploy/docker-compose.ontoreggov.yml` 单文件 profile 化（`demo` 自包含 / `full` 接底座 /
+  `openclaw` 智能体），全部变量 `${VAR:-默认}`；`deploy/docker-compose.fuseki.yml` 参数化，且与主编排共用
+  `COMPOSE_PROJECT_NAME`（同一默认网络，容器内可用服务名互访）；`.dockerignore` 排除密钥与 ~3GB 构建产物。
+- **跨平台一致性**：新增 `.gitattributes`（`*.sh` → LF、`*.bat/*.cmd/*.ps1` → CRLF、源码统一 LF、二进制 binary）；
+  `run.sh` 跨平台重写（python3/python 探测、Windows `Scripts/` 与 POSIX `bin/` 双布局、知识站点自动探测）；
+  `services/openclaw/start-gateway.bat` 去机器相关路径（`OPENCLAW_NODE_BIN` 优先）。
+- **配置与文档**：新增 `.env.example`（全量环境变量模板）、`deploy/kb_site/README.md`（挂载点说明）、
+  `deploy/README-deployment.md`（**架构图 + 部署方案 + 运维方案**）；README「快速开始」改为三步容器部署并链接该方案。
+- **本地自检**：21 个 Python 文件 `py_compile` 全通过；`node --check` 通过；OpenClaw 配置渲染冒烟通过
+  （合法 JSON、无未解析占位符）；两份 compose 文件 YAML 解析通过；仓库内明文密钥扫描无残留（仅 CHANGELOG 历史记录）。
+- 版本 `1.19.0` → `1.20.0`。
+
 ## v1.19.0（2026-11-07，合规自查 · 智能体自主取证架构）
 
 - **架构升级（需求驱动）**：按"用智能体就让它干智能体的活"原则，移除 v1.18.0 的程序化预处理层

@@ -15,7 +15,12 @@ from pathlib import Path
 WEKNORA_API = os.environ.get("WEKNORA_API_BASE", "http://127.0.0.1:18180").rstrip("/")
 TOKEN = os.environ.get("WEKNORA_TOKEN", "")  # 需为目标知识库所属租户的访问令牌
 KB_ID = os.environ.get("WEKNORA_KB_ID", "59ad56fe-6673-49af-9380-b7d11f194a0d")
-CONTENT_DIR = Path("/Users/FYP/Documents/@西北人的成长/20-Areas/信息安全/数据安全/10_知识库工程/content")
+# 项目根按文件位置推导（本文件位于 scripts/kb/）
+ROOT = Path(__file__).resolve().parents[2]
+# 10_知识库工程 为独立知识工程，默认取仓库同级目录；可用环境变量 KB10_ROOT 覆盖
+KB10_ROOT = Path(os.environ.get("KB10_ROOT") or (ROOT / ".." / "10_知识库工程")).resolve()
+# 知识库内容目录：优先环境变量 KB10_CONTENT_DIR，否则取 10_知识库工程/content
+CONTENT_DIR = Path(os.environ.get("KB10_CONTENT_DIR") or (KB10_ROOT / "content"))
 
 CATEGORY_PREFIX = {
     "terms": "术语",

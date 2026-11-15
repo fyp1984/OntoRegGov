@@ -6,9 +6,14 @@ set "OC_HOME=%~dp0"
 set "OPENCLAW_STATE_DIR=%OC_HOME%state"
 set "OPENCLAW_CONFIG_PATH=%OC_HOME%openclaw.json"
 
-set "NODE_EXE=C:\Users\fpcug\.openclaw\tools\cli-node\tools\node\node.exe"
-if not exist "%NODE_EXE%" set "NODE_EXE=D:\program\nodejs\node.exe"
-if not exist "%NODE_EXE%" set "NODE_EXE=node"
+rem 配置就绪：openclaw.json 缺失时由模板 + 环境变量渲染（密钥不入库）
+if not exist "%OC_HOME%openclaw.json" (
+  where python >nul 2>&1 && python "%~dp0..\..\scripts\ops\render_openclaw_config.py"
+)
+
+rem Node 运行时：环境变量 OPENCLAW_NODE_BIN 优先，其次 PATH 中的 node，最后兜底 node
+set "NODE_EXE=%OPENCLAW_NODE_BIN%"
+if not defined NODE_EXE set "NODE_EXE=node"
 
 "%NODE_EXE%" "%OC_HOME%openclaw.mjs" gateway run --bind loopback --port 18789 --allow-unconfigured
 set "RC=%errorlevel%"
