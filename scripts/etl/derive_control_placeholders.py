@@ -20,11 +20,16 @@ import os
 import re
 from datetime import datetime, timezone, timedelta
 from collections import Counter
+from pathlib import Path
 
-BASE = "/Users/FYP/Documents/WorkSpace/OntoRegGov"
+# 项目根按文件位置推导（本文件位于 scripts/etl/）；绝对路径经环境变量可覆盖，仓库内不写死机器路径
+ROOT = Path(__file__).resolve().parents[2]          # 仓库根
+BASE = str(ROOT)
 CHECKS_JSON = os.path.join(BASE, "data", "checks", "jg24-checks.json")
-KB10_JSON = "/Users/FYP/Documents/@西北人的成长/20-Areas/信息安全/数据安全/10_知识库工程/data/knowledge.json"
-CT_CODES_CSV = "/Users/FYP/Documents/@西北人的成长/20-Areas/信息安全/数据安全/10_知识库工程/data/control-codes.csv"
+# 10_知识库工程 为独立知识工程，默认取仓库同级目录；可用环境变量 KB10_ROOT 覆盖
+KB10_ROOT = Path(os.environ.get("KB10_ROOT") or (ROOT / ".." / "10_知识库工程")).resolve()
+KB10_JSON = str(KB10_ROOT / "data" / "knowledge.json")
+CT_CODES_CSV = str(KB10_ROOT / "data" / "control-codes.csv")
 OUTPUT_JSON = os.path.join(BASE, "data", "checks", "control-placeholders.json")
 
 

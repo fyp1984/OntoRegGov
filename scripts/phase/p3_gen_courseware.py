@@ -13,7 +13,8 @@ from pptx.util import Inches, Pt
 from pptx.dml.color import RGBColor
 from pptx.enum.text import PP_ALIGN
 
-DSN = "postgresql://test:test@127.0.0.1:15432/ekos_ds_kb"
+# 连接串经环境变量注入，仓库内不保留任何账号口令默认值
+DSN = os.environ.get("KB_PG_DSN", "").strip()
 OUT = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
                    "reports", "p3_deliverables")
 os.makedirs(OUT, exist_ok=True)
@@ -237,4 +238,6 @@ def build(d):
 
 
 if __name__ == "__main__":
+    if not DSN:
+        raise SystemExit("需设置环境变量 KB_PG_DSN")
     build(fetch())

@@ -12,9 +12,9 @@ BASE_SNAPSHOT_TTL = APP_DATA / "base-snapshot.ttl"
 EXPORT_DIR = APP_DATA
 
 # 底座只读投影来源（绝不写回；仅一次性读 ontology.yaml + knowledge.json）
-# 10_知识库工程 为独立知识工程，未随本工程迁移，此处用绝对路径（可用环境变量覆盖）
-KB_ROOT = Path(os.environ.get("KB10_ROOT",
-              "/Users/FYP/Documents/@西北人的成长/20-Areas/信息安全/数据安全/10_知识库工程"))
+# 10_知识库工程 为独立知识工程，未随本工程迁移。默认取仓库同级目录（跨平台可移植，无绝对路径），
+# 容器/服务器部署请用环境变量 KB10_ROOT 显式指向挂载后的知识工程根目录。
+KB_ROOT = Path(os.environ.get("KB10_ROOT") or (BASE_DIR.parent / "10_知识库工程"))
 KB_ONTOLOGY_YAML = KB_ROOT / "ontology" / "ontology.yaml"
 KB_KNOWLEDGE_JSON = KB_ROOT / "data" / "knowledge.json"
 
@@ -56,14 +56,12 @@ KB_READ_FROM = os.environ.get("KB_READ_FROM", "canonical").strip().lower() or "c
 # 线④ 实测：PG 投影（ekos-postgres 15432/ekos_ds_kb）健康、与 canonical 对账一致，故切默认 db。
 DB_READ_FROM = os.environ.get("DB_READ_FROM", "db").strip().lower() or "db"
 
-# v1.8.0 PostgreSQL 投影只读连接串（工作包 B：复用 OrbStack 既有 PG，不起新服务）。
-# 实测（v1.13.1 校正）：15432 宿主 = ekos-postgres(pgvector/pgvector:0.8.0-pg16-bookworm,
-#       用户/口令 test/test, PostgreSQL 16.10)；本平台独立库 = ekos_ds_kb。
-#       该宿主自带 pgvector 0.8.0（`vector` 扩展已装），资产层向量表 kb_embedding / law_chunk
-#       均已 100% 非空（344/344），语义向量路（db_kb.vector_search）已可用，无需再评估启用。
+# v1.8.0 PostgreSQL 投影只读连接串（工作包 B：复用既有 PG，不起新服务）。
+# 地址与凭据一律经环境变量 KB_PG_DSN 注入，仓库内不保留任何账号口令默认值；
+# 形如 postgresql://<user>:<password>@<host>:<port>/<db>
+# （宿主 PG 自带 pgvector 时，资产层语义向量路 db_kb.vector_search 自动可用）。
 # 库不可达时 db_kb.health()=False，DB_READ_FROM=db 自动降级回 canonical（docs/09 §4.3）。
-KB_PG_DSN = os.environ.get(
-    "KB_PG_DSN", "postgresql://test:test@127.0.0.1:15432/ekos_ds_kb").strip()
+KB_PG_DSN = os.environ.get("KB_PG_DSN", "").strip()
 
 # v1.8.0 REST:8420 产品化网关开关（docs/09 §4.1）：
 #   off（默认）= 单机演示裸跑，/api/* 不强制 Bearer（现状兼容）；

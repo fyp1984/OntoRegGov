@@ -1,0 +1,81 @@
+{
+  "agents": {
+    "defaults": {
+      "workspace": "${OPENCLAW_HOME}/workspace",
+      "model": "${OPENCLAW_MODEL}",
+      "systemAgent": {
+        "agentId": "default"
+      },
+      "authInheritance": {
+        "agentId": "default"
+      },
+      "heartbeat": {
+        "agentId": "default"
+      }
+    },
+    "ownership": "explicit",
+    "entries": {
+      "default": {
+        "name": "default",
+        "workspace": "${OPENCLAW_HOME}/workspace-default",
+        "agentDir": "${OPENCLAW_STATE_DIR}/agents/default/agent",
+        "identity": {
+          "name": "合规自查智能体（默认）"
+        }
+      },
+      "guest": {
+        "name": "guest",
+        "workspace": "${OPENCLAW_HOME}/workspace-guest",
+        "agentDir": "${OPENCLAW_STATE_DIR}/agents/guest/agent",
+        "identity": {
+          "name": "guest"
+        }
+      }
+    }
+  },
+  "models": {
+    "providers": {
+      "${OPENCLAW_PROVIDER}": {
+        "baseUrl": "${OPENCLAW_LLM_BASE_URL}",
+        "api": "openai-completions",
+        "apiKey": "${OPENCLAW_LLM_API_KEY}",
+        "models": [
+          {
+            "id": "${OPENCLAW_LLM_MODEL_ID}",
+            "name": "${OPENCLAW_LLM_MODEL_NAME}",
+            "input": [
+              "text",
+              "image"
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "gateway": {
+    "mode": "local",
+    "auth": {
+      "mode": "token",
+      "token": "${OPENCLAW_GATEWAY_TOKEN}"
+    },
+    "http": {
+      "endpoints": {
+        "chatCompletions": {
+          "enabled": true
+        }
+      }
+    }
+  },
+  "logging": {
+    "level": "${OPENCLAW_LOG_LEVEL}"
+  },
+  "talk": {
+    "agentId": "default"
+  },
+  "meta": {
+    "migrations": {
+      "modelPolicyAllowlist": true,
+      "utilityModelSeparation": true
+    }
+  }
+}

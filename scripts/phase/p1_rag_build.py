@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """P1 RAGFlow 法规原文库：聚合四文号 article_text + law_clause → markdown → 上传新数据集 → 解析。
 
-只读既有 EKOS 库，只写本次新建数据集 f589ba28...。用法：
+只读既有 EKOS 库，只写本次新建数据集（数据集 ID 经环境变量 RAGFLOW_DATASET_ID 注入）。用法：
   .venv/bin/python scripts/phase/p1_rag_build.py build      # 仅生成 markdown 到 reports/p1_rag/
   .venv/bin/python scripts/phase/p1_rag_build.py upload     # 上传+触发解析
   .venv/bin/python scripts/phase/p1_rag_build.py qa "问题"  # 带引用问答
 """
 import json
+import os
 import sys
 import time
 import urllib.parse
@@ -17,9 +18,10 @@ ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(ROOT))
 from app.config import BASE_DIR  # noqa: E402
 
-RAG_BASE = "http://127.0.0.1:19380"
-TOKEN = "ragflow-6gBYDi-FMuZ7zY7sqdDfG-IkSNCILhbDurLJ0qQ5k54"
-DATASET_ID = "f589ba28ce6d11f18c605b5ce040edea"
+# RAGFlow 端点/令牌/数据集：一律经环境变量注入，仓库内不保留任何硬编码令牌或数据集 ID
+RAG_BASE = os.environ.get("RAGFLOW_BASE", "http://127.0.0.1:19380").rstrip("/")
+TOKEN = os.environ.get("RAGFLOW_API_TOKEN", "").strip()
+DATASET_ID = os.environ.get("RAGFLOW_DATASET_ID", "")
 OUT = ROOT / "reports" / "p1_rag"
 DOCS = {"jg24": "金规24号（银行保险机构数据安全管理办法）",
         "jg93": "93号文（银保数据安全专项整治自查表）",
@@ -96,6 +98,14 @@ def _req(method, path, body=None, headers=None, raw=None, ctype=None):
         return json.loads(resp.read().decode())
 
 
+def _require_rag_env():
+    """校验 RAGFlow 令牌与数据集 ID 已配置；缺失即明确报错并以非 0 退出，避免静默跑错。"""
+    if not TOKEN or not DATASET_ID:
+        print("[错误] 未配置 RAGFlow 令牌/数据集：请设置环境变量 "
+              "RAGFLOW_API_TOKEN 与 RAGFLOW_DATASET_ID（密钥不入库）")
+        sys.exit(2)
+
+
 def _existing_docs() -> dict:
     st = _req("GET", f"/api/v1/datasets/{DATASET_ID}/documents?page=1&page_size=50")
     data = st.get("data")
@@ -104,6 +114,7 @@ def _existing_docs() -> dict:
 
 
 def upload():
+    _require_rag_env()
     manifest = build_markdown()
     existing = _existing_docs()
     doc_ids = list(existing.values())  # 保留已有文档 id，避免重复上传
@@ -146,6 +157,7 @@ def upload():
 
 
 def qa(question: str):
+    _require_rag_env()
     res = _req("POST", "/api/v1/retrieval", body={
         "question": question, "dataset_ids": [DATASET_ID],
         "page": 1, "page_size": 5, "similarity_threshold": 0.15})

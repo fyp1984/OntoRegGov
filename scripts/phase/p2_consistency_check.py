@@ -8,7 +8,7 @@
   双向一致（库有图有、库无图无）；
 - 嵌入：kb_embedding 344 全有向量；law_chunk 344 全嵌入（jg24 116/jg93 140/pboc3 56/jf8 32）；
 - 10_知识库工程 498 实体被 kb_entity.slug 全覆盖；
-- RAGFlow 既有库只读快照：bf1312… 6 docs/35 chunks 不变；
+- RAGFlow 既有库只读快照（数据集 ID 经环境变量 RAGFLOW_LEGACY_DATASET_ID 注入）：6 docs/35 chunks 不变；
 - EKOS 不变量：check_element=470/control=115/law_clause=57/doc93_selfcheck_item=139/
   doc93_report_entry=0；Fuseki 默认图 19,927 不降。
 
@@ -19,18 +19,30 @@ import os
 import sqlite3
 import sys
 import urllib.request
+from pathlib import Path
 
 import psycopg2
 
 BASE = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-DSN = "postgresql://test:test@127.0.0.1:15432/ekos_ds_kb"
-FUSEKI = "http://127.0.0.1:3030/ds"
+ROOT = Path(BASE)
+# PostgreSQL 投影：连接串一律经环境变量注入，仓库内不保留账号口令；缺失即提示并退出
+DSN = os.environ.get("KB_PG_DSN", "").strip()
+if not DSN:
+    print("[错误] 未配置 KB_PG_DSN：请设置环境变量 KB_PG_DSN（形如 postgresql://user:password@host:port/db）")
+    sys.exit(2)
+# Fuseki：端点/数据集经环境变量注入，账号口令默认空（见 fuseki_query 鉴权分支）
+FUSEKI = (os.environ.get("GRAPH_STORE_ENDPOINT", "http://127.0.0.1:3030").rstrip("/")
+          + "/" + os.environ.get("GRAPH_STORE_DATASET", "ds"))
+FUSEKI_USER = os.environ.get("GRAPH_STORE_USER", "")
+FUSEKI_PASSWORD = os.environ.get("GRAPH_STORE_PASSWORD", "")
 PLATFORM_GRAPH = "http://dsec/platform"
 REL_BASE = "http://dsec.local/platform/rel#"
-RAGFLOW = "http://127.0.0.1:19380"
-RAG_TOKEN = "ragflow-6gBYDi-FMuZ7zY7sqdDfG-IkSNCILhbDurLJ0qQ5k54"
-OLD_RAGFLOW = "bf1312d28b3d11f1847f73b364e50e19"
-KB10 = "/Users/FYP/Documents/@西北人的成长/20-Areas/信息安全/数据安全/10_知识库工程"
+RAGFLOW = os.environ.get("RAGFLOW_BASE", "http://127.0.0.1:19380").rstrip("/")
+RAG_TOKEN = os.environ.get("RAGFLOW_API_TOKEN", "").strip()
+# 既有 RAGFlow 库只读快照 ID：经环境变量注入，默认空（未配置则跳过该项对账，不判 FAIL）
+OLD_RAGFLOW = os.environ.get("RAGFLOW_LEGACY_DATASET_ID", "").strip()
+# 10_知识库工程 为独立知识工程，默认取仓库同级目录；可用环境变量 KB10_ROOT 覆盖
+KB10 = str(Path(os.environ.get("KB10_ROOT") or (ROOT / ".." / "10_知识库工程")).resolve())
 DOC_EXPECT = {"jg24": 116, "jg93": 140, "pboc3": 56, "jf8": 32}
 FAILS = []
 RESULTS = []
@@ -52,8 +64,13 @@ def fuseki_query(sparql: str, auth=False):
     hdrs = {"Accept": "application/sparql-results+json",
             "Content-Type": "application/sparql-query"}
     if auth:
+        if not FUSEKI_USER or not FUSEKI_PASSWORD:
+            print("[错误] 需 Fuseki 鉴权但未配置账号口令：请设置环境变量 "
+                  "GRAPH_STORE_USER / GRAPH_STORE_PASSWORD（密钥不入库）")
+            sys.exit(2)
         import base64
-        hdrs["Authorization"] = "Basic " + base64.b64encode(b"admin:admin").decode()
+        hdrs["Authorization"] = "Basic " + base64.b64encode(
+            f"{FUSEKI_USER}:{FUSEKI_PASSWORD}".encode()).decode()
     req = urllib.request.Request(FUSEKI + "/query", data=body, method="POST", headers=hdrs)
     with urllib.request.urlopen(req, timeout=30) as r:
         return json.loads(r.read().decode())["results"]["bindings"]
@@ -188,6 +205,10 @@ def check_kb10():
 
 # ---------------------------------------------------------------- 6. RAGFlow 旧库只读
 def check_ragflow():
+    if not OLD_RAGFLOW:
+        print("[skip] RAGFlow 既有库只读快照：未配置 RAGFLOW_LEGACY_DATASET_ID，跳过该项对账")
+        check("RAGFlow 既有库只读快照 6docs/35chunks", True, "skipped: 未配置")
+        return
     req = urllib.request.Request(RAGFLOW + "/api/v1/datasets?page=1&page_size=20",
                                  headers={"Authorization": "Bearer " + RAG_TOKEN})
     data = json.loads(urllib.request.urlopen(req, timeout=15).read().decode())

@@ -20,7 +20,7 @@ import json
 _WK_PG_HOST = os.getenv("WEKNORA_PG_HOST", "ekos-weknora-postgres")
 _WK_PG_PORT = os.getenv("WEKNORA_PG_PORT", "5432")
 _WK_PG_USER = os.getenv("WEKNORA_PG_USER", "weknora")
-_WK_PG_PASSWORD = os.getenv("WEKNORA_PG_PASSWORD", "weknora_p2_dev_only_change_me")
+_WK_PG_PASSWORD = os.getenv("WEKNORA_PG_PASSWORD", "")
 _WK_PG_DB = os.getenv("WEKNORA_PG_DB", "weknora")
 
 # Ollama embedding 服务（和 WeKnora 用同一个）

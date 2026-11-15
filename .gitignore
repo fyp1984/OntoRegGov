@@ -49,3 +49,10 @@ services/openclaw/pnpm-workspace.yaml
 # 本地代理/工具数据，不入库
 .workbuddy/
 .tooling/
+
+# v1.20.0 环境变量与 OpenClaw 运行配置：含密钥，一律不入库
+# （openclaw.json 由 services/openclaw/openclaw.template.json + 环境变量渲染生成）
+.env
+.env.local
+services/openclaw/openclaw.json
+!services/openclaw/openclaw.template.json

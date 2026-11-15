@@ -1,17 +1,33 @@
-# v1.4.0 图存储后端 · Fuseki 容器
-# 用法：docker compose -f deploy/docker-compose.fuseki.yml up -d
-# 启动后：平台侧 GRAPH_STORE_BACKEND=fuseki GRAPH_STORE_ENDPOINT=http://127.0.0.1:3030
-# 验证：curl "http://127.0.0.1:3030/$/ping"   （stain 镜像默认数据集为 /ds）
+# v1.4.0 图存储后端 · Fuseki 容器（跨平台参数化）
+#
+# 用法：
+#   # 在 .env 里设置 GRAPH_STORE_PASSWORD（必须），以及需要的 GRAPH_STORE_DATASET
+#   docker compose -f deploy/docker-compose.fuseki.yml up -d
+#
+# 启动后平台侧（复用同一 .env）：
+#   GRAPH_STORE_BACKEND=fuseki GRAPH_STORE_ENDPOINT=http://<host>:<port>
+#   GRAPH_STORE_USER=admin     GRAPH_STORE_PASSWORD=<与 ADMIN_PASSWORD 一致>
+# 容器形态下平台侧端点用服务名：GRAPH_STORE_ENDPOINT=http://fuseki:3030
+#
+# 验证：curl "http://127.0.0.1:${FUSEKI_PORT:-3030}/$/ping"   （stain 镜像默认数据集 /ds）
+#
+# 注意：
+#   · ADMIN_PASSWORD 未设置时镜像会以自身默认口令启动——仅限本机演示，生产务必在 .env 覆盖；
+#   · fuseki 需与平台处于同一 docker 网络时才能用服务名互访：本文件与
+#     docker-compose.ontoreggov.yml 共用同一 project name（见下方 name 段），
+#     故两者默认网络一致，平台侧可直接用 GRAPH_STORE_ENDPOINT=http://fuseki:3030。
+name: ${COMPOSE_PROJECT_NAME:-ontoreggov}
+
 services:
   fuseki:
-    image: stain/jena-fuseki:latest
+    image: ${FUSEKI_IMAGE:-stain/jena-fuseki:latest}
     container_name: ontoreggov-fuseki
     ports:
-      - "3030:3030"
+      - "${FUSEKI_PORT:-3030}:3030"
     environment:
-      ADMIN_PASSWORD: admin
+      ADMIN_PASSWORD: ${GRAPH_STORE_PASSWORD:-}
       TDB: "2"
-      FUSEKI_DATASET_DS: ds
+      FUSEKI_DATASET_DS: ${GRAPH_STORE_DATASET:-ds}
     volumes:
       - fuseki-data:/fuseki
     restart: unless-stopped

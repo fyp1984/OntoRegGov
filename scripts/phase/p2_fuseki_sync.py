@@ -12,16 +12,24 @@
 """
 import base64
 import json
+import os
 import sys
 import urllib.request
 
 import psycopg2
 
-DSN = "postgresql://test:test@127.0.0.1:15432/ekos_ds_kb"
-FUSEKI = "http://127.0.0.1:3030/ds"
+# PostgreSQL 投影：连接串一律经环境变量注入，仓库内不保留账号口令；缺失即提示并退出
+DSN = os.environ.get("KB_PG_DSN", "").strip()
+if not DSN:
+    print("[错误] 未配置 KB_PG_DSN：请设置环境变量 KB_PG_DSN（形如 postgresql://user:password@host:port/db）")
+    sys.exit(2)
+# Fuseki 端点/数据集经环境变量注入
+FUSEKI = (os.environ.get("GRAPH_STORE_ENDPOINT", "http://127.0.0.1:3030").rstrip("/")
+          + "/" + os.environ.get("GRAPH_STORE_DATASET", "ds"))
 # Fuseki /update 需 admin Basic（shiro /*/update/**=authcBasic,user[admin]；/query 匿名只读）
-FUSEKI_USER = "admin"
-FUSEKI_PASSWORD = "admin"
+# 账号口令一律经环境变量注入，仓库内不保留默认值；仅在真正写入(update)时校验缺失并退出
+FUSEKI_USER = os.environ.get("GRAPH_STORE_USER", "")
+FUSEKI_PASSWORD = os.environ.get("GRAPH_STORE_PASSWORD", "")
 PLATFORM_GRAPH = "http://dsec/platform"
 PNS = "http://dsec.local/platform/"
 REL_BASE = PNS + "rel#"
@@ -34,6 +42,10 @@ def sparql_post(kind: str, query: str, accept="application/sparql-results+json")
     hdrs = {"Content-Type": "application/sparql-update" if kind == "update"
             else "application/sparql-query", "Accept": accept}
     if kind == "update":
+        if not FUSEKI_USER or not FUSEKI_PASSWORD:
+            print("[错误] 未配置 Fuseki 账号口令：请设置环境变量 "
+                  "GRAPH_STORE_USER / GRAPH_STORE_PASSWORD（密钥不入库）")
+            sys.exit(2)
         tok = base64.b64encode(f"{FUSEKI_USER}:{FUSEKI_PASSWORD}".encode()).decode()
         hdrs["Authorization"] = f"Basic {tok}"
     req = urllib.request.Request(url, data=query.encode("utf-8"),

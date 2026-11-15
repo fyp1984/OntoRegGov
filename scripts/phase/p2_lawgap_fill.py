@@ -6,12 +6,14 @@
 只新增 law_chunk 行，不改既有行。
 """
 import json
+import os
 import urllib.request
 
 import psycopg2
 
-DSN = "postgresql://test:test@127.0.0.1:15432/ekos_ds_kb"
-TEI = "http://127.0.0.1:18002/embed"
+# 连接串与嵌入端点一律经环境变量注入，仓库内不保留任何账号口令默认值
+DSN = os.environ.get("KB_PG_DSN", "").strip()
+TEI = os.environ.get("TEI_EMBED_URL", "").strip()
 # 缺口条目 -> 被引条目
 INHERIT = {"2.4": "1.7", "3.2": "3.1"}
 DOC_LABEL = "金规24号 银行保险机构数据安全管理办法"
@@ -57,4 +59,6 @@ def main():
 
 
 if __name__ == "__main__":
+    if not DSN or not TEI:
+        raise SystemExit("需设置环境变量 KB_PG_DSN 与 TEI_EMBED_URL")
     main()

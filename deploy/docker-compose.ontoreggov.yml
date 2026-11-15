@@ -1,54 +1,117 @@
-# 金融行业数据安全知识库和智能体平台 — 统一容器编排（单文件 + profile）
+# =============================================================================
+# 金融行业数据安全知识库和智能体平台 — 统一容器编排（单文件 + profile，跨平台）
 #
 # 设计原则：
-#   1. 单文件收敛：一个 compose 覆盖两种运行形态，由 profile 选择，避免双份编排漂移；
-#   2. 公共段复用：镜像构建、代码/数据卷、知识库只读卷、健康检查、时区经 YAML 锚点共享；
-#   3. 自包含优先：demo 形态不依赖任何外部网络 / 中间件，仅本地构建 + 挂载；
-#      full 形态接入本机 OrbStack 既有 WeKnora 底座网络（compose_weknora-net）。
+#   1. 单文件收敛：一个 compose 覆盖全部运行形态，由 profile 选择，避免多份编排漂移；
+#   2. 公共段复用：镜像构建、端口、卷、环境变量、健康检查经 YAML 锚点共享；
+#   3. 自包含优先：demo 形态零外部依赖（SQLite + 进程内图后端）；
+#      full 形态才接入既有底座网络（WeKnora / Neo4j / PostgreSQL）；
+#   4. 参数化彻底：宿主绝对路径只允许出现在 .env（KB10_SITE_HOST / KB10_ROOT），
+#      口令、令牌、API Key 一律 ${VAR} 注入，本文件不出现任何明文密钥；
+#      未设置时给保守默认值，因此**零密钥即可 `up` 起服务**（能力自动降级，不 5xx）。
 #
-# 两种运行形态（在仓库根目录执行）：
-#   · demo —— 独立演示形态（推荐；零外部依赖，使用独立演示库）
-#       docker compose -f deploy/docker-compose.ontoreggov.yml --profile demo up -d --build
-#       → http://127.0.0.1:8420/
-#   · full —— 完整形态（接入本机既有底座：WeKnora / Neo4j bolt）
-#       docker compose -f deploy/docker-compose.ontoreggov.yml --profile full up -d --build
+# 快速开始（仓库根目录执行；Windows / macOS / Linux 命令一致）：
+#   cp .env.example .env
+#   docker compose -f deploy/docker-compose.ontoreggov.yml --profile demo up -d --build
+#   → http://127.0.0.1:8420/
 #
-# 说明：原 deploy/docker-compose.demo.yml 已退役，统一由本文件 --profile demo 承担。
+# profile 一览：
+#   demo      独立演示形态（SQLite + 进程内图后端；零外部依赖）      ← 默认推荐
+#   full      完整形态（接入既有 PostgreSQL / WeKnora / Neo4j 底座）
+#   openclaw  追加 OpenClaw 合规自查智能体网关（需先具备其构建产物）
+#
+# 叠加示例：
+#   # 演示形态 + 自带 Fuseki 图存储（另一个编排文件）
+#   docker compose -f deploy/docker-compose.ontoreggov.yml --profile demo up -d --build
+#   docker compose -f deploy/docker-compose.fuseki.yml up -d
+#   # 两份编排共用同一 project name（见下方 name 段）→ 共用同一默认网络，
+#   # 故容器内可用服务名互访：GRAPH_STORE_ENDPOINT=http://fuseki:3030
+# =============================================================================
 
-x-app-common: &app-common
+# 固定 compose 项目名：保证「从任意目录启动」「多份编排文件叠加」时网络与容器名稳定一致
+name: ${COMPOSE_PROJECT_NAME:-ontoreggov}
+
+# ——— 构建段：镜像名与 Python 版本可经 .env 覆盖 ———
+x-app-build: &app-build
   build:
     context: ..
     dockerfile: deploy/Dockerfile
-  ports:
-    - "8420:8420"
-  volumes:
-    # 代码热挂载（含新增 app/demo 演示包与前端静态资源）：改前端即生效，改后端需重启容器
-    - ../app:/app/app
-    - ../app/data:/app/app/data
-    # 知识库静态站（只读）：知识阅览/Wiki/图谱视图的数据源。
-    # 由 10_知识库工程/site 提供（data/knowledge-data.js）；路径相对本 compose 文件（deploy/）解析。
-    # 缺失时知识视图走降级链并提示"来源不可用"，不阻塞其它模块与演示主链路。
-    - ../../../@西北人的成长/20-Areas/信息安全/数据安全/10_知识库工程/site:/app/kb_site:ro
-  # 公共环境变量（两种形态一致；差异项由各服务在下方追加/覆盖）
-  environment: &app-env
-    SKIP_SEED: "1"
-    PORT: "8420"
-    GRAPH_STORE_BACKEND: memory
-    KB_READ_FROM: canonical
-    KB10_SITE: /app/kb_site
-    # 时区与宿主机（+8）保持一致，避免演示时间戳出现 UTC/+8 混排
-    TZ: Asia/Shanghai
-  # 统一健康检查：以 /api/health 200 为就绪判据（端点已豁免网关鉴权）
-  healthcheck:
-    test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8420/api/health',timeout=3).status==200 else 1)\""]
-    interval: 30s
-    timeout: 5s
-    retries: 3
-    start_period: 20s
+    args:
+      PYTHON_VERSION: ${PYTHON_VERSION:-3.13}
+  image: ${APP_IMAGE:-ontoreggov-app:local}
+
+x-app-ports: &app-ports
+  - "${APP_PORT:-8420}:8420"
+
+x-app-volumes: &app-volumes
+  # 代码热挂载（改前端即时生效；改后端需 docker restart ontoreggov-demo）
+  - ../app:/app/app
+  # 运行态数据（SQLite / 上传 / 快照）持久化到宿主
+  - ../app/data:/app/app/data
+  # 知识库静态站（只读）：宿主路径经 .env 的 KB10_SITE_HOST 指定，默认 deploy/kb_site
+  # 缺失时知识视图走降级链提示"来源不可用"，不阻塞其它模块与主链路
+  - ${KB10_SITE_HOST:-./kb_site}:/app/kb_site:ro
+
+# ——— 公共环境变量：全部来自 .env / 宿主环境，未设置即安全默认 ———
+x-app-env: &app-env
+  TZ: ${TZ:-Asia/Shanghai}
+  PORT: "8420"
+  SKIP_SEED: ${SKIP_SEED:-1}
+  KB_READ_FROM: ${KB_READ_FROM:-canonical}
+  KB10_SITE: /app/kb_site
+  KB10_ROOT: ${KB10_ROOT:-}
+  # 关系型投影库（只读）；未配置时 db_kb.health()=False，自动回落 canonical/SQLite
+  KB_PG_DSN: ${KB_PG_DSN:-}
+  # 图存储（未显式配置端点时不探测宿主，避免容器内误连）
+  GRAPH_STORE_ENDPOINT: ${GRAPH_STORE_ENDPOINT:-}
+  GRAPH_STORE_DATASET: ${GRAPH_STORE_DATASET:-ds}
+  GRAPH_STORE_USER: ${GRAPH_STORE_USER:-}
+  GRAPH_STORE_PASSWORD: ${GRAPH_STORE_PASSWORD:-}
+  # LLM 抽取（留空自动降级为确定性规则抽取）
+  OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
+  OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+  OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
+  # 向量检索与知识库底座（可选）
+  TEI_EMBED_URL: ${TEI_EMBED_URL:-}
+  RAGFLOW_BASE: ${RAGFLOW_BASE:-}
+  RAGFLOW_API_TOKEN: ${RAGFLOW_API_TOKEN:-}
+  RAGFLOW_DATASET_ID: ${RAGFLOW_DATASET_ID:-}
+  WEKNORA_API_BASE: ${WEKNORA_API_BASE:-}
+  WEKNORA_API_TOKEN: ${WEKNORA_API_TOKEN:-}
+  WEKNORA_KB_ID: ${WEKNORA_KB_ID:-}
+  WEKNORA_PG_HOST: ${WEKNORA_PG_HOST:-}
+  WEKNORA_PG_PORT: ${WEKNORA_PG_PORT:-5432}
+  WEKNORA_PG_USER: ${WEKNORA_PG_USER:-}
+  WEKNORA_PG_PASSWORD: ${WEKNORA_PG_PASSWORD:-}
+  WEKNORA_PG_DB: ${WEKNORA_PG_DB:-}
+  WEKNORA_NEO4J_URI: ${WEKNORA_NEO4J_URI:-}
+  WEKNORA_NEO4J_USER: ${WEKNORA_NEO4J_USER:-}
+  WEKNORA_NEO4J_PASSWORD: ${WEKNORA_NEO4J_PASSWORD:-}
+  # OpenClaw 智能体网关（容器内指向服务名，令牌经 .env 注入）
+  OPENCLAW_GATEWAY_URL: ${OPENCLAW_GATEWAY_URL:-}
+  OPENCLAW_GATEWAY_PORT: ${OPENCLAW_GATEWAY_PORT:-18789}
+  OPENCLAW_GATEWAY_TOKEN: ${OPENCLAW_GATEWAY_TOKEN:-}
+  # 网关鉴权（REST /api 与 MCP 共用同一把钥匙板）
+  GATEWAY_AUTH_ENABLED: ${GATEWAY_AUTH_ENABLED:-off}
+  MCP_ALLOWLIST_PATH: ${MCP_ALLOWLIST_PATH:-}
+
+x-app-healthcheck: &app-healthcheck
+  test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8420/api/health',timeout=3).status==200 else 1)\""]
+  interval: 30s
+  timeout: 5s
+  retries: 3
+  start_period: 20s
+
+x-app-common: &app-common
+  <<: *app-build
+  ports: *app-ports
+  volumes: *app-volumes
+  environment: *app-env
+  healthcheck: *app-healthcheck
   restart: unless-stopped
 
 services:
-  # ——— 形态一：独立 Demo（自包含、零外部依赖） ———
+  # ——— 形态一：独立 Demo（自包含、零外部依赖）———
   ontoreggov-demo:
     <<: *app-common
     container_name: ontoreggov-demo
@@ -56,33 +119,59 @@ services:
     environment:
       <<: *app-env
       # 演示形态使用独立 SQLite 演示库，不接外部中间件
-      DB_READ_FROM: sqlite
+      DB_READ_FROM: ${DB_READ_FROM:-sqlite}
+      # 无 Fuseki 时走进程内 memory 图后端（自包含）；需要真图存储见文件头叠加示例
+      GRAPH_FORCE_MEMORY: ${GRAPH_FORCE_MEMORY:-1}
       ONTOREG_DEMO: "1"
 
-  # ——— 形态二：完整形态（接入本机 OrbStack 既有底座） ———
+  # ——— 形态二：完整形态（接入既有 PostgreSQL / WeKnora / Neo4j 底座）———
   ontoreggov-app:
     <<: *app-common
-    image: ontoreggov-app:1.19.0
     container_name: ontoreggov-app
     profiles: ["full"]
     environment:
       <<: *app-env
       # 完整形态读源：db（PG 投影）+ canonical（权威本体），库不可达自动回落
-      DB_READ_FROM: db
-      # EKOS / WeKnora 底座对接
-      WEKNORA_API_BASE: http://ekos-weknora:8080
-      WEKNORA_API_TOKEN: ${WEKNORA_API_TOKEN:-}
-      # 统一知识库（数据安全统一知识库）
-      WEKNORA_KB_ID: 59ad56fe-6673-49af-9380-b7d11f194a0d
-      WEKNORA_NEO4J_URI: bolt://ekos-weknora-neo4j:7687
-      WEKNORA_NEO4J_USER: neo4j
-      WEKNORA_NEO4J_PASSWORD: weknora_p2_dev_only_change_me
+      DB_READ_FROM: ${DB_READ_FROM:-db}
+      # full 形态默认走 Fuseki 图权威（未显式配置时指向 deploy/docker-compose.fuseki.yml 的服务）
+      GRAPH_FORCE_MEMORY: ${GRAPH_FORCE_MEMORY:-}
+      GRAPH_STORE_ENDPOINT: ${GRAPH_STORE_ENDPOINT:-http://fuseki:3030}
     networks:
       - default
-      - weknora-net
+      - ekos-net
+
+  # ——— 附加：OpenClaw 合规自查智能体网关（可选）———
+  # 前置条件：services/openclaw/ 下需已具备构建产物（openclaw.mjs + node_modules，见 README
+  # 「OpenClaw 智能体服务」节）；配置由模板 + 环境变量生成，密钥不入库。
+  # 启用后请在 .env 设置 OPENCLAW_GATEWAY_URL=http://openclaw-gateway:18789
+  openclaw-gateway:
+    image: ${OPENCLAW_IMAGE:-node:22-alpine}
+    container_name: ontoreggov-openclaw
+    profiles: ["openclaw"]
+    working_dir: /srv/openclaw
+    volumes:
+      - ../services/openclaw:/srv/openclaw
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+      OPENCLAW_HOME: /srv/openclaw
+      OPENCLAW_STATE_DIR: /srv/openclaw/state
+      OPENCLAW_CONFIG_PATH: /srv/openclaw/openclaw.json
+      OPENCLAW_GATEWAY_TOKEN: ${OPENCLAW_GATEWAY_TOKEN:-}
+      OPENCLAW_LLM_BASE_URL: ${OPENCLAW_LLM_BASE_URL:-}
+      OPENCLAW_LLM_API_KEY: ${OPENCLAW_LLM_API_KEY:-}
+      OPENCLAW_PROVIDER: ${OPENCLAW_PROVIDER:-qwen}
+      OPENCLAW_LLM_MODEL_ID: ${OPENCLAW_LLM_MODEL_ID:-qwen3.8-flash}
+      OPENCLAW_LLM_MODEL_NAME: ${OPENCLAW_LLM_MODEL_NAME:-Qwen3.8 Flash}
+      OPENCLAW_LOG_LEVEL: ${OPENCLAW_LOG_LEVEL:-info}
+    ports:
+      - "${OPENCLAW_GATEWAY_PORT:-18789}:18789"
+    command: ["node", "/srv/openclaw/openclaw.mjs", "gateway", "run",
+              "--bind", "0.0.0.0", "--port", "18789", "--allow-unconfigured"]
+    restart: unless-stopped
 
 networks:
-  # 复用 WeKnora compose project 创建的隔离网络（外部网络，不在本 compose 内创建）
-  weknora-net:
+  # 复用既有底座（WeKnora 等）compose project 创建的隔离网络；仅 full 形态引用，
+  # 因此 demo / openclaw 形态不要求该网络存在。网络名可经 EKOS_NETWORK 覆盖。
+  ekos-net:
     external: true
-    name: compose_weknora-net
+    name: ${EKOS_NETWORK:-compose_weknora-net}
