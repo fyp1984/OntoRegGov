@@ -19,12 +19,14 @@ else
   PY="${PY:-python}"
 fi
 
-# 知识库静态站自动探测（加性改动）：KB10_SITE 未显式设置时，按 KB10_ROOT → 仓库同级目录 → 仓库内
-# deploy/kb_site 依次探测；命中即导出，保证一键启动时知识库视图不降级；
+# 知识库静态站自动探测：KB10_SITE 未显式设置时，优先用仓库内唯一正本 app/web/static/kb，
+# 再依次探测 KB10_ROOT → 仓库同级 10_知识库工程；命中即导出，保证知识库视图不降级；
 # 未命中则保持原有降级行为（不阻塞启动）。
+# 治理说明：唯一正本随仓库入库（app/web/static/kb/data/knowledge-data.js），
+# 不再依赖文档树中的知识工程 site 产物（那份已归档）。
 if [ -z "${KB10_SITE:-}" ]; then
   _KB_SITE_FOUND=""
-  for _cand in "${KB10_ROOT:-}" "${ROOT}/../10_知识库工程" "${ROOT}/deploy/kb_site"; do
+  for _cand in "${ROOT}/app/web/static/kb" "${KB10_ROOT:-}" "${ROOT}/../10_知识库工程"; do
     if [ -z "$_cand" ]; then
       continue
     fi

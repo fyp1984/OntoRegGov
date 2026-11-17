@@ -36,7 +36,7 @@ SOURCES = ("weknora", "canonical", "db", "sqlite")
 # 与上面 SOURCES 的区别：SOURCES 是底层数据源健康枚举，这里是用户可选择的知识库来源。
 KB_SOURCE_CHOICES = (
     ("static", "本地静态知识库页面",
-     "读取随平台部署的静态知识库快照（10_知识库工程 site 构建产物）"),
+     "读取随平台部署的工程内静态知识快照（app/web/static/kb/data）"),
     ("weknora", "知识库平台（实时）",
      "直连知识库平台读取最新内容（需部署期已接入平台底座）"),
     ("auto", "自动（实时优先，逐级降级）",
