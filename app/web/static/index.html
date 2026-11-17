@@ -135,6 +135,22 @@
   </section>
 
   <section id="settings" class="view hidden">
+    <div class="card"><h3>知识库来源</h3>
+      <p class="muted">选择知识库页面的取数来源；默认使用<strong>本地静态知识库页面</strong>。所选来源不可达时自动逐级降级，不会中断页面。</p>
+      <div class="form-narrow">
+        <label>取数来源</label>
+        <select id="kb_source_sel"></select>
+        <div class="row" style="margin-top:12px">
+          <button onclick="kbSourceSave()">保存</button>
+          <span id="kb_source_status" class="muted"></span>
+        </div>
+      </div>
+      <div style="margin-top:14px">
+        <label class="muted" style="display:block;margin-bottom:6px">底层数据源状态</label>
+        <div id="src_status" class="muted">加载中…</div>
+      </div>
+    </div>
+
     <div class="card"><h3>可引用的知识库（多选）</h3>
       <p class="muted">勾选后，知识库页面与检索仅引用所选知识库；不勾选则使用默认知识库。</p>
       <div id="kb_pick" class="pick-list"></div>
@@ -160,10 +176,6 @@
         </div>
         <div id="llm_status" class="muted" style="margin-top:10px"></div>
       </div>
-    </div>
-
-    <div class="card"><h3>取数来源状态</h3>
-      <div id="src_status" class="muted">加载中…</div>
     </div>
 
     <div class="card"><h3>数据保存策略</h3>
@@ -200,9 +212,9 @@
   <section id="frame" class="view hidden"><div id="frame_root"></div></section>
 </main>
 </div>
-<script src="/kb_site.js?v=20261114b"></script>
-<script src="/app.js?v=20261114a"></script>
-<script src="/demo_common.js?v=20261114d"></script>
+<script src="/kb_site.js?v=20261117a"></script>
+<script src="/app.js?v=20261117a"></script>
+<script src="/demo_common.js?v=20261117a"></script>
 <script src="/demo_console.js?v=20261114d"></script>
 <script src="/demo_pipeline.js?v=20261114e"></script>
 <script src="/demo_selfcheck.js?v=20261114f"></script>

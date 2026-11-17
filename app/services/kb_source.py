@@ -32,6 +32,30 @@ from ..db import db
 
 SOURCES = ("weknora", "canonical", "db", "sqlite")
 
+# 「知识库来源」可选项（设置模块配置项，v1.21.0）：决定知识契约（知识库页面）优先从哪取数。
+# 与上面 SOURCES 的区别：SOURCES 是底层数据源健康枚举，这里是用户可选择的知识库来源。
+KB_SOURCE_CHOICES = (
+    ("static", "本地静态知识库页面",
+     "读取随平台部署的静态知识库快照（10_知识库工程 site 构建产物）"),
+    ("weknora", "知识库平台（实时）",
+     "直连知识库平台读取最新内容（需部署期已接入平台底座）"),
+    ("auto", "自动（实时优先，逐级降级）",
+     "知识库平台 → 本地静态 → 来源不可用"),
+)
+KB_SOURCE_DEFAULT = "static"
+_KB_SOURCE_TYPES = tuple(v for v, _, _ in KB_SOURCE_CHOICES)
+
+
+def kb_source_pref() -> str:
+    """读取「知识库来源」配置（UI 优先；未配置=默认本地静态页面）。异常回落默认。"""
+    try:
+        from .. import settings_store
+        v = (settings_store.get_kb_source() or "").strip().lower()
+    except Exception:  # noqa: BLE001 — 设置库不可读时按默认来源
+        v = ""
+    return v if v in _KB_SOURCE_TYPES else KB_SOURCE_DEFAULT
+
+
 # ---------------- 统一形状 + 缓存（30s TTL + 主动失效） ----------------
 _CACHE_TTL_SEC = 30.0
 _cache: dict[str, tuple[float, dict]] = {}
@@ -623,8 +647,29 @@ def _etag_of(content) -> str:
     return '"' + hashlib.sha256(raw).hexdigest()[:32] + '"'
 
 
+def _from_weknora() -> dict | None:
+    """实时知识库平台 → 全量知识契约；平台不可达或装配失败返回 None（由调用方降级）。"""
+    try:
+        docs = weknora_retriever.knowledge_docs()
+    except Exception:  # noqa: BLE001
+        docs = []
+    if not docs:
+        return None
+    try:
+        data = kb_knowledge.build(docs)
+    except Exception:  # noqa: BLE001 — 装配失败同样降级到快照
+        return None
+    return data if data and data.get("entities") else None
+
+
 def _load_knowledge(force: bool = False) -> dict:
     """装配（或复用）全量知识契约；返回 _KB_CACHE 本身。30s TTL。
+
+    取数顺序由「知识库来源」配置决定（v1.21.0）：配置来源置顶，其余来源依内置
+    优先级逐级降级（任一级不可达自动跳到下一级，全不可达则 source=none）。
+      - static（默认）  ：本地静态知识库页面 → 知识库平台（实时）→ 不可用
+      - weknora        ：知识库平台（实时） → 本地静态知识库页面 → 不可用
+      - auto           ：知识库平台（实时） → 本地静态知识库页面 → 不可用（同 weknora 口径）
 
     缓存键：data（装配结果）/ src（来源）/ at（装配时刻）/ topics（各主题派生载荷）/
     etag + body（全量契约序列化结果，按需惰性生成）。
@@ -633,25 +678,24 @@ def _load_knowledge(force: bool = False) -> dict:
     if (not force and _KB_CACHE.get("data") is not None
             and (now - _KB_CACHE.get("at", 0.0)) < _CACHE_TTL_SEC):
         return _KB_CACHE
-    docs = []
-    try:
-        docs = weknora_retriever.knowledge_docs()
-    except Exception:  # noqa: BLE001
-        docs = []
+    order = ("static", "weknora") if kb_source_pref() == "static" else ("weknora", "static")
     data, src = None, "none"
-    if docs:
-        try:
-            data = kb_knowledge.build(docs)
-            src = "weknora"
-        except Exception:  # noqa: BLE001 — 装配失败同样降级到快照
-            data = None
-    if not data or not data.get("entities"):
-        data, src = _static_knowledge(), "canonical"
-    if not data or not data.get("entities"):
-        data, src = None, "none"
+    for cand in order:
+        got = _from_weknora() if cand == "weknora" else _static_knowledge()
+        if got and got.get("entities"):
+            data, src = got, cand
+            break
     _KB_CACHE.clear()
     _KB_CACHE.update({"at": now, "data": data, "src": src, "topics": {}})
     return _KB_CACHE
+
+
+def current_source() -> str:
+    """当前知识契约实际生效来源（static | weknora | none），供设置页回显。"""
+    try:
+        return _load_knowledge().get("src") or "none"
+    except Exception:  # noqa: BLE001 — 回显失败不影响设置读写
+        return "none"
 
 
 def _kb_bytes(content, src: str) -> bytes:

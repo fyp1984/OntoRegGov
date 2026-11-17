@@ -221,7 +221,7 @@ async function showCheck(code) {
 // ---------- 知识库能力开放（O6 / M11）：查阅·Wiki / 检索 / 加工 ----------
 // 平台原生页面承载知识库平台四类能力，统一走 /api/kb/* 取数适配器（统一信封 + 降级链），
 // 页面只展示 source/fetchedAt 做"来源可辨"，不做分支渲染；知识库平台零改造。
-const SRC_LABEL = {weknora:'知识库实时', canonical:'正本图', db:'结构化投影', sqlite:'运行台账', none:'来源不可用'};
+const SRC_LABEL = {weknora:'知识库实时', static:'本地静态', canonical:'正本图', db:'结构化投影', sqlite:'运行台账', none:'来源不可用'};
 function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
 function srcBar(env, extra){
   const s = (env && env.source) || 'none';
@@ -358,9 +358,37 @@ async function llmTest() {
   $('#llm_status').innerHTML = (st && st.ok ? '✓ ' : '✗ ') + (st ? st.detail : '测试失败：服务不可达');
 }
 
+// ---------- 设置页：知识库来源（本地静态页面/实时平台/自动降级） ----------
+async function loadKbSource(){
+  const sel = $('#kb_source_sel'); if (!sel) return;
+  const st = $('#kb_source_status');
+  const d = await api('/api/settings/kb/source').catch(() => null);
+  if (!d || !d.options){ sel.innerHTML = ''; if (st) st.textContent = '读取失败：接口不可达。'; return; }
+  sel.innerHTML = d.options.map(o =>
+    `<option value="${esc(o.value)}" title="${esc(o.hint||'')}" ${o.value === d.source ? 'selected' : ''}>${esc(o.label)}</option>`).join('');
+  kbSourceStatus(d);
+}
+
+function kbSourceStatus(d){
+  const st = $('#kb_source_status'); if (!st) return;
+  const eff = d && d.effective;
+  st.textContent = '当前生效来源：' + (SRC_LABEL[eff] || eff || '—');
+}
+
+async function kbSourceSave(){
+  const sel = $('#kb_source_sel'); if (!sel) return;
+  const st = $('#kb_source_status'); if (st) st.textContent = '保存中…';
+  const r = await api('/api/settings/kb/source', {method: 'PUT',
+    headers: {'Content-Type': 'application/json'}, body: JSON.stringify({source: sel.value})}).catch(() => null);
+  if (!r || r.error){ if (st) st.textContent = '保存失败：接口不可达。'; return; }
+  kbSourceStatus(r);
+  kbSiteInited = false;                       // 使知识库视图下次进入时按新来源重建
+  if (st) st.textContent = '✓ 已保存，' + st.textContent;
+}
+
 // ---------- 设置页：可引用的知识库（多选） + 取数来源状态 ----------
 let kbEffCount = 0;   // 部署当前生效的知识库数量（未勾选时用于说明兜底口径）
-function loadSettings(){ loadKbPick(); loadLlmset(); loadSrcStatus(); }
+function loadSettings(){ loadKbSource(); loadKbPick(); loadLlmset(); loadSrcStatus(); }
 
 async function loadKbPick(){
   const box = $('#kb_pick'); if (!box) return;

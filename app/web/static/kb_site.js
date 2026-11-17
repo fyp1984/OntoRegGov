@@ -48,7 +48,7 @@ window.KbSite = (function () {
   ];
   var GRAPH_CACHE = {}, GRAPH_PENDING = {}, GRAPH_SRC = 'site', GRAPH_LOADED = false;
   // 取数来源英文键 → 中文可读名（避免英文键直接上屏）
-  var SOURCE_TEXT = { weknora: '知识库实时', canonical: '正本图', db: '结构化投影', sqlite: '运行台账', site: '本站装配', none: '来源不可用' };
+  var SOURCE_TEXT = { weknora: '知识库实时', static: '本地静态', canonical: '正本图', db: '结构化投影', sqlite: '运行台账', site: '本站装配', none: '来源不可用' };
 
   function apiGet(url) {
     return fetch(url, { headers: { 'Accept': 'application/json' } })

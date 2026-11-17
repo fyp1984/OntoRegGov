@@ -222,6 +222,26 @@ def put_kb_settings(payload: dict):
     return {"ok": True, "selected": selected, "effective": _wr.effective_kb_ids()}
 
 
+# ---------------- 应用设置：知识库来源（v1.21.0） ----------------
+# 大白话：知识库页面（菜单1）优先从哪个来源取数。默认「本地静态知识库页面」；
+# 所选来源不可达时按内置优先级逐级降级，永不 5xx。保存后主动失效取数缓存即生效。
+@app.get("/api/settings/kb/source")
+def get_kb_source_setting():
+    return {"source": settings_store.get_kb_source(),
+            "options": [{"value": v, "label": lbl, "hint": hint}
+                        for v, lbl, hint in kb_source.KB_SOURCE_CHOICES],
+            "effective": kb_source.current_source()}
+
+
+@app.put("/api/settings/kb/source")
+def put_kb_source_setting(payload: dict):
+    """保存知识库来源；保存后主动失效取数缓存，下一次取数即生效。"""
+    src = settings_store.save_kb_source(payload.get("source"))
+    kb_source.invalidate_env("")
+    audit.log("ui-user", "settings.kb_source", src, {"source": src})
+    return {"ok": True, "source": src, "effective": kb_source.current_source()}
+
+
 @app.get("/api/ontology/classes")
 def classes():
     tree = []

@@ -121,3 +121,26 @@ def save_reference_kbs(ids: list[str]) -> list[str]:
             clean.append(s)
     _db_set("ref_kb_ids", json.dumps(clean, ensure_ascii=False))
     return clean
+
+
+# ---------------- 知识库来源（单值）----------------
+# 大白话：知识库页面的取数来源。默认「本地静态知识库页面」（读取随平台部署的
+# 静态知识库快照）；也可显式切到「知识库平台（实时）」或「自动降级」。
+# 读取优先级：UI 已保存值 → 默认值（不依赖环境变量，与 LLM 配置同属运行期配置）。
+KB_SOURCE_TYPES = ("static", "weknora", "auto")
+KB_SOURCE_DEFAULT = "static"
+
+
+def get_kb_source() -> str:
+    """知识库来源：static（本地静态页面，默认）| weknora（实时平台）| auto（自动降级）。"""
+    v = (_db_get("kb_source_type") or "").strip().lower()
+    return v if v in KB_SOURCE_TYPES else KB_SOURCE_DEFAULT
+
+
+def save_kb_source(value: str) -> str:
+    """保存知识库来源；非法值回落默认；返回规范化结果。"""
+    v = (value or "").strip().lower()
+    if v not in KB_SOURCE_TYPES:
+        v = KB_SOURCE_DEFAULT
+    _db_set("kb_source_type", v)
+    return v

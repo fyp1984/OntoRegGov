@@ -10,7 +10,7 @@
   window.DZ = DZ;
 
   // 与 app.js 保持一致的来源语义（知识取数"来源可辨"）
-  const SRC_LABEL = {weknora:'知识库实时', canonical:'正本图', db:'结构化投影', sqlite:'运行台账', none:'来源不可用'};
+  const SRC_LABEL = {weknora:'知识库实时', static:'本地静态', canonical:'正本图', db:'结构化投影', sqlite:'运行台账', none:'来源不可用'};
   DZ.SRC_LABEL = SRC_LABEL;
 
   // ---------- 基础工具 ----------
