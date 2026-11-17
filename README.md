@@ -90,14 +90,17 @@
 
 平台零外部云依赖，**无模型密钥也能完整跑通**（智能抽取自动降级为确定性规则抽取，响应标注 `degraded=true`）。
 
+**正式运行形态为容器**——部署、更新与验收均以容器形态为准，完整口径见部署运维方案
+[deploy/README-deployment.md](deploy/README-deployment.md)；下方 `bash run.sh` 仅为本地开发调试的快捷方式。
+
 ```bash
-# 本地一键启动（建/复用虚拟环境 → 安装依赖 → 幂等种子 → 起服务）
+# 本地一键启动（建/复用虚拟环境 → 安装依赖 → 幂等种子 → 起服务；仅限本地开发调试）
 bash run.sh
 ```
 
 启动后：
 
-- 业务台：`http://127.0.0.1:8420/`
+- 业务台：`http://127.0.0.1:8420/`（其他设备用本机局域网 IP 或 Tailscale IP 加 `:8420` 访问）
 - API 前缀：`/api`（健康检查 `/api/health`）
 - 智能体网关：`:8422`（`streamable-http`）
 - **OpenClaw 智能体服务（v1.18.0 合规自查引擎）**：`http://127.0.0.1:18789`（loopback + Bearer token），
@@ -121,6 +124,7 @@ docker compose -f deploy/docker-compose.ontoreggov.yml --profile demo --profile 
   未配置即安全默认（零密钥可 `up` 起服务，能力自动降级，不 5xx）。
 - 各形态共用同一编排文件与公共段（镜像构建、代码/数据卷、知识库只读卷、健康检查、时区），差异仅由 profile 决定；
   公共环境变量：`SKIP_SEED=1`、`PORT=8420`、`KB_READ_FROM=canonical`、`KB10_SITE=/app/kb_site`、`TZ=Asia/Shanghai`。
+- 宿主机 `bash run.sh` 与 `.venv` 直跑**仅限本地开发调试**，默认只绑 `127.0.0.1:8420`，**不得作为对外服务、演示或验收环境**。
 - 就绪判据：`GET /api/health` 返回 200（已豁免网关鉴权）；compose 内置 healthcheck（`interval 30s / timeout 5s / retries 3 / start_period 20s`），
   可 `docker inspect --format '{{.State.Health.Status}}' ontoreggov-demo` 查看。
 - 改前端静态资源即时生效（需 bump `index.html` 内 `?v=` 缓存参数）；改后端 Python 需 `docker restart ontoreggov-demo`。
