@@ -15,11 +15,12 @@ JSON，并附带"这次数据从哪来、什么时候取的"。
 - 前端对 source 仅做展示，不做分支渲染 —— 知识库重建不触发前端改造。
 - 30s TTL 缓存 + 主动失效（PRD D2）。
 
-统一版本源（v1.23.0）：知识统一在知识库服务（WeKnora）中维护。static 模式下
-静态快照 app/web/static/kb/data/knowledge-data.js 只是服务内容的派生件：知识
-接口装配前 check_knowledge_drift() 以库端轻量指纹（60s 节流）感知变更，一旦
-知识库变了即调 refresh_static_snapshot() 自动重生成快照、清缓存，前端下次取
-数即加载最新。scripts/kb/kb_publish.py（文档树构建）为过渡通道，非日常入口。
+统一版本源（v1.24.0）：知识统一在知识库服务（WeKnora）中维护，通过平台端的
+知识发布/投递入口写入。static 模式下静态快照 app/web/static/kb/data/
+knowledge-data.js 只是服务内容的派生件：发布投递解析完成时由 fetch_ingest_status()
+以事件驱动方式调 refresh_static_snapshot() 重生成快照、清缓存，前端下次取数即
+加载最新。不做任何定时探测（避免轮询压力，也不暴露底层平台）。scripts/kb/
+kb_publish.py（文档树构建）为过渡通道，非日常入口。
 """
 from __future__ import annotations
 
@@ -754,52 +755,6 @@ def _from_weknora() -> dict | None:
     return data if data and data.get("entities") else None
 
 
-# ---------------- 知识库变更自动感知（统一版本源） ----------------
-# 问题：source=static 时前端读的是本地快照，知识库（WeKnora）里改了已有知识，
-#       快照不会知道，得人工点刷新 —— 这与"知识库是唯一版本源"相矛盾。
-# 做法：每次装配前做一次**带节流**的轻量指纹比对（库端 md5，32 字节），发现
-#       知识库变了就自动重新生成静态快照。探测本身极轻，失败静默降级。
-_DRIFT_TTL_SEC = 60.0                    # 探测间隔：改完最多 60s 前端自动跟上
-_DRIFT_STATE: dict = {"at": 0.0, "fp": "", "count": -1}
-
-
-def check_knowledge_drift(force: bool = False) -> dict:
-    """比对知识库指纹，变化时自动刷新静态快照。返回 {changed, skipped, error}。
-
-    纪律：
-      - 仅 source=static 时才有意义（weknora 模式实时读库，本就无需快照同步）；
-      - 节流：TTL 内直接跳过，不连库；
-      - 首次成功取到指纹只记基线、不刷新（避免服务一重启就重写 8MB 正本）；
-      - 探测/刷新异常一律吞掉，绝不影响知识接口主流程。
-    """
-    now = time.time()
-    if kb_source_pref() != "static":
-        return {"skipped": "source_not_static"}
-    if not force and (now - _DRIFT_STATE["at"]) < _DRIFT_TTL_SEC:
-        return {"skipped": "throttled"}
-    _DRIFT_STATE["at"] = now
-
-    fp_env = weknora_retriever.knowledge_fingerprint()
-    if not fp_env or not fp_env.get("fp"):
-        return {"skipped": "fingerprint_unavailable"}   # 库不可达 → 保留快照
-
-    fp = fp_env["fp"]
-    prev = _DRIFT_STATE["fp"]
-    if not prev:                                   # 首次：只记基线
-        _DRIFT_STATE.update({"fp": fp, "count": fp_env.get("count", 0)})
-        return {"changed": False, "baseline": True}
-    if fp == prev:
-        return {"changed": False}
-
-    snap = refresh_static_snapshot(force=True)     # 变了 → 重新生成并清缓存
-    c = snap.get("content") or {}
-    if c.get("ok"):
-        _DRIFT_STATE.update({"fp": fp, "count": fp_env.get("count", 0)})
-        return {"changed": True, "refreshed": True,
-                "entityCount": c.get("entityCount")}
-    return {"changed": True, "refreshed": False, "error": c.get("error")}
-
-
 def _load_knowledge(force: bool = False) -> dict:
     """装配（或复用）全量知识契约；返回 _KB_CACHE 本身。30s TTL。
 
@@ -812,10 +767,9 @@ def _load_knowledge(force: bool = False) -> dict:
     缓存键：data（装配结果）/ src（来源）/ at（装配时刻）/ topics（各主题派生载荷）/
     etag + body（全量契约序列化结果，按需惰性生成）。
 
-    装配前先做知识库漂移检查（节流 60s）：static 模式下知识库一旦有变更，自动
-    重新生成静态快照并清缓存 —— 让"知识库即唯一版本源"成立。
+    静态快照的更新走事件驱动：知识投递解析完成时由 fetch_ingest_status() 触发
+    refresh_static_snapshot()，此处装配只读结果，不做任何定时探测。
     """
-    check_knowledge_drift(force=force)
     now = time.time()
     if (not force and _KB_CACHE.get("data") is not None
             and (now - _KB_CACHE.get("at", 0.0)) < _CACHE_TTL_SEC):

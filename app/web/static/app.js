@@ -302,7 +302,7 @@ async function kbIngestSubmit(){
   kbProcId = c.knowledgeId || '';
   out.innerHTML = `<p>${srcBar(env)}</p>
     <p>已投递：<b>${esc(c.title||title)}</b>　知识条目编号 <code>${esc(kbProcId||'—')}</code></p>
-    <p class="muted">已提交知识库平台处理，处理进度实时回显。</p>`;
+    <p class="muted">已提交知识底座处理，处理进度实时回显。</p>`;
   $('#kp_status').innerHTML = kbProcId ? '<p class="muted">读取加工进度…</p>'
     : '<p class="muted">未取得知识条目编号，进度暂不可查（可前往「知识库」查询）。</p>';
   if (kbProcId) kbPollStatus();
@@ -412,12 +412,12 @@ async function loadKbPick(){
   box.innerHTML = '<span class="muted">加载中…</span>';
   const d = await api('/api/settings/kb').catch(() => null);
   if (!d || d.available === undefined){
-    box.innerHTML = '<span class="muted">知识库列表不可达，请检查知识库平台。</span>'; return;
+    box.innerHTML = '<span class="muted">知识库列表不可达，请检查知识底座。</span>'; return;
   }
   const degraded = d.source === 'degraded';
   const note = degraded
     ? '<div class="muted" style="margin-bottom:8px"><span class="badge b-warn">降级展示</span> ' +
-      '知识库平台暂不可达，以下为<strong>演示知识库目录</strong>（已含部署当前生效库），' +
+      '知识底座暂不可达，以下为<strong>演示知识库目录</strong>（已含部署当前生效库），' +
       '可正常勾选，不阻断作业。</div>'
     : '';
   if (!d.available.length){

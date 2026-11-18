@@ -4,9 +4,9 @@
 
 【链路定位 · 临时过渡】本脚本从 10_知识库工程文档树构建静态快照，是知识库
 底座尚未成为统一版本源时的过渡发布通道。目标态：知识统一在知识库服务（WeKnora）
-中维护，由 kb_source.refresh_static_snapshot() 从服务实时内容生成静态正本，
-知识接口装配前经 check_knowledge_drift() 自动感知变更并刷新。文档树通道保留
-仅为存量知识/离线构建兜底，不再作为日常维护入口。
+中维护，经平台端知识发布/投递写入；投递解析完成时由 fetch_ingest_status() 以
+事件驱动方式调 kb_source.refresh_static_snapshot() 重生成静态正本（无定时探测）。
+文档树通道保留仅为存量知识/离线构建兜底，不再作为日常维护入口。
 
 大白话：一次"改一条知识"触发：影子同步 → 双端 strict 质量门（默认要求 ERROR=0/WARN=0 终态）→
 前端快照 build → 平台本体库 kb_compile（含 SHACL/断言/CSV对账）→ 双产物（canonical.ttl +

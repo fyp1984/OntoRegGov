@@ -293,61 +293,6 @@ def knowledge_docs(limit: int = 1000) -> list[dict]:
              "updatedAt": str(r.get("updated_at") or "")} for r in rows]
 
 
-def knowledge_fingerprint() -> dict | None:
-    """轻量变更指纹：在库端把参与装配的字段聚合成单个 md5，只回传 32 字符 + 条目数。
-
-    为什么要库端算：装配出整份 KNOWLEDGE_BASE（约 8MB）是重活，不适合拿来"
-    有没有变化"的探测。这里把探测压到一条 SQL —— 扫一遍参与装配的行、库内算哈希、
-    只回 32 字节，网络与 CPU 开销都可忽略。
-
-    覆盖范围与 knowledge_docs() 的装配口径逐项对齐，任一变更都会改指纹：
-      - 条目增删改、标题、启用状态、主表时间戳；
-      - metadata 里的 Markdown 正文；
-      - 上传型知识（正文只在 chunks 表）的分块内容、顺序、启停。
-    字段以 US(0x1f)/RS(0x1e) 分隔，避免正文中的常见字符造成碰撞。
-
-    返回 {"fp": <md5>, "count": <int>}；不可达或无数据返回 None，由调用方降级保留快照。
-    """
-    try:
-        rows = _q(
-            r"""SELECT md5(string_agg(f.sig, E'\n' ORDER BY f.id)) AS fp, COUNT(*) AS n
-                 FROM (
-                   SELECT k.id::text AS id,
-                          md5(COALESCE(k.title, '') || E'\x1f' ||
-                              COALESCE(k.metadata->>'content', '') || E'\x1f' ||
-                              COALESCE(k.updated_at::text, '') || E'\x1f' ||
-                              COALESCE(k.enable_status, '') || E'\x1f' ||
-                              COALESCE(
-                                (SELECT string_agg(c.chunk_index::text || ':' || COALESCE(c.content, ''),
-                                                   E'\x1e' ORDER BY c.chunk_index)
-                                 FROM chunks c
-                                 WHERE c.knowledge_id = k.id AND c.is_enabled = true
-                                   AND c.deleted_at IS NULL), '')) AS sig
-                   FROM knowledges k
-                   WHERE k.knowledge_base_id = ANY(%s) AND k.deleted_at IS NULL
-                     AND k.enable_status = 'enabled'
-                     AND COALESCE(NULLIF(k.metadata->>'content', ''),
-                                  (SELECT string_agg(c.content, E'\n' ORDER BY c.chunk_index)
-                                   FROM chunks c
-                                   WHERE c.knowledge_id = k.id AND c.is_enabled = true
-                                     AND c.deleted_at IS NULL)) IS NOT NULL
-                     AND COALESCE(NULLIF(k.metadata->>'content', ''),
-                                  (SELECT string_agg(c.content, E'\n' ORDER BY c.chunk_index)
-                                   FROM chunks c
-                                   WHERE c.knowledge_id = k.id AND c.is_enabled = true
-                                     AND c.deleted_at IS NULL)) <> ''
-                 ) f""",
-            (effective_kb_ids(),),
-        )
-        if not rows:
-            return None
-        fp = str((rows[0] or {}).get("fp") or "")
-        n = int((rows[0] or {}).get("n") or 0)
-        return {"fp": fp, "count": n} if fp else None
-    except Exception:  # noqa: BLE001 — 指纹失败一律降级，绝不影响取数主流程
-        return None
-
-
 def wiki_find(query: str, limit: int = 5) -> list[dict]:
     """按标题子串查找页面（用于实时覆盖：给定检查项关键词找对应知识页）。"""
     q = (query or "").strip()

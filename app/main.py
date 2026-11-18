@@ -930,24 +930,6 @@ def kb_cache_invalidate(prefix: str = ""):
     return kb_source.invalidate_env(prefix)
 
 
-@app.post("/api/kb/static/check")
-def kb_static_check(force: bool = False):
-    """知识库变更探测：指纹有变化就自动重新生成静态快照。
-
-    static 模式下由知识接口装配前自动调用（60s 节流）；此端点供设置页手动
-    强制检查（force=true 跳过节流），并回显上次探测状态。
-    """
-    result = kb_source.check_knowledge_drift(force=force)
-    try:
-        audit.log("system", "kb.static_check", "static-snapshot",
-                  {"force": force, **result})
-    except Exception:  # noqa: BLE001
-        pass
-    return {"content": result, "source": kb_source.current_source(),
-            "fetchedAt": kb_source._now_iso(),
-            "driftState": dict(kb_source._DRIFT_STATE)}
-
-
 @app.post("/api/kb/static/refresh")
 def kb_static_refresh(force: bool = False):
     """把知识库服务实时内容同步为静态知识唯一正本（app/web/static/kb/data/）。
