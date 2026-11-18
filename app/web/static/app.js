@@ -265,6 +265,15 @@ async function kbSiteShow(){
   return kbSiteLoading;
 }
 
+// 静态快照更新后重载知识库视图：清掉"已初始化"标记，重新拉轻量索引。
+// 缓存已由后端失效，这里直接重走 kbSiteShow 即可拿到最新内容。
+async function kbReloadSite(){
+  kbSiteInited = false;
+  kbSiteLoading = null;
+  const view = document.getElementById('kbdash');
+  if (view && view.classList.contains('active')) await kbSiteShow();
+}
+
 // 知识加工（仅 /admin）：投递 → 轮询加工进度；平台不直写知识库库表
 let kbProcId = null, kbProcTimer = null;
 function kbProcReset(){ /* 进入加工页时无需预载，等待用户投递 */ }
@@ -305,12 +314,20 @@ async function kbPollStatus(){
   const box = $('#kp_status');
   if (!env || !env.content){ box.innerHTML = '<p class="muted">进度读取失败（知识库不可达）。</p>'; return; }
   const s = env.content;
+  const snap = s.staticSnapshot || {};
+  const snapLine = snap.ok
+    ? `<p class="muted">静态快照已同步：${snap.refreshed ? '已更新' : '内容未变化'} · `
+      + `${snap.entityCount||0} 条目 · ${((snap.bytes||0)/1024/1024).toFixed(1)} MB`
+      + ` · 知识库页面下次打开即加载最新。</p>`
+    : (snap.error ? `<p class="muted">静态快照未同步：${esc(snap.error)}</p>` : '');
   box.innerHTML = `<p>${srcBar(env)}</p>
     <table><tr><th>标题</th><th>解析状态</th><th>启用状态</th><th>分块数</th><th>向量数</th><th>加工</th><th>更新时间</th></tr>
     <tr><td>${esc(s.title||'')}</td><td>${esc(s.parseStatus||'')}</td><td>${esc(s.enableStatus||'')}</td>
       <td>${s.chunkCount||0}</td><td>${s.embeddingCount||0}</td>
       <td>${s.ready?'<span class="badge b-ok">已完成</span>':'<span class="badge b-warn">加工中</span>'}</td>
-      <td>${esc((s.updatedAt||'').replace('T',' '))}</td></tr></table>`;
+      <td>${esc((s.updatedAt||'').replace('T',' '))}</td></tr></table>` + snapLine;
+  // 加工完成后同步刷新当前知识库视图（若已加载），使刚发布的内容立即可见
+  if (s.ready && snap.ok && snap.refreshed) kbReloadSite();
   if (!s.ready) kbProcTimer = setTimeout(kbPollStatus, 3000);   // 未完成则继续轮询
 }
 
