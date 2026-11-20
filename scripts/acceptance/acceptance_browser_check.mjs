@@ -42,8 +42,8 @@ const EXPECT_FLOW_MIN = 8;
 // 降级/异常"状态"短语（判定必须是状态化，见 detectInPage）
 const BAD_TEXT = ['来源不可用', '知识库暂不可达', '暂不可用'];
 
-// 知识类取数的合法 source 枚举（PRD §7.3）
-const OK_SOURCES = ['weknora', 'canonical', 'db', 'sqlite'];
+// 知识类取数的合法 source 枚举（PRD §7.3；含 v1.21.0「知识库来源」新增的 static）
+const OK_SOURCES = ['weknora', 'canonical', 'db', 'sqlite', 'static'];
 // 需要 source 断言的知识类接口
 const SOURCE_PROBES = ['/api/kb/knowledge/index', '/api/kb/knowledge/graph', '/api/kb/checks'];
 
@@ -346,9 +346,16 @@ async function main(chromium) {
       log('FAIL  监管检查库子导航缺失');
     } else {
       await checksNav.first().click();
-      await page.waitForTimeout(2500);
+      // 轮询等待检查项列表渲染：/api/kb/checks 冷路径取数可达数秒（缓存 30s TTL），
+      // 固定等待在冷启动/负载高时会误判为空列表。
+      let listRows = 0, listWaited = 0;
+      while (listWaited < 15000) {
+        listRows = await page.locator('#ck_list table tbody tr').count();
+        if (listRows >= 1) break;
+        await page.waitForTimeout(250); listWaited += 250;
+      }
       const row = page.locator('#ck_list table tbody tr').first();
-      if (!(await row.count())) {
+      if (listRows < 1) {
         problems.push('监管检查库列表为空（#ck_list 无检查项行）');
         log('FAIL  检查项列表为空');
       } else {
@@ -464,12 +471,18 @@ async function main(chromium) {
       await page.fill('#ip_name', '冒烟行业');
       await page.fill('#ip_lines', 'sm1|冒烟条线一\nsm2|冒烟条线二');
       await page.click('[data-act="create-industry-profile"]');
-      await page.waitForTimeout(2200);
-      const created = await page.evaluate((c) => {
-        const box = document.getElementById('dsc_pane');
-        return { hit: ((box || {}).innerText || '').indexOf(c) >= 0,
-                 rows: document.querySelectorAll('#dsc_pane table tbody tr').length };
-      }, code);
+      // 轮询等待「创建 → 重载 → 重渲染」闭环：DZ.api 每次请求含 ~400ms 基础延迟，
+      // 固定等待在容器负载高时会误判失败；与 [3.6] 口径一致，改为条件轮询。
+      let created = { hit: false, rows: 0 }, createdWaited = 0;
+      while (createdWaited < 12000) {
+        created = await page.evaluate((c) => {
+          const box = document.getElementById('dsc_pane');
+          return { hit: ((box || {}).innerText || '').indexOf(c) >= 0,
+                   rows: document.querySelectorAll('#dsc_pane table tbody tr').length };
+        }, code);
+        if (created.hit) break;
+        await page.waitForTimeout(300); createdWaited += 300;
+      }
       if (!created.hit) problems.push('新建自查行业档案：创建后列表未出现新档案 ' + code);
       log((created.hit ? 'PASS' : 'FAIL').padEnd(5), '创建行业档案 → 列表刷新',
           '新增=' + code, '列表=' + String(created.rows).padStart(2), created.hit ? '' : '→ 未出现');
