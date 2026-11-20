@@ -14,6 +14,13 @@ JSON，并附带"这次数据从哪来、什么时候取的"。
 - 每个来源独立实现、彼此隔离；任何异常都不抛给调用方，只记录并降级。
 - 前端对 source 仅做展示，不做分支渲染 —— 知识库重建不触发前端改造。
 - 30s TTL 缓存 + 主动失效（PRD D2）。
+
+统一版本源（v1.24.0）：知识统一在知识库服务（WeKnora）中维护，通过平台端的
+知识发布/投递入口写入。static 模式下静态快照 app/web/static/kb/data/
+knowledge-data.js 只是服务内容的派生件：发布投递解析完成时由 fetch_ingest_status()
+以事件驱动方式调 refresh_static_snapshot() 重生成快照、清缓存，前端下次取数即
+加载最新。不做任何定时探测（避免轮询压力，也不暴露底层平台）。scripts/kb/
+kb_publish.py（文档树构建）为过渡通道，非日常入口。
 """
 from __future__ import annotations
 
@@ -21,6 +28,7 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import time
 import datetime
 from pathlib import Path
@@ -36,7 +44,7 @@ SOURCES = ("weknora", "canonical", "db", "sqlite")
 # 与上面 SOURCES 的区别：SOURCES 是底层数据源健康枚举，这里是用户可选择的知识库来源。
 KB_SOURCE_CHOICES = (
     ("static", "本地静态知识库页面",
-     "读取随平台部署的静态知识库快照（10_知识库工程 site 构建产物）"),
+     "读取随平台部署的工程内静态知识快照（app/web/static/kb/data）"),
     ("weknora", "知识库平台（实时）",
      "直连知识库平台读取最新内容（需部署期已接入平台底座）"),
     ("auto", "自动（实时优先，逐级降级）",
@@ -579,12 +587,21 @@ def submit_ingest(title: str, content: str) -> dict:
 
 
 def fetch_ingest_status(knowledge_id: str) -> dict:
-    """加工进度：读知识库平台该条知识的分块/向量化状态。"""
+    """加工进度：读知识库平台该条知识的分块/向量化状态。
+
+    一旦该条知识 ready（分块+向量齐备），首次调用会自动把知识库实时内容
+    同步为静态快照 —— 这是"服务发布 → 静态文件 → 前端加载"链的触发点。
+    """
     try:
         st = weknora_retriever.knowledge_status(knowledge_id)
     except Exception:  # noqa: BLE001
         st = None
     if st:
+        if st.get("ready") and knowledge_id not in _static_synced_ids:
+            _static_synced_ids.add(knowledge_id)
+            snap = refresh_static_snapshot()
+            st = dict(st)
+            st["staticSnapshot"] = snap.get("content") or {}
         return _env(st, "weknora")
     return {"content": None, "source": "none", "fetchedAt": _now_iso()}
 
@@ -604,6 +621,82 @@ def fetch_ingest_status(knowledge_id: str) -> dict:
 # 全部由同一份装配结果派生（同一 30s TTL 缓存），各自独立 ETag/304；全量
 # /api/kb/knowledge 保留，供 MCP 与兜底使用。
 # ===========================================================================
+
+# ===========================================================================
+# 静态知识快照发布（v1.22.0）
+# 大白话：知识库服务（WeKnora）里发布新知识后，把它的实时内容装配成站点
+# KNOWLEDGE_BASE，原子写入 app/web/static/kb/data/knowledge-data.js（唯一正本），
+# 再清掉取数缓存 —— 前端下次请求 /api/kb/knowledge/* 即加载到最新内容。
+# 与 kb_publish.py 的区别：后者从 10_知识库工程文档树构建；这里以知识库服务
+# 实时内容为准，是"服务发布 → 静态快照"这条链的生成端。
+# ===========================================================================
+
+# 静态知识唯一正本目录（工程内，随仓库入库）。容器里由 KB10_SITE 挂到 /app/kb_site:ro，
+# 生成侧始终写工程内这一处，读侧经 KB10_SITE 读同一份。
+KB_STATIC_DIR = config.BASE_DIR / "app" / "web" / "static" / "kb" / "data"
+
+def _static_file() -> Path:
+    """静态正本文件路径，始终从 KB_STATIC_DIR 派生（目录可重定向，避免写错位置）。"""
+    return KB_STATIC_DIR / "knowledge-data.js"
+
+KB_STATIC_PREV = config.BASE_DIR / ".kb-publish" / "previous" / "static-from-weknora"
+# 进程内"本次会话已同步到的知识版本"标记，避免每次读进度都重复生成。
+_static_synced_ids: set[str] = set()
+
+
+def refresh_static_snapshot(force: bool = False) -> dict:
+    """从 WeKnora 实时内容重新生成静态知识唯一正本，并失效取数缓存。
+
+    流程：拉全量知识 → 装配 KNOWLEDGE_BASE → 备份上一版 → 原子替换
+    knowledge-data.js → invalidate("")。返回统一信封，异常不外抛。
+
+    force=False 且装配结果与原快照逐字节一致时跳过写入（幂等，避免无谓落盘）。
+    """
+    result = {"ok": False, "refreshed": False, "entityCount": 0, "bytes": 0}
+    try:
+        docs = weknora_retriever.knowledge_docs()
+        if not docs:
+            result["error"] = "知识库服务无可用文档，保留原快照"
+            return _env(result, "none")
+        data = kb_knowledge.build(docs)
+        if not data or not data.get("entities"):
+            result["error"] = "装配结果为空，保留原快照"
+            return _env(result, "none")
+
+        payload = "window.KNOWLEDGE_BASE = " + json.dumps(
+            data, ensure_ascii=False, indent=2) + ";\n"
+
+        KB_STATIC_DIR.mkdir(parents=True, exist_ok=True)
+        target = _static_file()
+        if target.exists() and not force:
+            old = target.read_text(encoding="utf-8", errors="ignore")
+            if old == payload:
+                invalidate("")
+                result.update({"ok": True, "entityCount": len(data["entities"]),
+                               "bytes": target.stat().st_size,
+                               "skipped": "内容未变化"})
+                return _env(result, "weknora")
+
+        # 备份上一版（原子写：临时文件 + os.replace，失败不破坏当前正本）
+        if target.exists():
+            KB_STATIC_PREV.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(target, KB_STATIC_PREV / "knowledge-data.js")
+        tmp = KB_STATIC_DIR / "knowledge-data.js.tmp"
+        tmp.write_text(payload, encoding="utf-8")
+        os.replace(tmp, target)
+
+        invalidate("")
+        result.update({"ok": True, "refreshed": True,
+                       "entityCount": len(data["entities"]),
+                       "edgeCount": len(data.get("edges") or []),
+                       "bytes": target.stat().st_size,
+                       "path": str(target),
+                       "version": data.get("version")})
+        return _env(result, "weknora")
+    except Exception as e:  # noqa: BLE001 — 刷新失败不影响调用方主流程
+        result["error"] = f"{type(e).__name__}: {str(e)[:160]}"
+        return _env(result, "none")
+
 
 def _static_knowledge() -> dict | None:
     """兜底快照：知识库站点内挂载的构建产物 data/knowledge-data.js。
@@ -673,6 +766,9 @@ def _load_knowledge(force: bool = False) -> dict:
 
     缓存键：data（装配结果）/ src（来源）/ at（装配时刻）/ topics（各主题派生载荷）/
     etag + body（全量契约序列化结果，按需惰性生成）。
+
+    静态快照的更新走事件驱动：知识投递解析完成时由 fetch_ingest_status() 触发
+    refresh_static_snapshot()，此处装配只读结果，不做任何定时探测。
     """
     now = time.time()
     if (not force and _KB_CACHE.get("data") is not None

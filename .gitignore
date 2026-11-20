@@ -18,6 +18,9 @@ backups/
 app/data/evidence_uploads/
 app/data/site-preview/
 
+# 前端静态知识产物：由 scripts/kb/kb_publish.py 本地生成，可能含非公开监管材料，不入库
+app/web/static/kb/data/
+
 # 日志与 WAL
 *.log
 *.db-wal

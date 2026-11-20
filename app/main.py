@@ -930,6 +930,24 @@ def kb_cache_invalidate(prefix: str = ""):
     return kb_source.invalidate_env(prefix)
 
 
+@app.post("/api/kb/static/refresh")
+def kb_static_refresh(force: bool = False):
+    """把知识库服务实时内容同步为静态知识唯一正本（app/web/static/kb/data/）。
+
+    供"知识发布后刷新前端快照"显式调用；知识加工解析完成时也会自动触发一次。
+    返回刷新统计（实体数/字节/是否落盘），失败不 5xx、保留原快照。
+    """
+    env = kb_source.refresh_static_snapshot(force=force)
+    try:
+        c = env.get("content") or {}
+        audit.log("system", "kb.static_refresh", "static-snapshot",
+                  {"ok": c.get("ok"), "entities": c.get("entityCount"),
+                   "refreshed": c.get("refreshed"), "force": force})
+    except Exception:  # noqa: BLE001 — 审计失败不阻断刷新回执
+        pass
+    return env
+
+
 # ---------------- v1.18.0 合规自查（OpenClaw 智能体版）+ 用户注册 ----------------
 # 需求：合规自查逻辑全部由后端 openclaw 智能体完成；前端只输入（选合规文件 +
 # 指定本地/共享目录）与输出（逐标题结果 + PDF 报告）。每注册用户在同一

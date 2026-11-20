@@ -48,9 +48,10 @@ x-app-volumes: &app-volumes
   - ../app:/app/app
   # 运行态数据（SQLite / 上传 / 快照）持久化到宿主
   - ../app/data:/app/app/data
-  # 知识库静态站（只读）：宿主路径经 .env 的 KB10_SITE_HOST 指定，默认 deploy/kb_site
+  # 知识库静态站（只读）：宿主路径经 .env 的 KB10_SITE_HOST 指定，
+  # 默认取仓库内唯一正本 ../app/web/static/kb（相对 deploy/ 基准）；
   # 缺失时知识视图走降级链提示"来源不可用"，不阻塞其它模块与主链路
-  - ${KB10_SITE_HOST:-./kb_site}:/app/kb_site:ro
+  - ${KB10_SITE_HOST:-../app/web/static/kb}:/app/kb_site:ro
 
 # ——— 公共环境变量：全部来自 .env / 宿主环境，未设置即安全默认 ———
 x-app-env: &app-env

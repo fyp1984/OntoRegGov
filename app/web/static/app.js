@@ -265,6 +265,15 @@ async function kbSiteShow(){
   return kbSiteLoading;
 }
 
+// 静态快照更新后重载知识库视图：清掉"已初始化"标记，重新拉轻量索引。
+// 缓存已由后端失效，这里直接重走 kbSiteShow 即可拿到最新内容。
+async function kbReloadSite(){
+  kbSiteInited = false;
+  kbSiteLoading = null;
+  const view = document.getElementById('kbdash');
+  if (view && view.classList.contains('active')) await kbSiteShow();
+}
+
 // 知识加工（仅 /admin）：投递 → 轮询加工进度；平台不直写知识库库表
 let kbProcId = null, kbProcTimer = null;
 function kbProcReset(){ /* 进入加工页时无需预载，等待用户投递 */ }
@@ -293,7 +302,7 @@ async function kbIngestSubmit(){
   kbProcId = c.knowledgeId || '';
   out.innerHTML = `<p>${srcBar(env)}</p>
     <p>已投递：<b>${esc(c.title||title)}</b>　知识条目编号 <code>${esc(kbProcId||'—')}</code></p>
-    <p class="muted">已提交知识库平台处理，处理进度实时回显。</p>`;
+    <p class="muted">已提交知识底座处理，处理进度实时回显。</p>`;
   $('#kp_status').innerHTML = kbProcId ? '<p class="muted">读取加工进度…</p>'
     : '<p class="muted">未取得知识条目编号，进度暂不可查（可前往「知识库」查询）。</p>';
   if (kbProcId) kbPollStatus();
@@ -305,12 +314,20 @@ async function kbPollStatus(){
   const box = $('#kp_status');
   if (!env || !env.content){ box.innerHTML = '<p class="muted">进度读取失败（知识库不可达）。</p>'; return; }
   const s = env.content;
+  const snap = s.staticSnapshot || {};
+  const snapLine = snap.ok
+    ? `<p class="muted">静态快照已同步：${snap.refreshed ? '已更新' : '内容未变化'} · `
+      + `${snap.entityCount||0} 条目 · ${((snap.bytes||0)/1024/1024).toFixed(1)} MB`
+      + ` · 知识库页面下次打开即加载最新。</p>`
+    : (snap.error ? `<p class="muted">静态快照未同步：${esc(snap.error)}</p>` : '');
   box.innerHTML = `<p>${srcBar(env)}</p>
     <table><tr><th>标题</th><th>解析状态</th><th>启用状态</th><th>分块数</th><th>向量数</th><th>加工</th><th>更新时间</th></tr>
     <tr><td>${esc(s.title||'')}</td><td>${esc(s.parseStatus||'')}</td><td>${esc(s.enableStatus||'')}</td>
       <td>${s.chunkCount||0}</td><td>${s.embeddingCount||0}</td>
       <td>${s.ready?'<span class="badge b-ok">已完成</span>':'<span class="badge b-warn">加工中</span>'}</td>
-      <td>${esc((s.updatedAt||'').replace('T',' '))}</td></tr></table>`;
+      <td>${esc((s.updatedAt||'').replace('T',' '))}</td></tr></table>` + snapLine;
+  // 加工完成后同步刷新当前知识库视图（若已加载），使刚发布的内容立即可见
+  if (s.ready && snap.ok && snap.refreshed) kbReloadSite();
   if (!s.ready) kbProcTimer = setTimeout(kbPollStatus, 3000);   // 未完成则继续轮询
 }
 
@@ -395,12 +412,12 @@ async function loadKbPick(){
   box.innerHTML = '<span class="muted">加载中…</span>';
   const d = await api('/api/settings/kb').catch(() => null);
   if (!d || d.available === undefined){
-    box.innerHTML = '<span class="muted">知识库列表不可达，请检查知识库平台。</span>'; return;
+    box.innerHTML = '<span class="muted">知识库列表不可达，请检查知识底座。</span>'; return;
   }
   const degraded = d.source === 'degraded';
   const note = degraded
     ? '<div class="muted" style="margin-bottom:8px"><span class="badge b-warn">降级展示</span> ' +
-      '知识库平台暂不可达，以下为<strong>演示知识库目录</strong>（已含部署当前生效库），' +
+      '知识底座暂不可达，以下为<strong>演示知识库目录</strong>（已含部署当前生效库），' +
       '可正常勾选，不阻断作业。</div>'
     : '';
   if (!d.available.length){

@@ -2,6 +2,12 @@
 # -*- coding: utf-8 -*-
 """kb_publish.py — kb-publish 统一发布流水线（任务线2·工作包B）。
 
+【链路定位 · 临时过渡】本脚本从 10_知识库工程文档树构建静态快照，是知识库
+底座尚未成为统一版本源时的过渡发布通道。目标态：知识统一在知识库服务（WeKnora）
+中维护，经平台端知识发布/投递写入；投递解析完成时由 fetch_ingest_status() 以
+事件驱动方式调 kb_source.refresh_static_snapshot() 重生成静态正本（无定时探测）。
+文档树通道保留仅为存量知识/离线构建兜底，不再作为日常维护入口。
+
 大白话：一次"改一条知识"触发：影子同步 → 双端 strict 质量门（默认要求 ERROR=0/WARN=0 终态）→
 前端快照 build → 平台本体库 kb_compile（含 SHACL/断言/CSV对账）→ 双产物（canonical.ttl +
 前端预览）一起发布 → 投影入库闭环（db_migrate up + db_seed_kb）；任一步失败整批回滚到上一版，
@@ -10,8 +16,11 @@
 边界纪律（硬约束）：
 - 10_知识库工程 全程只读：content/ontology/sources/data/site/scripts/ingest 一律拷贝进
   本工程 .kb-publish/shadow/ 影子工作区；build.py / validate.py 跑的是影子里的副本
-  （其 kbcommon.ROOT 由 __file__ 解析到影子），输出落影子，再提升到 app/data/site-preview/。
+  （其 kbcommon.ROOT 由 __file__ 解析到影子），输出落影子，再提升到 app/web/static/kb/data/。
 - 绝不写回 10 工程任何文件（含 site/）。
+- 前端静态知识唯一正本落在 app/web/static/kb/data/（随仓库入库、可发布 GitHub）；
+  kb_source 以 KB10_SITE=app/web/static/kb 读取其 data/knowledge-data.js。
+  发布产物只写这一处，不再使用被 .gitignore 忽略的 app/data/site-preview/。
 
 用法：
   python scripts/kb/kb_publish.py                 # 同步影子 + 校验 + build + 编译 + 发布 + 入库
@@ -42,7 +51,7 @@ SHADOW = WORK / "shadow"
 PREVIOUS = WORK / "previous"
 PREV_TTL = PREVIOUS / "canonical.ttl"
 PREV_PREVIEW = PREVIOUS / "site-preview"
-PREVIEW = PLATFORM_ROOT / "app" / "data" / "site-preview"
+PREVIEW = PLATFORM_ROOT / "app" / "web" / "static" / "kb" / "data"
 
 CANONICAL_TTL = APP_DATA / "canonical.ttl"
 PY = sys.executable
@@ -171,7 +180,7 @@ def rollback(msg: str) -> None:
         if PREVIEW.exists():
             shutil.rmtree(PREVIEW)
         shutil.copytree(PREV_PREVIEW, PREVIEW)
-        log(f"!! 已回滚前端预览 <- previous/site-preview")
+        log(f"!! 已回滚前端静态知识 <- {PREV_PREVIEW}")
 
 
 # ---------------------------------------------------------------------------
@@ -258,7 +267,7 @@ def step_compile_canonical() -> None:
     """调平台 kb_compile.py --check，KB10_ROOT 指向影子 → 编译器吃影子编辑源。"""
     env = dict(os.environ)
     env["KB10_ROOT"] = str(SHADOW)
-    proc = run([PY, str(PLATFORM_ROOT / "scripts" / "kb_compile.py"), "--check"], env=env)
+    proc = run([PY, str(PLATFORM_ROOT / "scripts" / "kb" / "kb_compile.py"), "--check"], env=env)
     sys.stdout.write(proc.stdout)
     if proc.stderr.strip():
         sys.stderr.write(proc.stderr)
@@ -270,7 +279,7 @@ def step_compile_canonical() -> None:
 
 
 def promote_preview() -> None:
-    """把影子 build 产物提升为平台前端预览快照 app/data/site-preview/。"""
+    """把影子 build 产物提升为前端静态知识唯一正本 app/web/static/kb/data/。"""
     PREVIEW.mkdir(parents=True, exist_ok=True)
     pairs = [
         (SHADOW / "data" / "knowledge.json", PREVIEW / "knowledge.json"),
@@ -291,7 +300,7 @@ def step_load_db() -> None:
     避免"库不可达"阻断发布（本地/离线场景）。
     """
     env = dict(os.environ)
-    m = run([PY, str(PLATFORM_ROOT / "scripts" / "db_migrate.py"), "up"], env=env)
+    m = run([PY, str(PLATFORM_ROOT / "scripts" / "kb" / "db_migrate.py"), "up"], env=env)
     sys.stdout.write(m.stdout)
     if m.stderr.strip():
         sys.stderr.write(m.stderr)
@@ -299,7 +308,7 @@ def step_load_db() -> None:
         log("!! 投影迁移未完成（PostgreSQL 不可达？）：知识正本与预览已发布；"
             "稍后可重跑 scripts/kb/db_migrate.py up")
         return
-    s = run([PY, str(PLATFORM_ROOT / "scripts" / "db_seed_kb.py")], env=env)
+    s = run([PY, str(PLATFORM_ROOT / "scripts" / "kb" / "db_seed_kb.py")], env=env)
     sys.stdout.write(s.stdout)
     if s.stderr.strip():
         sys.stderr.write(s.stderr)
